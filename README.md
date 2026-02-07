@@ -101,7 +101,7 @@ Metrics degrade gracefully — if IOReport access is unavailable (e.g., in a VM)
 ## Requirements
 
 - **macOS 15.0** (Sequoia) or later
-- **Apple Silicon** (M1 / M2 / M3 / M4) — Intel is not supported
+- **Apple Silicon** (M1 / M2 / M3 / M4 / M5 +) — Intel is not supported
 - **8 GB** unified memory minimum (16 GB+ recommended for larger models)
 - At least one inference backend installed (Ollama recommended)
 
