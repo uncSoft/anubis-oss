@@ -1,4 +1,7 @@
-# Anubis
+![anubis_splash](https://github.com/user-attachments/assets/bc7c9c25-6750-40f4-add7-3f60fb24c1a3)
+
+#Anubis
+<img width="183" height="200" alt="anubis_icon (1)" src="https://github.com/user-attachments/assets/4369ce8d-8f3a-4502-9c49-6f3a82372e00" />
 
 **Local LLM Testing & Benchmarking for Apple Silicon**
 
