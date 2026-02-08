@@ -2,9 +2,7 @@
 
 **Local LLM Testing & Benchmarking for Apple Silicon**
 
-Anubis is a native macOS app for benchmarking, comparing, and managing local large language models. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with inference performance — something no CLI tool or chat wrapper offers.
-
-Named after the Egyptian deity who weighs the heart against the feather of truth, Anubis evaluates local LLMs with precision and transparency.
+Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any openAI compatible endpoint - Ollama, MLX, LM Studio Server, OpenWebUI, Docker Models etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with inference performance - something no CLI tool or chat wrapper offers. You can even  ```OLLAMA PULL``` models directly within the app.
 
 <img width="506" height="701" alt="anubis6" src="https://github.com/user-attachments/assets/5848a476-d577-405b-8830-52f751fd4b74" />
 
@@ -20,12 +18,6 @@ The local LLM ecosystem on macOS is fragmented:
 - **No tool** correlates hardware metrics (GPU / CPU / ANE / memory) with inference speed in real time
 
 Anubis fills that gap with three integrated modules — all in a native, sandboxed macOS app.
-
-<img width="554" height="414" alt="anubis5" src="https://github.com/user-attachments/assets/6c71d7c7-8c62-4b4a-b0f4-60db98c0e802" />
-
-<img width="443" height="476" alt="anubis2" src="https://github.com/user-attachments/assets/2bf8d79e-cb9f-4fbf-a449-f34a16308cf5" />
-
-<img width="470" height="593" alt="anubis1" src="https://github.com/user-attachments/assets/d6a36d43-892e-4e7f-8028-4915d268c206" />
 
 ---
 
@@ -70,6 +62,14 @@ Unified model management across all backends.
 - Total disk usage display
 
 ---
+## Screenshots
+
+<img width="554" height="414" alt="anubis5" src="https://github.com/user-attachments/assets/6c71d7c7-8c62-4b4a-b0f4-60db98c0e802" />
+
+<img width="443" height="476" alt="anubis2" src="https://github.com/user-attachments/assets/2bf8d79e-cb9f-4fbf-a449-f34a16308cf5" />
+
+<img width="470" height="593" alt="anubis1" src="https://github.com/user-attachments/assets/d6a36d43-892e-4e7f-8028-4915d268c206" />
+
 
 ## Supported Backends
 
@@ -182,17 +182,17 @@ Anubis follows MVVM with a layered service architecture:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    PRESENTATION LAYER                        │
-│   BenchmarkView    ArenaView    VaultView    SettingsView    │
+│                    PRESENTATION LAYER                       │
+│   BenchmarkView    ArenaView    VaultView    SettingsView   │
 ├─────────────────────────────────────────────────────────────┤
-│                      SERVICE LAYER                           │
-│   MetricsService   InferenceService   ModelService   Export  │
+│                      SERVICE LAYER                          │
+│   MetricsService   InferenceService   ModelService   Export │
 ├─────────────────────────────────────────────────────────────┤
-│                    INTEGRATION LAYER                         │
+│                    INTEGRATION LAYER                        │
 │   OllamaClient   OpenAICompatibleClient   IOReportBridge    │
 ├─────────────────────────────────────────────────────────────┤
-│                    PERSISTENCE LAYER                         │
-│   SQLite (GRDB)              File System                     │
+│                    PERSISTENCE LAYER                        │
+│   SQLite (GRDB)              File System                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -232,20 +232,6 @@ protocol InferenceBackend {
         -> AsyncThrowingStream<InferenceChunk, Error>
 }
 ```
-
----
-
-## Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+1` | Switch to Benchmark |
-| `Cmd+2` | Switch to Arena |
-| `Cmd+3` | Switch to Vault |
-| `Cmd+R` | Run benchmark / comparison |
-| `Cmd+.` | Stop current operation |
-| `Cmd+E` | Export results |
-| `Cmd+,` | Open Settings |
 
 ---
 
@@ -311,3 +297,9 @@ Contributions are welcome. A few guidelines:
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+**Check out some of my other projects:**
+
+https://www.devpadapp.com
+
+https://www.devpadapp.com/nabu.html
