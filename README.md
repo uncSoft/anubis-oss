@@ -1,7 +1,4 @@
-![anubis_splash](https://github.com/user-attachments/assets/bc7c9c25-6750-40f4-add7-3f60fb24c1a3)
-
-#Anubis
-<img width="183" height="200" alt="anubis_icon (1)" src="https://github.com/user-attachments/assets/4369ce8d-8f3a-4502-9c49-6f3a82372e00" />
+# Anubis <img width="70" height="80" alt="anubis_icon (1)" src="https://github.com/user-attachments/assets/4369ce8d-8f3a-4502-9c49-6f3a82372e00" />
 
 **Local LLM Testing & Benchmarking for Apple Silicon**
 
@@ -9,7 +6,7 @@ Anubis is a native macOS app for benchmarking, comparing, and managing local lar
 
 Named after the Egyptian deity who weighs the heart against the feather of truth, Anubis evaluates local LLMs with precision and transparency.
 
-<img width="806" height="901" alt="anubis6" src="https://github.com/user-attachments/assets/5848a476-d577-405b-8830-52f751fd4b74" />
+<img width="506" height="701" alt="anubis6" src="https://github.com/user-attachments/assets/5848a476-d577-405b-8830-52f751fd4b74" />
 
 ---
 
@@ -24,9 +21,12 @@ The local LLM ecosystem on macOS is fragmented:
 
 Anubis fills that gap with three integrated modules — all in a native, sandboxed macOS app.
 
-<img width="908" height="829" alt="anubis5" src="https://github.com/user-attachments/assets/6c71d7c7-8c62-4b4a-b0f4-60db98c0e802" />
-<img width="889" height="988" alt="anubis2" src="https://github.com/user-attachments/assets/2bf8d79e-cb9f-4fbf-a449-f34a16308cf5" />
-<img width="911" height="593" alt="anubis1" src="https://github.com/user-attachments/assets/d6a36d43-892e-4e7f-8028-4915d268c206" />
+<img width="554" height="414" alt="anubis5" src="https://github.com/user-attachments/assets/6c71d7c7-8c62-4b4a-b0f4-60db98c0e802" />
+
+<img width="443" height="476" alt="anubis2" src="https://github.com/user-attachments/assets/2bf8d79e-cb9f-4fbf-a449-f34a16308cf5" />
+
+<img width="470" height="593" alt="anubis1" src="https://github.com/user-attachments/assets/d6a36d43-892e-4e7f-8028-4915d268c206" />
+
 ---
 
 ## Features
