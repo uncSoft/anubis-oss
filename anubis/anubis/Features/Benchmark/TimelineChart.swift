@@ -22,8 +22,9 @@ struct TimelineChart: View {
                 Text(title)
                     .font(.headline)
                 Spacer()
-                if let latest = data.last?.1 {
-                    Text(formatValue(latest))
+                if !data.isEmpty {
+                    let avg = data.map(\.1).reduce(0, +) / Double(data.count)
+                    Text(formatValue(avg))
                         .font(.mono(14, weight: .medium))
                         .foregroundStyle(color)
                 }
@@ -112,11 +113,30 @@ struct TimelineChart: View {
         return 0...(max * 1.1) // 10% headroom
     }
 
+    /// Auto-select power unit prefix based on max data value
+    private enum PowerScale { case watts, milliwatts, microwatts }
+    private var powerScale: PowerScale {
+        guard unit == "W" else { return .watts }
+        let maxVal = data.map(\.1).max() ?? 0
+        if maxVal >= 1.0 { return .watts }
+        if maxVal >= 0.001 { return .milliwatts }
+        return .microwatts
+    }
+
     private func formatValue(_ value: Double) -> String {
         if unit == "%" {
             return String(format: "%.0f%%", value)
         } else if unit == "W" {
-            return String(format: "%.1f\(unit)", value)
+            switch powerScale {
+            case .watts:
+                return String(format: "%.1fW", value)
+            case .milliwatts:
+                let mw = value * 1_000
+                return mw >= 10 ? String(format: "%.0f mW", mw) : String(format: "%.1f mW", mw)
+            case .microwatts:
+                let uw = value * 1_000_000
+                return uw >= 10 ? String(format: "%.0f \u{00B5}W", uw) : String(format: "%.1f \u{00B5}W", uw)
+            }
         } else {
             return String(format: "%.1f \(unit)", value)
         }
@@ -180,7 +200,7 @@ struct MemoryTimelineChart: View {
                 Image(systemName: "memorychip")
                     .font(.title2)
                     .foregroundStyle(.quaternary)
-                Text("Waiting for Ollama...")
+                Text("Waiting for data...")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -246,6 +266,7 @@ struct MemoryTimelineChart: View {
 struct MultiSeriesChart: View {
     let title: String
     let series: [(name: String, data: [(Date, Double)], color: Color)]
+    var unit: String = "%"
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -289,17 +310,34 @@ struct MultiSeriesChart: View {
                     AxisGridLine()
                     AxisValueLabel {
                         if let v = value.as(Double.self) {
-                            Text(String(format: "%.0f%%", v))
+                            Text(formatAxisValue(v))
                                 .font(.caption2)
                         }
                     }
                 }
             }
-            .chartYScale(domain: 0...108) // Small headroom so top label isn't clipped
+            .chartYScale(domain: yDomain)
             .frame(height: 150)
-            .drawingGroup() // Render via Metal for better performance
+            .drawingGroup()
         }
         .cardStyle()
+    }
+
+    private var yDomain: ClosedRange<Double> {
+        if unit == "%" { return 0...108 }
+        let allValues = series.flatMap { $0.data.map { $0.1 } }
+        let maxVal = allValues.max() ?? 100
+        return 0...(maxVal * 1.1)
+    }
+
+    private func formatAxisValue(_ value: Double) -> String {
+        if unit == "%" {
+            return String(format: "%.0f%%", value)
+        } else if unit == "W" {
+            return String(format: "%.1fW", value)
+        } else {
+            return String(format: "%.0f %@", value, unit)
+        }
     }
 }
 

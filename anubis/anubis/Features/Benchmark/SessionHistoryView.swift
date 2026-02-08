@@ -367,67 +367,100 @@ struct SessionDetailView: View {
     }
 
     private var statsSection: some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-            GridItem(.flexible())
-        ], spacing: Spacing.md) {
-            // Primary performance metrics
-            StatCell(
-                title: "Tokens/sec",
-                value: session.tokensPerSecond.map { Formatters.tokensPerSecond($0) } ?? "—"
-            )
-            StatCell(
-                title: "Time to First Token",
-                value: session.timeToFirstToken.map { Formatters.milliseconds($0 * 1000) } ?? "—"
-            )
-            StatCell(
-                title: "Avg Token Latency",
-                value: session.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—"
-            )
-
-            // Token counts
-            StatCell(
-                title: "Total Tokens",
-                value: session.totalTokens.map { "\($0)" } ?? "—"
-            )
-            StatCell(
-                title: "Completion Tokens",
-                value: session.completionTokens.map { "\($0)" } ?? "—"
-            )
-            StatCell(
-                title: "Context Length",
-                value: session.contextLength.map { "\($0)" } ?? "—"
-            )
-
-            // Timing details
-            StatCell(
-                title: "Load Duration",
-                value: session.loadDuration.map { Formatters.duration($0) } ?? "—"
-            )
-            StatCell(
-                title: "Peak Memory",
-                value: session.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—"
-            )
-            StatCell(
-                title: "Total Duration",
-                value: session.totalDuration.map { Formatters.duration($0) } ?? "—"
-            )
-
-            // Hardware metrics (if available)
-            if let stats = statistics {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.md) {
+                // Row 1: Performance
                 StatCell(
-                    title: "Avg GPU",
-                    value: stats.avgGpuUtilization.map { Formatters.percentage($0) } ?? "—"
+                    title: "Tokens/sec",
+                    value: session.tokensPerSecond.map { Formatters.tokensPerSecond($0) } ?? "—"
                 )
                 StatCell(
-                    title: "Avg CPU",
-                    value: stats.avgCpuUtilization.map { Formatters.percentage($0) } ?? "—"
+                    title: "Time to First Token",
+                    value: session.timeToFirstToken.map { Formatters.milliseconds($0 * 1000) } ?? "—"
                 )
                 StatCell(
-                    title: "Avg Tok/s",
-                    value: stats.avgTokensPerSecond.map { Formatters.tokensPerSecond($0) } ?? "—"
+                    title: "Avg Token Latency",
+                    value: session.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—"
                 )
+                StatCell(
+                    title: "Total Duration",
+                    value: session.totalDuration.map { Formatters.duration($0) } ?? "—"
+                )
+
+                // Row 2: Token counts
+                StatCell(
+                    title: "Total Tokens",
+                    value: session.totalTokens.map { "\($0)" } ?? "—"
+                )
+                StatCell(
+                    title: "Completion Tokens",
+                    value: session.completionTokens.map { "\($0)" } ?? "—"
+                )
+                StatCell(
+                    title: "Context Length",
+                    value: session.contextLength.map { "\($0)" } ?? "—"
+                )
+                StatCell(
+                    title: "Peak Memory",
+                    value: session.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—"
+                )
+
+                // Row 3: Power & Frequency
+                StatCell(
+                    title: "Avg GPU Power",
+                    value: session.avgGpuPowerWatts.map { Formatters.watts($0) } ?? "—"
+                )
+                StatCell(
+                    title: "Avg System Power",
+                    value: session.avgSystemPowerWatts.map { Formatters.watts($0) } ?? "—"
+                )
+                StatCell(
+                    title: "Avg W/Token",
+                    value: session.avgWattsPerToken.map { String(format: "%.2f W/tok", $0) } ?? "—"
+                )
+                StatCell(
+                    title: "Avg GPU Freq",
+                    value: session.avgGpuFrequencyMHz.map { String(format: "%.0f MHz", $0) } ?? "—"
+                )
+
+                // Row 4: Hardware (from sample statistics)
+                if let stats = statistics {
+                    StatCell(
+                        title: "Avg GPU Util",
+                        value: stats.avgGpuUtilization.map { Formatters.percentage($0) } ?? "—"
+                    )
+                    StatCell(
+                        title: "Avg CPU Util",
+                        value: stats.avgCpuUtilization.map { Formatters.percentage($0) } ?? "—"
+                    )
+                    StatCell(
+                        title: "Peak GPU Power",
+                        value: session.peakGpuPowerWatts.map { Formatters.watts($0) } ?? "—"
+                    )
+                    StatCell(
+                        title: "Load Duration",
+                        value: session.loadDuration.map { Formatters.duration($0) } ?? "—"
+                    )
+                }
+            }
+
+            // Chip info line
+            if let chip = session.chipInfo {
+                HStack(spacing: Spacing.sm) {
+                    Text("Chip: \(chip.summary)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    if let backendName = session.backendProcessName {
+                        Text("•")
+                            .font(.caption2)
+                            .foregroundStyle(.quaternary)
+                        Text("Backend: \(backendName)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(.top, Spacing.xxs)
             }
         }
     }
@@ -435,24 +468,72 @@ struct SessionDetailView: View {
     private var chartsSection: some View {
         VStack(spacing: Spacing.md) {
             let chartData = BenchmarkSample.chartData(from: samples)
+            let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
-            if !chartData.tokensPerSecond.isEmpty {
-                TimelineChart(
-                    title: "Tokens per Second",
-                    data: chartData.tokensPerSecond,
-                    color: .chartTokens,
-                    unit: "tok/s"
-                )
-            }
+            LazyVGrid(columns: columns, spacing: Spacing.md) {
+                if !chartData.tokensPerSecond.isEmpty {
+                    TimelineChart(
+                        title: "Tokens per Second",
+                        data: chartData.tokensPerSecond,
+                        color: .chartTokens,
+                        unit: "tok/s"
+                    )
+                }
 
-            if !chartData.gpuUtilization.isEmpty || !chartData.cpuUtilization.isEmpty {
-                MultiSeriesChart(
-                    title: "Utilization",
-                    series: [
-                        ("GPU", chartData.gpuUtilization, .chartGPU),
-                        ("CPU", chartData.cpuUtilization, .chartCPU)
-                    ].filter { !$0.1.isEmpty }
-                )
+                if !chartData.gpuUtilization.isEmpty || !chartData.cpuUtilization.isEmpty {
+                    MultiSeriesChart(
+                        title: "Utilization",
+                        series: [
+                            ("GPU", chartData.gpuUtilization, .chartGPU),
+                            ("CPU", chartData.cpuUtilization, .chartCPU)
+                        ].filter { !$0.1.isEmpty }
+                    )
+                }
+
+                if !chartData.memoryUtilization.isEmpty {
+                    MemoryTimelineChart(
+                        title: "Backend Memory",
+                        data: chartData.memoryUtilization,
+                        currentBytes: samples.last?.memoryUsedBytes ?? 0,
+                        totalBytes: samples.last?.memoryTotalBytes ?? 1,
+                        color: .chartMemory
+                    )
+                }
+
+                // Power charts (if data available)
+                if chartData.hasPowerData {
+                    TimelineChart(
+                        title: "GPU Power",
+                        data: chartData.gpuPower,
+                        color: .chartGPUPower,
+                        unit: "W"
+                    )
+
+                    TimelineChart(
+                        title: "System Power",
+                        data: chartData.systemPower,
+                        color: .chartSystemPower,
+                        unit: "W"
+                    )
+
+                    if !chartData.gpuFrequency.isEmpty {
+                        TimelineChart(
+                            title: "GPU Frequency",
+                            data: chartData.gpuFrequency,
+                            color: .chartFrequency,
+                            unit: "MHz"
+                        )
+                    }
+
+                    if !chartData.wattsPerToken.isEmpty {
+                        TimelineChart(
+                            title: "Watts per Token",
+                            data: chartData.wattsPerToken,
+                            color: .chartEfficiency,
+                            unit: "W/tok"
+                        )
+                    }
+                }
             }
         }
     }

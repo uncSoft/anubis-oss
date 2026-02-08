@@ -26,6 +26,14 @@ extension Color {
     static let chartMemory = Color(hex: "BF5AF2")
     static let chartTokens = Color(hex: "30D158")
 
+    /// Power & frequency chart colors
+    static let chartGPUPower = Color(hex: "FF6961")
+    static let chartCPUPower = Color(hex: "77B5FE")
+    static let chartSystemPower = Color(hex: "FF3B30")
+    static let chartDRAMPower = Color(hex: "A8C256")
+    static let chartFrequency = Color(hex: "FFD60A")
+    static let chartEfficiency = Color(hex: "64D2FF")
+
     // MARK: - Adaptive UI Colors
 
     /// Card border - subtle in dark, more visible in light

@@ -455,17 +455,35 @@ struct ModelInspectorView: View {
     }
 
     private var basicInfoSection: some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-            GridItem(.flexible())
-        ], spacing: Spacing.md) {
-            InfoCell(title: "Size", value: model.formattedSize)
-            InfoCell(title: "Parameters", value: model.formattedParameters)
-            InfoCell(title: "Quantization", value: model.quantization ?? "—")
-            InfoCell(title: "Family", value: model.family ?? "—")
-            InfoCell(title: "Context", value: model.contextLength.map { "\($0)" } ?? "—")
-            InfoCell(title: "Backend", value: model.backend.displayName)
+        VStack(alignment: .leading, spacing: 0) {
+            LazyVGrid(columns: [
+                GridItem(.flexible()),
+                GridItem(.flexible()),
+                GridItem(.flexible())
+            ], spacing: Spacing.md) {
+                InfoCell(title: "Size", value: model.formattedSize)
+                InfoCell(title: "Parameters", value: model.formattedParameters)
+                InfoCell(title: "Quantization", value: model.quantization ?? "—")
+                InfoCell(title: "Family", value: model.family ?? "—")
+                InfoCell(title: "Context", value: model.contextLength.map { "\($0)" } ?? "—")
+                InfoCell(title: "Backend", value: model.backend.displayName)
+            }
+
+            if let path = model.path {
+                HStack {
+                    Text("Path")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(path)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                .padding(.top, Spacing.sm)
+            }
         }
     }
 

@@ -37,12 +37,23 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     var evalDuration: Double?
     var status: BenchmarkStatus
 
-    // New metrics
-    var timeToFirstToken: Double?      // Seconds until first token received
-    var loadDuration: Double?          // Model loading time (cold start indicator)
-    var contextLength: Int?            // Number of context tokens used
-    var peakMemoryBytes: Int64?        // Peak memory during benchmark
-    var averageTokenLatencyMs: Double? // Average ms per token
+    // v2 metrics
+    var timeToFirstToken: Double?
+    var loadDuration: Double?
+    var contextLength: Int?
+    var peakMemoryBytes: Int64?
+    var averageTokenLatencyMs: Double?
+
+    // v4 power/frequency aggregates
+    var avgGpuPowerWatts: Double?
+    var peakGpuPowerWatts: Double?
+    var avgSystemPowerWatts: Double?
+    var peakSystemPowerWatts: Double?
+    var avgGpuFrequencyMHz: Double?
+    var peakGpuFrequencyMHz: Double?
+    var avgWattsPerToken: Double?
+    var backendProcessName: String?
+    var chipInfoJSON: String?
 
     enum CodingKeys: String, CodingKey, ColumnExpression {
         case id
@@ -66,6 +77,15 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         case contextLength = "context_length"
         case peakMemoryBytes = "peak_memory_bytes"
         case averageTokenLatencyMs = "avg_token_latency_ms"
+        case avgGpuPowerWatts = "avg_gpu_power_watts"
+        case peakGpuPowerWatts = "peak_gpu_power_watts"
+        case avgSystemPowerWatts = "avg_system_power_watts"
+        case peakSystemPowerWatts = "peak_system_power_watts"
+        case avgGpuFrequencyMHz = "avg_gpu_frequency_mhz"
+        case peakGpuFrequencyMHz = "peak_gpu_frequency_mhz"
+        case avgWattsPerToken = "avg_watts_per_token"
+        case backendProcessName = "backend_process_name"
+        case chipInfoJSON = "chip_info_json"
     }
 
     /// Create a new benchmark session
@@ -97,6 +117,22 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         self.contextLength = nil
         self.peakMemoryBytes = nil
         self.averageTokenLatencyMs = nil
+        self.avgGpuPowerWatts = nil
+        self.peakGpuPowerWatts = nil
+        self.avgSystemPowerWatts = nil
+        self.peakSystemPowerWatts = nil
+        self.avgGpuFrequencyMHz = nil
+        self.peakGpuFrequencyMHz = nil
+        self.avgWattsPerToken = nil
+        self.backendProcessName = nil
+
+        // Snapshot chip info as JSON
+        if let data = try? JSONEncoder().encode(ChipInfo.current),
+           let json = String(data: data, encoding: .utf8) {
+            self.chipInfoJSON = json
+        } else {
+            self.chipInfoJSON = nil
+        }
     }
 
     /// Update session with inference stats
@@ -104,7 +140,9 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         with stats: InferenceStats,
         response: String,
         timeToFirstToken: TimeInterval? = nil,
-        peakMemoryBytes: Int64? = nil
+        peakMemoryBytes: Int64? = nil,
+        powerSummary: PowerSummary? = nil,
+        backendProcessName: String? = nil
     ) {
         self.endedAt = Date()
         self.response = response
@@ -121,6 +159,18 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         self.contextLength = stats.contextLength
         self.peakMemoryBytes = peakMemoryBytes
         self.averageTokenLatencyMs = stats.averageTokenLatencyMs
+
+        // v4 power summary
+        if let power = powerSummary {
+            self.avgGpuPowerWatts = power.avgGpuPowerWatts
+            self.peakGpuPowerWatts = power.peakGpuPowerWatts
+            self.avgSystemPowerWatts = power.avgSystemPowerWatts
+            self.peakSystemPowerWatts = power.peakSystemPowerWatts
+            self.avgGpuFrequencyMHz = power.avgGpuFrequencyMHz
+            self.peakGpuFrequencyMHz = power.peakGpuFrequencyMHz
+            self.avgWattsPerToken = power.avgWattsPerToken
+        }
+        self.backendProcessName = backendProcessName
     }
 
     /// Mark session as failed
@@ -144,6 +194,12 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     /// Backend type
     var backendType: InferenceBackendType? {
         InferenceBackendType(rawValue: backend)
+    }
+
+    /// Decoded chip info (if available)
+    var chipInfo: ChipInfo? {
+        guard let json = chipInfoJSON, let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(ChipInfo.self, from: data)
     }
 
     // MARK: - MutablePersistableRecord

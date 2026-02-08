@@ -19,7 +19,11 @@ enum ExportService {
         csv += "tokens_per_second,total_tokens,prompt_tokens,completion_tokens,"
         csv += "time_to_first_token_sec,avg_token_latency_ms,load_duration_sec,"
         csv += "context_length,peak_memory_bytes,total_duration_sec,eval_duration_sec,"
-        csv += "prompt_eval_duration_sec,prompt\n"
+        csv += "prompt_eval_duration_sec,"
+        csv += "avg_gpu_power_watts,peak_gpu_power_watts,avg_system_power_watts,peak_system_power_watts,"
+        csv += "avg_gpu_frequency_mhz,peak_gpu_frequency_mhz,avg_watts_per_token,"
+        csv += "backend_process_name,chip_info,"
+        csv += "prompt\n"
 
         let dateFormatter = ISO8601DateFormatter()
 
@@ -44,6 +48,16 @@ enum ExportService {
             row.append(session.totalDuration.map { String(format: "%.4f", $0) } ?? "")
             row.append(session.evalDuration.map { String(format: "%.4f", $0) } ?? "")
             row.append(session.promptEvalDuration.map { String(format: "%.4f", $0) } ?? "")
+            // v4 power/frequency
+            row.append(session.avgGpuPowerWatts.map { String(format: "%.2f", $0) } ?? "")
+            row.append(session.peakGpuPowerWatts.map { String(format: "%.2f", $0) } ?? "")
+            row.append(session.avgSystemPowerWatts.map { String(format: "%.2f", $0) } ?? "")
+            row.append(session.peakSystemPowerWatts.map { String(format: "%.2f", $0) } ?? "")
+            row.append(session.avgGpuFrequencyMHz.map { String(format: "%.0f", $0) } ?? "")
+            row.append(session.peakGpuFrequencyMHz.map { String(format: "%.0f", $0) } ?? "")
+            row.append(session.avgWattsPerToken.map { String(format: "%.4f", $0) } ?? "")
+            row.append(escapeCSV(session.backendProcessName ?? ""))
+            row.append(escapeCSV(session.chipInfo?.summary ?? ""))
             row.append(escapeCSV(session.prompt))
 
             csv += row.joined(separator: ",") + "\n"
@@ -56,7 +70,10 @@ enum ExportService {
     static func exportSamplesToCSV(_ samples: [BenchmarkSample], sessionId: Int64? = nil) -> String {
         var csv = "id,session_id,timestamp,gpu_utilization,cpu_utilization,"
         csv += "ane_power_watts,memory_used_bytes,memory_total_bytes,"
-        csv += "thermal_state,tokens_generated,tokens_per_second\n"
+        csv += "thermal_state,tokens_generated,tokens_per_second,"
+        csv += "gpu_power_watts,cpu_power_watts,dram_power_watts,system_power_watts,"
+        csv += "gpu_frequency_mhz,backend_process_memory_bytes,backend_process_cpu_percent,"
+        csv += "watts_per_token\n"
 
         let dateFormatter = ISO8601DateFormatter()
 
@@ -73,6 +90,15 @@ enum ExportService {
             row.append(sample.thermalState.map { "\($0)" } ?? "")
             row.append(sample.tokensGenerated.map { "\($0)" } ?? "")
             row.append(sample.cumulativeTokensPerSecond.map { String(format: "%.2f", $0) } ?? "")
+            // v4 power/frequency
+            row.append(sample.gpuPowerWatts.map { String(format: "%.2f", $0) } ?? "")
+            row.append(sample.cpuPowerWatts.map { String(format: "%.2f", $0) } ?? "")
+            row.append(sample.dramPowerWatts.map { String(format: "%.2f", $0) } ?? "")
+            row.append(sample.systemPowerWatts.map { String(format: "%.2f", $0) } ?? "")
+            row.append(sample.gpuFrequencyMHz.map { String(format: "%.0f", $0) } ?? "")
+            row.append(sample.backendProcessMemoryBytes.map { "\($0)" } ?? "")
+            row.append(sample.backendProcessCPUPercent.map { String(format: "%.1f", $0) } ?? "")
+            row.append(sample.wattsPerToken.map { String(format: "%.4f", $0) } ?? "")
 
             csv += row.joined(separator: ",") + "\n"
         }
@@ -128,6 +154,47 @@ enum ExportService {
         }
         if let context = session.contextLength {
             report += "Context Length: \(context)\n"
+        }
+        report += "\n"
+
+        // Power & Efficiency
+        let hasPower = session.avgGpuPowerWatts != nil || session.avgSystemPowerWatts != nil
+        if hasPower {
+            report += "## Power & Efficiency\n\n"
+            if let v = session.avgGpuPowerWatts {
+                report += "Avg GPU Power: \(String(format: "%.2f", v))W\n"
+            }
+            if let v = session.peakGpuPowerWatts {
+                report += "Peak GPU Power: \(String(format: "%.2f", v))W\n"
+            }
+            if let v = session.avgSystemPowerWatts {
+                report += "Avg System Power: \(String(format: "%.2f", v))W\n"
+            }
+            if let v = session.peakSystemPowerWatts {
+                report += "Peak System Power: \(String(format: "%.2f", v))W\n"
+            }
+            if let v = session.avgWattsPerToken {
+                report += "Avg Watts/Token: \(String(format: "%.4f", v)) W/tok\n"
+            }
+            if let v = session.avgGpuFrequencyMHz {
+                report += "Avg GPU Frequency: \(String(format: "%.0f", v)) MHz\n"
+            }
+            if let v = session.peakGpuFrequencyMHz {
+                report += "Peak GPU Frequency: \(String(format: "%.0f", v)) MHz\n"
+            }
+            report += "\n"
+        }
+
+        // Hardware
+        report += "## Hardware\n\n"
+        if let chip = session.chipInfo {
+            report += "Chip: \(chip.summary)\n"
+        }
+        if let backend = session.backendProcessName {
+            report += "Backend Process: \(backend)\n"
+        }
+        if let mem = session.peakMemoryBytes {
+            report += "Peak Memory: \(Formatters.bytes(mem))\n"
         }
         report += "\n"
 

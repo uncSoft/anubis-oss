@@ -60,8 +60,10 @@ The Benchmark module runs inference on a single model while capturing performanc
 | **GPU** | GPU utilization percentage | IOReport |
 | **CPU** | CPU utilization across all cores | `host_processor_info` |
 | **Time to First Token** | Latency before first token appears | Includes model load time if not cached |
+| **Process Mem** | Memory used by backend process tree | `phys_footprint` via `proc_pid_rusage` |
 | **Model Memory** | VRAM used by loaded model | Ollama `/api/ps` endpoint |
 | **Thermal** | System thermal state | `ProcessInfo.thermalState` |
+| **GPU Freq** | Current GPU frequency | IOReport GPU Stats P-state residency |
 
 Click the **(?)** on any card to see a detailed explanation of the metric.
 
@@ -70,7 +72,13 @@ Click the **(?)** on any card to see a detailed explanation of the metric.
 - **Tokens per Second**: Real-time generation speed over time
 - **GPU Utilization**: GPU usage percentage (when available)
 - **CPU Utilization**: CPU usage across cores
-- **Ollama Memory**: Memory consumption of the Ollama process
+- **Process Memory**: Memory consumption of the backend process (uses `phys_footprint` — includes Metal/GPU allocations)
+- **Power**: GPU, CPU, ANE, and DRAM power consumption in watts
+- **GPU Frequency**: Real-time GPU clock speed
+
+### Process Monitoring
+
+Anubis automatically detects the backend process serving your model via port-based detection (`lsof`). Supports Ollama, LM Studio, mlx-lm, vLLM, LocalAI, and llama.cpp. Use the **Process** picker in session details to manually select a different process if needed.
 
 ### Session Details
 

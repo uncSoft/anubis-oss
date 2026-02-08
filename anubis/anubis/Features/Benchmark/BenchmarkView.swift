@@ -16,7 +16,6 @@ struct BenchmarkView: View {
     @State private var showingExpandedMetrics = false
     @State private var showSystemPrompt = false
     @State private var showParameters = false
-    @State private var showLiveCharts = true
 
     init(
         inferenceService: InferenceService,
@@ -40,9 +39,9 @@ struct BenchmarkView: View {
                     responseSection
                 }
             }
-            .frame(minWidth: 400, idealWidth: 500)
+            .frame(minWidth: 320, idealWidth: 380)
 
-            // Right panel - Metrics Dashboard
+            // Right panel - Metrics Dashboard (wider, ~70% default)
             ScrollView {
                 VStack(spacing: Spacing.md) {
                     metricsCardsSection
@@ -51,7 +50,7 @@ struct BenchmarkView: View {
                 }
                 .padding(Spacing.md)
             }
-            .frame(minWidth: 400)
+            .frame(minWidth: 500, idealWidth: 700)
         }
         .toolbar {
             ToolbarItemGroup {
@@ -346,6 +345,50 @@ struct BenchmarkView: View {
                         }
                 }
             }
+
+            // Performance toggles
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                HStack(spacing: Spacing.xs) {
+                    Image(systemName: "gauge.with.dots.needle.33percent")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Performance")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: Spacing.md) {
+                    Toggle(isOn: $viewModel.streamResponse) {
+                        Text("Stream Response")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .disabled(viewModel.isRunning)
+
+                    Toggle(isOn: $viewModel.showLiveCharts) {
+                        Text("Live Charts")
+                            .font(.caption)
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                }
+
+                Text("Disable to reduce UI load during benchmarks for more accurate measurements.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(Spacing.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: CornerRadius.md)
+                    .fill(Color.cardBackground)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: CornerRadius.md)
+                            .strokeBorder(Color.cardBorder, lineWidth: 1)
+                    }
+            }
         }
         .padding(Spacing.md)
     }
@@ -365,39 +408,57 @@ struct BenchmarkView: View {
             .padding(.horizontal, Spacing.md)
             .padding(.top, Spacing.md)
 
-            // Use TextEditor for efficient rendering of long streaming text
-            // (SwiftUI Text recalculates layout on every change, causing slowdown)
-            StreamingTextView(
-                text: viewModel.responseText,
-                placeholder: "Response will appear here..."
-            )
+            if !viewModel.streamResponse && viewModel.isRunning {
+                // Lightweight placeholder when response rendering is suppressed
+                HStack {
+                    Spacer()
+                    VStack(spacing: Spacing.xs) {
+                        Image(systemName: "text.badge.minus")
+                            .font(.title2)
+                            .foregroundStyle(.quaternary)
+                        Text("Response rendering paused")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                        Text("Will appear when benchmark completes")
+                            .font(.caption2)
+                            .foregroundStyle(.quaternary)
+                    }
+                    .padding(.vertical, Spacing.lg)
+                    Spacer()
+                }
+                .frame(maxHeight: .infinity)
+            } else {
+                // Use TextEditor for efficient rendering of long streaming text
+                // (SwiftUI Text recalculates layout on every change, causing slowdown)
+                StreamingTextView(
+                    text: viewModel.responseText,
+                    placeholder: "Response will appear here..."
+                )
+            }
         }
     }
 
     // MARK: - Metrics Cards Section
 
     private var metricsCardsSection: some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-            GridItem(.flexible())
-        ], spacing: Spacing.sm) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
+            // Row 1: Performance
             CompactMetricsCard(
-                title: "Avg Tokens/sec",
+                title: "Tokens/sec",
                 value: viewModel.formattedTokensPerSecond,
                 icon: "bolt.fill",
                 color: .chartTokens,
                 subtitle: viewModel.peakTokensPerSecond > 0 ? "Peak: \(viewModel.formattedPeakTokensPerSecond)" : nil,
-                help: "Average tokens generated per second. Calculated from completion_tokens ÷ generation_time reported by the backend."
+                help: "Average tokens generated per second."
             )
 
             CompactMetricsCard(
                 title: "GPU",
                 value: String(format: "%.0f%%", viewModel.gpuUtilizationPercent),
-                icon: "gamecontroller",
+                icon: "gpu",
                 color: .chartGPU,
                 available: viewModel.hasHardwareMetrics,
-                help: "GPU utilization percentage from IOReport. Shows how much of the GPU is being used for inference."
+                help: "GPU utilization from IOReport."
             )
 
             CompactMetricsCard(
@@ -405,28 +466,53 @@ struct BenchmarkView: View {
                 value: String(format: "%.0f%%", viewModel.cpuUtilizationPercent),
                 icon: "cpu",
                 color: .chartCPU,
-                help: "CPU utilization across all cores from host_processor_info. High values may indicate CPU-bound operations."
+                help: "CPU utilization across all cores."
             )
 
             CompactMetricsCard(
-                title: "Time to First Token",
+                title: "TTFT",
                 value: viewModel.timeToFirstToken.map { Formatters.milliseconds($0 * 1000) } ?? "—",
                 icon: "clock.arrow.circlepath",
                 color: .chartTokens,
-                help: "Time from request start until the first token is generated. Includes model loading time if not already loaded."
+                help: "Time to first token. Includes model loading if cold start."
             )
 
-            CompactModelMemoryCard(
-                total: viewModel.modelMemoryTotal,
-                isOllamaBackend: viewModel.selectedBackend == .ollama
+            // Row 2: Power & System
+            CompactMetricsCard(
+                title: "Avg GPU Power",
+                value: viewModel.avgGPUPowerFormatted,
+                icon: "bolt.horizontal.fill",
+                color: .chartGPUPower,
+                available: viewModel.hasPowerMetrics,
+                subtitle: viewModel.peakGpuPower > 0 ? "Peak: \(viewModel.peakGPUPowerFormatted)" : nil,
+                help: "Average GPU power during benchmark."
             )
 
             CompactMetricsCard(
-                title: "Thermal",
-                value: viewModel.currentMetrics?.thermalState.description ?? "—",
-                icon: "thermometer.medium",
-                color: thermalColor,
-                help: "System thermal state from ProcessInfo. Values: Normal → Fair → Serious → Critical. Performance may be throttled at higher states."
+                title: "Avg System Power",
+                value: viewModel.avgSystemPowerFormatted,
+                icon: "powerplug.fill",
+                color: .chartSystemPower,
+                available: viewModel.hasPowerMetrics,
+                subtitle: viewModel.peakSystemPower > 0 ? "Peak: \(viewModel.peakSystemPowerFormatted)" : nil,
+                help: "Average SoC power (GPU + CPU + ANE + DRAM)."
+            )
+
+            CompactMetricsCard(
+                title: "W/Token",
+                value: viewModel.currentWattsPerTokenFormatted,
+                icon: "leaf.fill",
+                color: .chartEfficiency,
+                available: viewModel.hasPowerMetrics,
+                help: "Power efficiency: avg system watts ÷ tokens/sec."
+            )
+
+            CompactMetricsCard(
+                title: "Process Mem",
+                value: viewModel.formattedBackendMemory,
+                icon: "memorychip",
+                color: .chartMemory,
+                help: "Total resident memory of the backend process tree (server + model + children)."
             )
         }
     }
@@ -445,38 +531,15 @@ struct BenchmarkView: View {
 
     private var chartsSection: some View {
         VStack(spacing: Spacing.md) {
-            // Toggle header for live charts
-            HStack {
-                Toggle(isOn: $showLiveCharts) {
-                    HStack(spacing: Spacing.xs) {
-                        Image(systemName: "chart.line.uptrend.xyaxis")
-                            .foregroundStyle(.secondary)
-                        Text("Live Charts")
-                            .font(.headline)
-                    }
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-
-                Spacer()
-
-                if !showLiveCharts && viewModel.isRunning {
-                    Text("Data collecting...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, Spacing.sm)
-
-            if showLiveCharts {
+            if viewModel.showLiveCharts {
                 // Chart views observe chartStore independently from viewModel,
                 // so chart updates won't trigger text streaming re-renders and vice versa.
                 LiveChartsView(
                     chartStore: viewModel.chartStore,
                     isRunning: viewModel.isRunning,
                     hasHardwareMetrics: viewModel.hasHardwareMetrics,
-                    isOllama: viewModel.selectedBackend == .ollama,
-                    currentMemoryBytes: (viewModel.currentMetrics?.memoryUsedBytes ?? 0) + viewModel.modelMemoryTotal,
+                    hasPowerMetrics: viewModel.hasPowerMetrics,
+                    currentMemoryBytes: viewModel.currentMetrics?.memoryUsedBytes ?? 0,
                     totalMemoryBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1
                 )
             } else {
@@ -487,7 +550,7 @@ struct BenchmarkView: View {
                         Image(systemName: "chart.line.uptrend.xyaxis")
                             .font(.title2)
                             .foregroundStyle(.quaternary)
-                        Text("Charts hidden during benchmark")
+                        Text("Charts paused")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                         Text("Toggle on to view collected data")
@@ -517,76 +580,94 @@ struct BenchmarkView: View {
                 .font(.headline)
                 .padding(.bottom, Spacing.xs)
 
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: Spacing.sm) {
-                // Average Token Latency
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
+                // Row 1: Latency / Load / Context / GPU Frequency
                 DetailStatCell(
                     title: "Avg Token Latency",
                     value: viewModel.currentSession?.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—"
                 )
 
-                // Load Duration (Ollama only)
                 DetailStatCell(
                     title: "Model Load Time",
-                    value: viewModel.selectedBackend == .ollama
-                        ? (viewModel.currentSession?.loadDuration.map { Formatters.duration($0) } ?? "—")
-                        : "N/A"
+                    value: viewModel.currentSession?.loadDuration.map { Formatters.duration($0) } ?? "—"
                 )
 
-                // Context Length (Ollama only)
                 DetailStatCell(
                     title: "Context Length",
-                    value: viewModel.selectedBackend == .ollama
-                        ? (viewModel.currentSession?.contextLength.map { "\($0) tokens" } ?? "—")
-                        : "N/A"
+                    value: viewModel.currentSession?.contextLength.map { "\($0) tokens" } ?? "—"
                 )
 
-                // Peak Memory (Ollama only - tracks Ollama process memory)
                 DetailStatCell(
-                    title: "Peak Memory (Ollama server)",
-                    value: viewModel.selectedBackend == .ollama
-                        ? (viewModel.currentPeakMemory > 0
-                            ? Formatters.bytes(viewModel.currentPeakMemory)
-                            : viewModel.currentSession?.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—")
-                        : "N/A"
+                    title: "GPU Frequency",
+                    value: viewModel.currentGPUFrequencyFormatted
                 )
 
-                // Prompt Tokens
+                // Row 2: Peak Memory / Prompt Tokens / Completion Tokens / Eval Duration
+                DetailStatCell(
+                    title: "Peak Memory",
+                    value: viewModel.currentPeakMemory > 0
+                        ? Formatters.bytes(viewModel.currentPeakMemory)
+                        : viewModel.currentSession?.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—"
+                )
+
                 DetailStatCell(
                     title: "Prompt Tokens",
                     value: viewModel.currentSession?.promptTokens.map { "\($0)" } ?? "—"
                 )
 
-                // Completion Tokens
                 DetailStatCell(
                     title: "Completion Tokens",
                     value: viewModel.currentSession?.completionTokens.map { "\($0)" }
                         ?? (viewModel.tokensGenerated > 0 ? "\(viewModel.tokensGenerated)" : "—")
                 )
 
-                // Eval Duration (Ollama only)
                 DetailStatCell(
                     title: "Eval Duration",
-                    value: viewModel.selectedBackend == .ollama
-                        ? (viewModel.currentSession?.evalDuration.map { Formatters.duration($0) } ?? "—")
-                        : "N/A"
+                    value: viewModel.currentSession?.evalDuration.map { Formatters.duration($0) } ?? "—"
                 )
 
-                // Connection
+                // Row 3: Thermal / Peak GPU Power / Avg W/Token / Connection
+                DetailStatCell(
+                    title: "Thermal",
+                    value: viewModel.currentMetrics?.thermalState.description ?? "—"
+                )
+
+                DetailStatCell(
+                    title: "Peak GPU Power",
+                    value: viewModel.currentSession?.peakGpuPowerWatts.map { Formatters.watts($0) } ?? "—"
+                )
+
+                DetailStatCell(
+                    title: "Avg W/Token",
+                    value: viewModel.currentSession?.avgWattsPerToken.map { String(format: "%.2f W/tok", $0) } ?? "—"
+                )
+
                 DetailStatCell(
                     title: "Connection",
                     value: viewModel.connectionName
                 )
-
-                // Status
-                DetailStatCell(
-                    title: "Status",
-                    value: viewModel.isRunning ? "Running" : (viewModel.currentSession?.status.rawValue.capitalized ?? "—")
-                )
             }
+
+            // Chip info + backend summary line
+            HStack(spacing: Spacing.sm) {
+                let chip = ChipInfo.current
+                Text("Chip: \(chip.summary)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Text("•")
+                    .font(.caption2)
+                    .foregroundStyle(.quaternary)
+
+                ProcessPickerMenu(viewModel: viewModel)
+
+                Spacer()
+
+                Text(viewModel.isRunning ? "Running" : (viewModel.currentSession?.status.rawValue.capitalized ?? "—"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.top, Spacing.xxs)
         }
         .padding(Spacing.md)
         .background {
@@ -702,7 +783,7 @@ struct ModelMemoryCard: View {
     let cpu: Int64
     var isOllamaBackend: Bool = true
 
-    private let helpText = "Memory used by the loaded model in unified memory. Reported by Ollama's /api/ps endpoint (size_vram field). On Apple Silicon, GPU and CPU share the same memory pool."
+    private let helpText = "Model allocation reported by Ollama's /api/ps endpoint. On Apple Silicon, GPU and CPU share unified memory. Process Memory (above) shows the full resident footprint."
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -825,18 +906,15 @@ struct ExpandedMetricsView: View {
     // MARK: - Metrics Cards Section
 
     private var metricsCardsSection: some View {
-        LazyVGrid(columns: [
-            GridItem(.flexible()),
-            GridItem(.flexible()),
-            GridItem(.flexible())
-        ], spacing: Spacing.sm) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
+            // Row 1: Performance
             CompactMetricsCard(
-                title: "Avg Tokens/sec",
+                title: "Tokens/sec",
                 value: viewModel.formattedTokensPerSecond,
                 icon: "bolt.fill",
                 color: .chartTokens,
                 subtitle: viewModel.peakTokensPerSecond > 0 ? "Peak: \(viewModel.formattedPeakTokensPerSecond)" : nil,
-                help: "Average tokens generated per second. Calculated from completion_tokens ÷ generation_time reported by the backend."
+                help: "Average tokens generated per second."
             )
 
             CompactMetricsCard(
@@ -845,7 +923,7 @@ struct ExpandedMetricsView: View {
                 icon: "gpu",
                 color: .chartGPU,
                 available: viewModel.hasHardwareMetrics,
-                help: "GPU utilization percentage from IOReport. Shows how much of the GPU is being used for inference."
+                help: "GPU utilization from IOReport."
             )
 
             CompactMetricsCard(
@@ -853,28 +931,53 @@ struct ExpandedMetricsView: View {
                 value: String(format: "%.0f%%", viewModel.cpuUtilizationPercent),
                 icon: "cpu",
                 color: .chartCPU,
-                help: "CPU utilization across all cores from host_processor_info. High values may indicate CPU-bound operations."
+                help: "CPU utilization across all cores."
             )
 
             CompactMetricsCard(
-                title: "Time to First Token",
+                title: "TTFT",
                 value: viewModel.timeToFirstToken.map { Formatters.milliseconds($0 * 1000) } ?? "—",
                 icon: "clock.arrow.circlepath",
                 color: .chartTokens,
-                help: "Time from request start until the first token is generated. Includes model loading time if not already loaded."
+                help: "Time to first token."
             )
 
-            CompactModelMemoryCard(
-                total: viewModel.modelMemoryTotal,
-                isOllamaBackend: viewModel.selectedBackend == .ollama
+            // Row 2: Power & System
+            CompactMetricsCard(
+                title: "Avg GPU Power",
+                value: viewModel.avgGPUPowerFormatted,
+                icon: "bolt.horizontal.fill",
+                color: .chartGPUPower,
+                available: viewModel.hasPowerMetrics,
+                subtitle: viewModel.peakGpuPower > 0 ? "Peak: \(viewModel.peakGPUPowerFormatted)" : nil,
+                help: "Average GPU power during benchmark."
             )
 
             CompactMetricsCard(
-                title: "Thermal",
-                value: viewModel.currentMetrics?.thermalState.description ?? "—",
-                icon: "thermometer.medium",
-                color: thermalColor,
-                help: "System thermal state from ProcessInfo. Values: Normal → Fair → Serious → Critical. Performance may be throttled at higher states."
+                title: "Avg System Power",
+                value: viewModel.avgSystemPowerFormatted,
+                icon: "powerplug.fill",
+                color: .chartSystemPower,
+                available: viewModel.hasPowerMetrics,
+                subtitle: viewModel.peakSystemPower > 0 ? "Peak: \(viewModel.peakSystemPowerFormatted)" : nil,
+                help: "Average SoC power (GPU + CPU + ANE + DRAM)."
+            )
+
+            CompactMetricsCard(
+                title: "W/Token",
+                value: viewModel.currentWattsPerTokenFormatted,
+                icon: "leaf.fill",
+                color: .chartEfficiency,
+                available: viewModel.hasPowerMetrics,
+                help: "Power efficiency: avg system watts ÷ tokens/sec."
+            )
+
+            CompactMetricsCard(
+                title: "Backend Mem",
+                value: viewModel.formattedBackendMemory,
+                icon: "memorychip",
+                color: .chartMemory,
+                help: "Backend process resident memory."
             )
         }
     }
@@ -893,9 +996,10 @@ struct ExpandedMetricsView: View {
 
     private var chartsSection: some View {
         VStack(spacing: Spacing.md) {
-            // Show charts in 2-column layout for expanded view
             let chartData = viewModel.chartStore.chartData
-            HStack(spacing: Spacing.md) {
+            let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+            LazyVGrid(columns: columns, spacing: Spacing.md) {
                 TimelineChart(
                     title: "Tokens per Second",
                     data: chartData.tokensPerSecond,
@@ -903,16 +1007,6 @@ struct ExpandedMetricsView: View {
                     unit: "tok/s"
                 )
 
-                TimelineChart(
-                    title: "CPU Utilization",
-                    data: chartData.cpuUtilization,
-                    color: .chartCPU,
-                    unit: "%",
-                    maxValue: 100
-                )
-            }
-
-            HStack(spacing: Spacing.md) {
                 if viewModel.hasHardwareMetrics {
                     TimelineChart(
                         title: "GPU Utilization",
@@ -923,13 +1017,57 @@ struct ExpandedMetricsView: View {
                     )
                 }
 
-                if viewModel.selectedBackend == .ollama {
-                    MemoryTimelineChart(
-                        title: "Ollama Memory",
-                        data: chartData.memoryUtilization,
-                        currentBytes: (viewModel.currentMetrics?.memoryUsedBytes ?? 0) + viewModel.modelMemoryTotal,
-                        totalBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
-                        color: .chartMemory
+                TimelineChart(
+                    title: "CPU Utilization",
+                    data: chartData.cpuUtilization,
+                    color: .chartCPU,
+                    unit: "%",
+                    maxValue: 100
+                )
+
+                MemoryTimelineChart(
+                    title: "Process Memory",
+                    data: chartData.memoryUtilization,
+                    currentBytes: (viewModel.currentMetrics?.memoryUsedBytes ?? 0) + viewModel.modelMemoryTotal,
+                    totalBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
+                    color: .chartMemory
+                )
+
+                // Power charts (if available)
+                if viewModel.hasPowerMetrics && chartData.hasPowerData {
+                    TimelineChart(
+                        title: "GPU Power",
+                        data: chartData.gpuPower,
+                        color: .chartGPUPower,
+                        unit: "W"
+                    )
+
+                    TimelineChart(
+                        title: "CPU Power",
+                        data: chartData.cpuPower,
+                        color: .chartCPUPower,
+                        unit: "W"
+                    )
+
+                    TimelineChart(
+                        title: "System Power",
+                        data: chartData.systemPower,
+                        color: .chartSystemPower,
+                        unit: "W"
+                    )
+
+                    TimelineChart(
+                        title: "GPU Frequency",
+                        data: chartData.gpuFrequency,
+                        color: .chartFrequency,
+                        unit: "MHz"
+                    )
+
+                    TimelineChart(
+                        title: "Watts per Token",
+                        data: chartData.wattsPerToken,
+                        color: .chartEfficiency,
+                        unit: "W/tok"
                     )
                 }
             }
@@ -944,12 +1082,7 @@ struct ExpandedMetricsView: View {
                 .font(.headline)
                 .padding(.bottom, Spacing.xs)
 
-            LazyVGrid(columns: [
-                GridItem(.flexible()),
-                GridItem(.flexible()),
-                GridItem(.flexible()),
-                GridItem(.flexible())
-            ], spacing: Spacing.md) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
                 DetailStatCell(
                     title: "Avg Token Latency",
                     value: viewModel.currentSession?.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—"
@@ -964,58 +1097,149 @@ struct ExpandedMetricsView: View {
 
                 DetailStatCell(
                     title: "Model Load Time",
-                    value: viewModel.selectedBackend == .ollama
-                        ? (viewModel.currentSession?.loadDuration.map { Formatters.duration($0) } ?? "—")
-                        : "N/A"
+                    value: viewModel.currentSession?.loadDuration.map { Formatters.duration($0) } ?? "—"
                 )
 
                 DetailStatCell(
-                    title: "Context Length",
-                    value: viewModel.selectedBackend == .ollama
-                        ? (viewModel.currentSession?.contextLength.map { "\($0) tokens" } ?? "—")
-                        : "N/A"
+                    title: "GPU Frequency",
+                    value: viewModel.currentGPUFrequencyFormatted
                 )
 
                 DetailStatCell(
                     title: "Peak Memory",
-                    value: viewModel.selectedBackend == .ollama
-                        ? (viewModel.currentPeakMemory > 0
-                            ? Formatters.bytes(viewModel.currentPeakMemory)
-                            : viewModel.currentSession?.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—")
-                        : "N/A"
+                    value: viewModel.currentPeakMemory > 0
+                        ? Formatters.bytes(viewModel.currentPeakMemory)
+                        : viewModel.currentSession?.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—"
                 )
 
                 DetailStatCell(
-                    title: "Prompt Tokens",
-                    value: viewModel.currentSession?.promptTokens.map { "\($0)" } ?? "—"
+                    title: "Peak GPU Power",
+                    value: viewModel.currentSession?.peakGpuPowerWatts.map { Formatters.watts($0) } ?? "—"
                 )
 
                 DetailStatCell(
-                    title: "Completion Tokens",
-                    value: viewModel.currentSession?.completionTokens.map { "\($0)" }
-                        ?? (viewModel.tokensGenerated > 0 ? "\(viewModel.tokensGenerated)" : "—")
-                )
-
-                DetailStatCell(
-                    title: "Eval Duration",
-                    value: viewModel.selectedBackend == .ollama
-                        ? (viewModel.currentSession?.evalDuration.map { Formatters.duration($0) } ?? "—")
-                        : "N/A"
+                    title: "Avg W/Token",
+                    value: viewModel.currentSession?.avgWattsPerToken.map { String(format: "%.2f W/tok", $0) } ?? "—"
                 )
 
                 DetailStatCell(
                     title: "Connection",
                     value: viewModel.connectionName
                 )
-
-                DetailStatCell(
-                    title: "Status",
-                    value: viewModel.isRunning ? "Running" : (viewModel.currentSession?.status.rawValue.capitalized ?? "—")
-                )
             }
+
+            // Chip info summary
+            HStack(spacing: Spacing.sm) {
+                let chip = ChipInfo.current
+                Text("Chip: \(chip.summary)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                Text("•")
+                    .font(.caption2)
+                    .foregroundStyle(.quaternary)
+
+                ProcessPickerMenu(viewModel: viewModel)
+
+                Spacer()
+            }
+            .padding(.top, Spacing.xxs)
         }
         .padding(Spacing.md)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: CornerRadius.lg))
+    }
+}
+
+// MARK: - Process Picker Menu
+
+/// Inline menu for selecting which process to monitor for backend metrics.
+/// Shows auto-detected backend or lets user pick any process with >50MB RSS.
+private struct ProcessPickerMenu: View {
+    @ObservedObject var viewModel: BenchmarkViewModel
+
+    /// Top N processes to show (already sorted by memory descending)
+    private var topProcesses: [ProcessCandidate] {
+        Array(viewModel.candidateProcesses.prefix(10))
+    }
+
+    var body: some View {
+        Menu {
+            // Auto-detect option
+            Button {
+                viewModel.clearCustomProcess()
+            } label: {
+                HStack {
+                    Text("Auto-detect")
+                    if !viewModel.isCustomProcessActive {
+                        Image(systemName: "checkmark")
+                    }
+                }
+            }
+
+            Divider()
+
+            // Auto-detected backends section
+            if let backendName = viewModel.currentBackendProcessName, !viewModel.isCustomProcessActive {
+                Section("Detected") {
+                    Label(backendName, systemImage: "checkmark.circle.fill")
+                        .disabled(true)
+                }
+            }
+
+            Divider()
+
+            // Top processes by memory
+            Section("Top Processes by Memory") {
+                if topProcesses.isEmpty {
+                    Text("Scanning...")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(topProcesses) { process in
+                        Button {
+                            viewModel.selectCustomProcess(process)
+                        } label: {
+                            Text("\(process.name) — \(Formatters.bytes(process.memoryBytes))")
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button {
+                Task { await viewModel.refreshProcessList() }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+        } label: {
+            HStack(spacing: 3) {
+                if viewModel.isCustomProcessActive {
+                    Image(systemName: "pin.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                Text("Process: \(processDisplayName)")
+                    .font(.caption2)
+                    .foregroundStyle(viewModel.isCustomProcessActive ? .orange : .secondary)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .onAppear {
+            if viewModel.candidateProcesses.isEmpty {
+                Task { await viewModel.refreshProcessList() }
+            }
+        }
+    }
+
+    private var processDisplayName: String {
+        if let name = viewModel.currentBackendProcessName {
+            return name
+        }
+        return "None"
     }
 }
 
@@ -1028,46 +1252,100 @@ private struct LiveChartsView: View {
     @ObservedObject var chartStore: BenchmarkChartStore
     let isRunning: Bool
     let hasHardwareMetrics: Bool
-    let isOllama: Bool
+    let hasPowerMetrics: Bool
     let currentMemoryBytes: Int64
     let totalMemoryBytes: Int64
+
+    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
         let data = chartStore.chartData
 
-        TimelineChart(
-            title: "Tokens per Second",
-            data: data.tokensPerSecond,
-            color: .chartTokens,
-            unit: "tok/s"
-        )
-
-        if hasHardwareMetrics {
+        LazyVGrid(columns: columns, spacing: Spacing.md) {
+            // Row 1: Tokens/sec | GPU Utilization
             TimelineChart(
-                title: "GPU Utilization",
-                data: data.gpuUtilization,
-                color: .chartGPU,
-                unit: "%",
-                maxValue: 100
+                title: "Tokens per Second",
+                data: data.tokensPerSecond,
+                color: .chartTokens,
+                unit: "tok/s"
             )
-        }
 
-        TimelineChart(
-            title: "CPU Utilization",
-            data: data.cpuUtilization,
-            color: .chartCPU,
-            unit: "%",
-            maxValue: 100
-        )
+            if hasHardwareMetrics {
+                TimelineChart(
+                    title: "GPU Utilization",
+                    data: data.gpuUtilization,
+                    color: .chartGPU,
+                    unit: "%",
+                    maxValue: 100
+                )
+            } else {
+                TimelineChart(
+                    title: "CPU Utilization",
+                    data: data.cpuUtilization,
+                    color: .chartCPU,
+                    unit: "%",
+                    maxValue: 100
+                )
+            }
 
-        if isOllama {
+            // Row 2: CPU Utilization | Backend Memory
+            if hasHardwareMetrics {
+                TimelineChart(
+                    title: "CPU Utilization",
+                    data: data.cpuUtilization,
+                    color: .chartCPU,
+                    unit: "%",
+                    maxValue: 100
+                )
+            }
+
             MemoryTimelineChart(
-                title: "Ollama Memory",
+                title: "Process Memory",
                 data: data.memoryUtilization,
                 currentBytes: currentMemoryBytes,
                 totalBytes: totalMemoryBytes,
                 color: .chartMemory
             )
+
+            // Row 3: GPU Power | CPU Power (if power available)
+            if hasPowerMetrics && data.hasPowerData {
+                TimelineChart(
+                    title: "GPU Power",
+                    data: data.gpuPower,
+                    color: .chartGPUPower,
+                    unit: "W"
+                )
+
+                TimelineChart(
+                    title: "CPU Power",
+                    data: data.cpuPower,
+                    color: .chartCPUPower,
+                    unit: "W"
+                )
+
+                // Row 4: System Power | GPU Frequency
+                TimelineChart(
+                    title: "System Power",
+                    data: data.systemPower,
+                    color: .chartSystemPower,
+                    unit: "W"
+                )
+
+                TimelineChart(
+                    title: "GPU Frequency",
+                    data: data.gpuFrequency,
+                    color: .chartFrequency,
+                    unit: "MHz"
+                )
+
+                // Row 5: Watts/Token
+                TimelineChart(
+                    title: "Watts per Token",
+                    data: data.wattsPerToken,
+                    color: .chartEfficiency,
+                    unit: "W/tok"
+                )
+            }
         }
     }
 }

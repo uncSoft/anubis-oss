@@ -177,6 +177,34 @@ final class DatabaseManager {
             try db.create(index: "idx_arena_comparison_sessions", on: "arena_comparison", columns: ["session_a_id", "session_b_id"])
         }
 
+        // Migration v4: Power metrics, frequency, backend process info, chip info
+        migrator.registerMigration("v4") { db in
+            // benchmark_sample — 8 new columns for time-series power data
+            try db.alter(table: "benchmark_sample") { t in
+                t.add(column: "gpu_power_watts", .double)
+                t.add(column: "cpu_power_watts", .double)
+                t.add(column: "dram_power_watts", .double)
+                t.add(column: "system_power_watts", .double)
+                t.add(column: "gpu_frequency_mhz", .double)
+                t.add(column: "backend_process_memory_bytes", .integer)
+                t.add(column: "backend_process_cpu_percent", .double)
+                t.add(column: "watts_per_token", .double)
+            }
+
+            // benchmark_session — 9 new columns for aggregate stats
+            try db.alter(table: "benchmark_session") { t in
+                t.add(column: "avg_gpu_power_watts", .double)
+                t.add(column: "peak_gpu_power_watts", .double)
+                t.add(column: "avg_system_power_watts", .double)
+                t.add(column: "peak_system_power_watts", .double)
+                t.add(column: "avg_gpu_frequency_mhz", .double)
+                t.add(column: "peak_gpu_frequency_mhz", .double)
+                t.add(column: "avg_watts_per_token", .double)
+                t.add(column: "backend_process_name", .text)
+                t.add(column: "chip_info_json", .text)
+            }
+        }
+
         try migrator.migrate(queue)
     }
 

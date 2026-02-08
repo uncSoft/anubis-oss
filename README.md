@@ -2,7 +2,7 @@
 
 **Local LLM Testing & Benchmarking for Apple Silicon**
 
-Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any openAI compatible endpoint - Ollama, MLX, LM Studio Server, OpenWebUI, Docker Models etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance - something no CLI tool or chat wrapper offers. You can even  ```OLLAMA PULL``` models directly within the app.
+Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any OpenAI-compatible endpoint — Ollama, MLX, LM Studio Server, OpenWebUI, Docker Models, etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance — something no CLI tool or chat wrapper offers. You can even `OLLAMA PULL` models directly within the app.
 
 <img width="506" height="701" alt="anubis6" src="https://github.com/user-attachments/assets/5848a476-d577-405b-8830-52f751fd4b74" />
 
@@ -15,9 +15,9 @@ The local LLM ecosystem on macOS is fragmented:
 - **Chat wrappers** (Ollama, LM Studio, Jan) focus on conversation, not systematic testing
 - **Performance monitors** (asitop, macmon, mactop) are CLI-only and lack LLM context
 - **Evaluation frameworks** (promptfoo) require YAML configs and terminal expertise
-- **No tool** correlates hardware metrics (GPU / CPU / ANE / memory) with inference speed in real time
+- **No tool** correlates hardware metrics (GPU / CPU / ANE / power / memory) with inference speed in real time
 
-Anubis fills that gap with three integrated modules — all in a native, sandboxed macOS app.
+Anubis fills that gap with three integrated modules — all in a native macOS app.
 
 ---
 
@@ -29,9 +29,11 @@ Real-time performance dashboard for single-model testing.
 
 - Select any model from any configured backend
 - Stream responses with live metrics overlay
-- **6 metric cards**: Tokens/sec, GPU %, CPU %, Time to First Token, Model Memory, Thermal State
-- **4 live charts**: Tokens/sec, GPU utilization, CPU utilization, Ollama memory — all updating in real time
-- Detailed session stats: peak tokens/sec, average token latency, model load time, context length, eval duration
+- **8 metric cards**: Tokens/sec, GPU %, CPU %, Time to First Token, Process Memory, Model Memory, Thermal State, GPU Frequency
+- **7 live charts**: Tokens/sec, GPU utilization, CPU utilization, process memory, GPU/CPU/ANE/DRAM power, GPU frequency — all updating in real time
+- **Power telemetry**: Real-time GPU, CPU, ANE, and DRAM power consumption in watts via IOReport
+- **Process monitoring**: Auto-detects backend process by port (Ollama, LM Studio, mlx-lm, vLLM, etc.) with manual process picker
+- Detailed session stats: peak tokens/sec, average token latency, model load time, context length, eval duration, power averages
 - Configurable parameters: temperature, top-p, max tokens, system prompt
 - **Prompt presets** organized by category (Quick, Reasoning, Coding, Creative, Benchmarking)
 - **Session history** with full replay, CSV export, and Markdown reports
@@ -56,7 +58,8 @@ Unified model management across all backends.
 
 - Aggregated model list with search and backend filter chips
 - Running models section with live VRAM usage
-- Model inspector: size, parameters, quantization, family, context window, architecture details
+- Model inspector: size, parameters, quantization, family, context window, architecture details, file path
+- **Automatic metadata enrichment** for OpenAI-compatible models — parses model IDs for family and parameter count, scans `~/.lmstudio/models/` and `~/.cache/huggingface/hub/` for disk size, quantization, and path
 - Pull new models, delete existing ones, unload from memory
 - Popular model suggestions for quick setup
 - Total disk usage display
@@ -93,9 +96,23 @@ Anubis captures Apple Silicon telemetry during inference via IOReport and system
 |--------|--------|-------------|
 | GPU Utilization | IOReport | GPU active residency percentage |
 | CPU Utilization | `host_processor_info` | Usage across all cores |
-| Model Memory | Ollama `/api/ps` | VRAM consumed by loaded model |
+| GPU Power | IOReport Energy Model | GPU power consumption in watts |
+| CPU Power | IOReport Energy Model | CPU (E-cores + P-cores) power in watts |
+| ANE Power | IOReport Energy Model | Neural Engine power consumption |
+| DRAM Power | IOReport Energy Model | Memory subsystem power |
+| GPU Frequency | IOReport GPU Stats | Weighted average from P-state residency |
+| Process Memory | `proc_pid_rusage` | Backend process `phys_footprint` (includes Metal/GPU allocations) |
 | Thermal State | `ProcessInfo.thermalState` | System thermal pressure level |
-| ANE Power | IOReport | Neural Engine power consumption (watts) |
+
+### Process Monitoring
+
+Anubis automatically detects which process is serving your model:
+
+- **Port-based detection**: Uses `lsof` to find the PID listening on the inference port (called once per benchmark start)
+- **Backend identification**: Matches process path and command-line args to identify Ollama, LM Studio, mlx-lm, vLLM, LocalAI, llama.cpp
+- **Memory accounting**: Uses `phys_footprint` (same as Activity Monitor) which includes Metal/GPU buffer allocations — critical for MLX and other GPU-accelerated backends
+- **LM Studio support**: Walks Electron app bundle descendants to find the model-serving process
+- **Manual override**: Process picker lets you select any process by name, sorted by memory usage
 
 Metrics degrade gracefully — if IOReport access is unavailable (e.g., in a VM), Anubis still shows inference-derived metrics.
 
@@ -189,7 +206,7 @@ Anubis follows MVVM with a layered service architecture:
 │   MetricsService   InferenceService   ModelService   Export │
 ├─────────────────────────────────────────────────────────────┤
 │                    INTEGRATION LAYER                        │
-│   OllamaClient   OpenAICompatibleClient   IOReportBridge    │
+│  OllamaClient  OpenAICompatibleClient  IOReportBridge  ProcessMonitor │
 ├─────────────────────────────────────────────────────────────┤
 │                    PERSISTENCE LAYER                        │
 │   SQLite (GRDB)              File System                    │
@@ -209,7 +226,7 @@ anubis/
 │   ├── Vault/              # Model management
 │   └── Settings/           # Backend config, about, help, contact
 ├── Services/               # MetricsService, InferenceService, ExportService
-├── Integrations/           # OllamaClient, OpenAICompatibleClient, IOReportBridge
+├── Integrations/           # OllamaClient, OpenAICompatibleClient, IOReportBridge, ProcessMonitor
 ├── Models/                 # Data models (BenchmarkSession, ModelInfo, etc.)
 ├── Database/               # GRDB setup & migrations
 ├── DesignSystem/           # Theme, colors, reusable components

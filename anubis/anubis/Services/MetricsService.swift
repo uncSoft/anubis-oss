@@ -9,19 +9,14 @@ import Foundation
 import Combine
 import Darwin
 
-// libproc constants not exposed in Swift
-private let PROC_PIDPATHINFO_MAXSIZE: Int = 4096
-
 // MARK: - Background Metrics Collector
 
 /// Performs all expensive system calls (IOKit, proc_listpids, host_processor_info)
 /// off the main thread. This actor serializes access to mutable state (PID cache,
 /// CPU tick tracking) while keeping the work away from MainActor.
 private actor MetricsCollector {
-    // PID cache — avoids scanning all system PIDs on every sample
-    private var cachedOllamaPID: pid_t?
-    private var pidCacheTime: Date = .distantPast
-    private let pidCacheTTL: TimeInterval = 5.0
+    // ProcessMonitor replaces inline Ollama-only PID scanning
+    let processMonitor = ProcessMonitor()
 
     // CPU tick tracking for delta calculation
     private var previousCPUTicks: (user: UInt64, system: UInt64, idle: UInt64, nice: UInt64)?
@@ -32,23 +27,24 @@ private actor MetricsCollector {
     }
 
     /// Collect a full metrics snapshot. All expensive work happens here, off MainActor.
-    func collectMetrics(bridge: IOReportBridge) -> SystemMetrics {
+    func collectMetrics(
+        bridge: IOReportBridge,
+        preferredBackend: BackendProcessType? = nil
+    ) async -> SystemMetrics {
         let processInfo = ProcessInfo.processInfo
         let memoryTotal = processInfo.physicalMemory
 
-        // Get Ollama process memory (uses cached PID)
-        let memoryUsed = getOllamaMemoryUsage()
+        // Get backend process metrics via ProcessMonitor
+        let backendInfo = await processMonitor.findPrimaryBackend(preferredType: preferredBackend)
+        let backendMemory = backendInfo?.memoryBytes ?? 0
+        let backendCPU = backendInfo?.cpuPercent ?? 0
+        let backendName = backendInfo?.name
 
-        // IOKit GPU read
+        // IOKit GPU + IOReport power/frequency read
         let hardwareMetrics = bridge.sample()
 
-        // CPU utilization
-        let cpuUtilization: Double
-        if hardwareMetrics.isAvailable && hardwareMetrics.cpuUtilization > 0 {
-            cpuUtilization = hardwareMetrics.cpuUtilization
-        } else {
-            cpuUtilization = getCPUUtilization()
-        }
+        // CPU utilization via host_processor_info
+        let cpuUtilization = getCPUUtilization()
 
         let gpuUtilization = hardwareMetrics.isAvailable ? hardwareMetrics.gpuUtilization : 0.0
 
@@ -56,9 +52,18 @@ private actor MetricsCollector {
             timestamp: Date(),
             gpuUtilization: gpuUtilization,
             cpuUtilization: cpuUtilization,
-            memoryUsedBytes: memoryUsed,
+            memoryUsedBytes: backendMemory,
             memoryTotalBytes: Int64(memoryTotal),
-            thermalState: ThermalState(from: processInfo.thermalState)
+            thermalState: ThermalState(from: processInfo.thermalState),
+            gpuPowerWatts: hardwareMetrics.gpuPowerWatts > 0 ? hardwareMetrics.gpuPowerWatts : nil,
+            cpuPowerWatts: hardwareMetrics.cpuPowerWatts > 0 ? hardwareMetrics.cpuPowerWatts : nil,
+            anePowerWatts: hardwareMetrics.anePowerWatts > 0 ? hardwareMetrics.anePowerWatts : nil,
+            dramPowerWatts: hardwareMetrics.dramPowerWatts > 0 ? hardwareMetrics.dramPowerWatts : nil,
+            systemPowerWatts: hardwareMetrics.systemPowerWatts > 0 ? hardwareMetrics.systemPowerWatts : nil,
+            gpuFrequencyMHz: hardwareMetrics.gpuFrequencyMHz > 0 ? hardwareMetrics.gpuFrequencyMHz : nil,
+            backendProcessMemoryBytes: backendMemory > 0 ? backendMemory : nil,
+            backendProcessCPUPercent: backendCPU > 0 ? backendCPU : nil,
+            backendProcessName: backendName
         )
     }
 
@@ -66,85 +71,23 @@ private actor MetricsCollector {
         previousCPUTicks = nil
     }
 
+    func setCustomProcess(pid: pid_t, name: String) {
+        Task { await processMonitor.setCustomProcess(pid: pid, name: name) }
+    }
+
+    func clearCustomProcess() {
+        Task { await processMonitor.clearCustomProcess() }
+    }
+
+    func listCandidateProcesses() async -> [ProcessCandidate] {
+        await processMonitor.listCandidateProcesses()
+    }
+
+    func autoDetectByPort(_ port: UInt16) async -> BackendProcessInfo? {
+        await processMonitor.autoDetectByPort(port)
+    }
+
     // MARK: - Private
-
-    private func getOllamaMemoryUsage() -> Int64 {
-        guard let pid = findOllamaPID() else { return 0 }
-        return getProcessMemory(pid: pid)
-    }
-
-    /// Find Ollama PID with caching to avoid full process scan on every sample
-    private func findOllamaPID() -> pid_t? {
-        // Return cached PID if still valid
-        let now = Date()
-        if let cached = cachedOllamaPID, now.timeIntervalSince(pidCacheTime) < pidCacheTTL {
-            // Quick validation — check the cached PID is still alive
-            if getProcessMemory(pid: cached) > 0 {
-                return cached
-            }
-            // PID died, invalidate cache
-            cachedOllamaPID = nil
-        }
-
-        // Full scan
-        let pid = scanForOllamaPID()
-        cachedOllamaPID = pid
-        pidCacheTime = now
-        return pid
-    }
-
-    private func scanForOllamaPID() -> pid_t? {
-        let bufferSize = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
-        guard bufferSize > 0 else { return nil }
-
-        let pidCount = bufferSize / Int32(MemoryLayout<pid_t>.size)
-        var pids = [pid_t](repeating: 0, count: Int(pidCount))
-
-        let actualSize = proc_listpids(UInt32(PROC_ALL_PIDS), 0, &pids, bufferSize)
-        guard actualSize > 0 else { return nil }
-
-        let actualCount = Int(actualSize) / MemoryLayout<pid_t>.size
-
-        for i in 0..<actualCount {
-            let pid = pids[i]
-            guard pid > 0 else { continue }
-
-            var pathBuffer = [CChar](repeating: 0, count: PROC_PIDPATHINFO_MAXSIZE)
-            let pathLength = proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count))
-
-            if pathLength > 0 {
-                let path = String(cString: pathBuffer)
-                if path.hasSuffix("/ollama") || path.contains("/ollama.app/") {
-                    return pid
-                }
-            }
-        }
-
-        // Also check for "Ollama" (GUI app) if CLI not found
-        for i in 0..<actualCount {
-            let pid = pids[i]
-            guard pid > 0 else { continue }
-
-            var pathBuffer = [CChar](repeating: 0, count: PROC_PIDPATHINFO_MAXSIZE)
-            let pathLength = proc_pidpath(pid, &pathBuffer, UInt32(pathBuffer.count))
-
-            if pathLength > 0 {
-                let path = String(cString: pathBuffer)
-                if path.contains("Ollama.app") && path.hasSuffix("Ollama") {
-                    return pid
-                }
-            }
-        }
-
-        return nil
-    }
-
-    private func getProcessMemory(pid: pid_t) -> Int64 {
-        var info = proc_taskinfo()
-        let size = Int32(MemoryLayout<proc_taskinfo>.size)
-        let result = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size)
-        return result == size ? Int64(info.pti_resident_size) : 0
-    }
 
     private func getCPUUtilization() -> Double {
         var cpuInfo: processor_info_array_t?
@@ -204,7 +147,7 @@ private actor MetricsCollector {
 // MARK: - MetricsService
 
 /// Service for collecting hardware and inference metrics
-/// Integrates with IOReportBridge for GPU metrics on Apple Silicon (App Store compatible)
+/// Integrates with IOReportBridge for GPU metrics on Apple Silicon
 ///
 /// Expensive system calls (IOKit, proc_listpids, host_processor_info) run on a
 /// background actor. Published properties are updated on MainActor. During benchmarks,
@@ -221,6 +164,9 @@ final class MetricsService: ObservableObject {
 
     /// Whether IOReport is available for hardware metrics
     @Published private(set) var isIOReportAvailable = false
+
+    /// Whether power metrics (IOReport subscription) are available
+    @Published private(set) var isPowerMetricsAvailable = false
 
     /// Polling interval in seconds
     @Published var pollingInterval: TimeInterval = 0.5
@@ -247,6 +193,7 @@ final class MetricsService: ObservableObject {
     init() {
         // In demo mode, always report IOReport as available
         isIOReportAvailable = DemoMode.isEnabled || ioReportBridge.isAvailable
+        isPowerMetricsAvailable = DemoMode.isEnabled || ioReportBridge.isPowerMetricsAvailable
         setupThermalStateObserver()
     }
 
@@ -310,6 +257,27 @@ final class MetricsService: ObservableObject {
     /// Use this during benchmarks to avoid blocking the main thread.
     var latestMetrics: SystemMetrics? {
         currentMetrics
+    }
+
+    /// Set a custom process to monitor (overrides auto-detection)
+    func setCustomProcess(pid: pid_t, name: String) {
+        Task { await collector.setCustomProcess(pid: pid, name: name) }
+    }
+
+    /// Clear the custom process override
+    func clearCustomProcess() {
+        Task { await collector.clearCustomProcess() }
+    }
+
+    /// List candidate processes for the process picker UI
+    func listCandidateProcesses() async -> [ProcessCandidate] {
+        await collector.listCandidateProcesses()
+    }
+
+    /// Auto-detect backend by the port it's listening on.
+    /// Call once when a benchmark starts to lock onto the actual server process.
+    func autoDetectByPort(_ port: UInt16) async -> BackendProcessInfo? {
+        await collector.autoDetectByPort(port)
     }
 
     /// Take a single sample. If collecting is active, returns cached value (free).
@@ -418,13 +386,28 @@ extension MetricsService {
         let modelMemory = Int64(Double(2 * 1024 * 1024 * 1024) * demoSimulatedLoad) // Up to 2GB
         let memoryUsed = min(baseMemory + modelMemory, totalMemory - 1024 * 1024 * 1024)
 
+        // Synthetic power metrics
+        let gpuPower = demoSimulatedLoad * 15.0 + Double.random(in: -1...1)  // Up to ~15W GPU
+        let cpuPower = demoSimulatedLoad * 5.0 + Double.random(in: -0.5...0.5)
+        let dramPower = 1.5 + Double.random(in: -0.2...0.2)
+        let anePower = demoSimulatedLoad * 0.5
+
         return SystemMetrics(
             timestamp: Date(),
             gpuUtilization: gpuUtilization,
             cpuUtilization: cpuUtilization,
             memoryUsedBytes: memoryUsed,
             memoryTotalBytes: totalMemory,
-            thermalState: .nominal
+            thermalState: .nominal,
+            gpuPowerWatts: max(0, gpuPower),
+            cpuPowerWatts: max(0, cpuPower),
+            anePowerWatts: max(0, anePower),
+            dramPowerWatts: max(0, dramPower),
+            systemPowerWatts: max(0, gpuPower + cpuPower + dramPower + anePower),
+            gpuFrequencyMHz: 1000 + demoSimulatedLoad * 400 + Double.random(in: -50...50),
+            backendProcessMemoryBytes: memoryUsed,
+            backendProcessCPUPercent: cpuUtilization * 100,
+            backendProcessName: "Demo"
         )
     }
 

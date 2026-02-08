@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import IOKit
 
 /// Hardware and system metrics captured during benchmarking
 struct SystemMetrics: Sendable, Codable {
@@ -27,6 +28,102 @@ struct SystemMetrics: Sendable, Codable {
     /// Current thermal state
     let thermalState: ThermalState
 
+    // MARK: - Power Metrics (from IOReport)
+
+    /// GPU power consumption in watts
+    let gpuPowerWatts: Double?
+
+    /// CPU power consumption in watts (E+P clusters)
+    let cpuPowerWatts: Double?
+
+    /// Neural Engine power consumption in watts
+    let anePowerWatts: Double?
+
+    /// DRAM power consumption in watts
+    let dramPowerWatts: Double?
+
+    /// Total system-on-chip power in watts
+    let systemPowerWatts: Double?
+
+    /// GPU frequency in MHz (weighted average from CLPC)
+    let gpuFrequencyMHz: Double?
+
+    // MARK: - Backend Process Metrics (from ProcessMonitor)
+
+    /// Backend process resident memory in bytes
+    let backendProcessMemoryBytes: Int64?
+
+    /// Backend process CPU usage percentage
+    let backendProcessCPUPercent: Double?
+
+    /// Backend process name (e.g. "Ollama", "LM Studio")
+    let backendProcessName: String?
+
+    // MARK: - Backward-compatible convenience init (original 6 parameters)
+
+    init(
+        timestamp: Date,
+        gpuUtilization: Double,
+        cpuUtilization: Double,
+        memoryUsedBytes: Int64,
+        memoryTotalBytes: Int64,
+        thermalState: ThermalState
+    ) {
+        self.timestamp = timestamp
+        self.gpuUtilization = gpuUtilization
+        self.cpuUtilization = cpuUtilization
+        self.memoryUsedBytes = memoryUsedBytes
+        self.memoryTotalBytes = memoryTotalBytes
+        self.thermalState = thermalState
+        self.gpuPowerWatts = nil
+        self.cpuPowerWatts = nil
+        self.anePowerWatts = nil
+        self.dramPowerWatts = nil
+        self.systemPowerWatts = nil
+        self.gpuFrequencyMHz = nil
+        self.backendProcessMemoryBytes = nil
+        self.backendProcessCPUPercent = nil
+        self.backendProcessName = nil
+    }
+
+    // MARK: - Full init
+
+    init(
+        timestamp: Date,
+        gpuUtilization: Double,
+        cpuUtilization: Double,
+        memoryUsedBytes: Int64,
+        memoryTotalBytes: Int64,
+        thermalState: ThermalState,
+        gpuPowerWatts: Double?,
+        cpuPowerWatts: Double?,
+        anePowerWatts: Double?,
+        dramPowerWatts: Double?,
+        systemPowerWatts: Double?,
+        gpuFrequencyMHz: Double?,
+        backendProcessMemoryBytes: Int64?,
+        backendProcessCPUPercent: Double?,
+        backendProcessName: String?
+    ) {
+        self.timestamp = timestamp
+        self.gpuUtilization = gpuUtilization
+        self.cpuUtilization = cpuUtilization
+        self.memoryUsedBytes = memoryUsedBytes
+        self.memoryTotalBytes = memoryTotalBytes
+        self.thermalState = thermalState
+        self.gpuPowerWatts = gpuPowerWatts
+        self.cpuPowerWatts = cpuPowerWatts
+        self.anePowerWatts = anePowerWatts
+        self.dramPowerWatts = dramPowerWatts
+        self.systemPowerWatts = systemPowerWatts
+        self.gpuFrequencyMHz = gpuFrequencyMHz
+        self.backendProcessMemoryBytes = backendProcessMemoryBytes
+        self.backendProcessCPUPercent = backendProcessCPUPercent
+        self.backendProcessName = backendProcessName
+    }
+
+    // MARK: - Computed Properties
+
     /// Memory utilization as a percentage (0.0 - 1.0)
     var memoryUtilization: Double {
         guard memoryTotalBytes > 0 else { return 0 }
@@ -40,6 +137,11 @@ struct SystemMetrics: Sendable, Codable {
         let used = formatter.string(fromByteCount: memoryUsedBytes)
         let total = formatter.string(fromByteCount: memoryTotalBytes)
         return "\(used) / \(total)"
+    }
+
+    /// Total power consumption (sum of all components)
+    var totalPowerWatts: Double? {
+        systemPowerWatts
     }
 }
 
@@ -80,7 +182,7 @@ enum ThermalState: Int, Codable, Sendable {
 }
 
 /// Chip information for the current Mac
-struct ChipInfo: Sendable {
+struct ChipInfo: Sendable, Codable {
     let name: String
     let coreCount: Int
     let performanceCores: Int
@@ -88,21 +190,118 @@ struct ChipInfo: Sendable {
     let gpuCores: Int
     let neuralEngineCores: Int
     let unifiedMemoryGB: Int
+    let memoryBandwidthGBs: Double
 
+    /// Detect real chip info using sysctl and IOKit
     static var current: ChipInfo {
-        let processInfo = ProcessInfo.processInfo
-        let coreCount = processInfo.activeProcessorCount
+        let brandString = sysctlString("machdep.cpu.brand_string") ?? "Apple Silicon"
+        let pCores = sysctlInt64("hw.perflevel0.logicalcpu").flatMap { Int($0) } ?? 0
+        let eCores = sysctlInt64("hw.perflevel1.logicalcpu").flatMap { Int($0) } ?? 0
+        let totalCores = pCores + eCores
+        let gpuCores = detectGPUCoreCount()
+        let memGB = Int(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024))
 
-        // Detect chip type from sysctl (simplified)
-        // In production, use sysctl to get hw.model
+        // Lookup ANE cores and memory bandwidth from chip model
+        let (aneCores, bandwidth) = chipLookup(name: brandString, memGB: memGB)
+
         return ChipInfo(
-            name: "Apple Silicon",
-            coreCount: coreCount,
-            performanceCores: coreCount > 4 ? coreCount / 2 : coreCount,
-            efficiencyCores: coreCount > 4 ? coreCount / 2 : 0,
-            gpuCores: 0, // Would need IOKit to detect
-            neuralEngineCores: 16, // Typical for M-series
-            unifiedMemoryGB: Int(processInfo.physicalMemory / (1024 * 1024 * 1024))
+            name: brandString,
+            coreCount: totalCores > 0 ? totalCores : ProcessInfo.processInfo.activeProcessorCount,
+            performanceCores: pCores,
+            efficiencyCores: eCores,
+            gpuCores: gpuCores,
+            neuralEngineCores: aneCores,
+            unifiedMemoryGB: memGB,
+            memoryBandwidthGBs: bandwidth
         )
+    }
+
+    /// Summary string for display (e.g. "Apple M2 Pro · 6P+4E · 19 GPU")
+    var summary: String {
+        var parts: [String] = [name]
+        if performanceCores > 0 || efficiencyCores > 0 {
+            parts.append("\(performanceCores)P+\(efficiencyCores)E")
+        }
+        if gpuCores > 0 {
+            parts.append("\(gpuCores) GPU")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    // MARK: - Private Helpers
+
+    private static func sysctlString(_ key: String) -> String? {
+        var size: Int = 0
+        guard sysctlbyname(key, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname(key, &buffer, &size, nil, 0) == 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    private static func sysctlInt64(_ key: String) -> Int64? {
+        var value: Int64 = 0
+        var size = MemoryLayout<Int64>.size
+        guard sysctlbyname(key, &value, &size, nil, 0) == 0 else { return nil }
+        return value
+    }
+
+    private static func detectGPUCoreCount() -> Int {
+        // Try AGXAccelerator first, then fallback service names
+        let serviceNames = ["AGXAccelerator", "AGXAcceleratorG13", "AGXAcceleratorG14", "AGXAcceleratorG15"]
+        for serviceName in serviceNames {
+            guard let matching = IOServiceMatching(serviceName) else { continue }
+            var iterator: io_iterator_t = 0
+            guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS else { continue }
+            defer { IOObjectRelease(iterator) }
+
+            let service = IOIteratorNext(iterator)
+            guard service != 0 else { continue }
+            defer { IOObjectRelease(service) }
+
+            var properties: Unmanaged<CFMutableDictionary>?
+            guard IORegistryEntryCreateCFProperties(service, &properties, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+                  let dict = properties?.takeRetainedValue() as? [String: Any] else { continue }
+
+            if let count = dict["gpu-core-count"] as? Int {
+                return count
+            }
+            // Try reading from data blob
+            if let data = dict["gpu-core-count"] as? Data, data.count >= 4 {
+                return Int(data.withUnsafeBytes { $0.load(as: UInt32.self) })
+            }
+        }
+        return 0
+    }
+
+    /// Lookup ANE core count and memory bandwidth based on chip name
+    private static func chipLookup(name: String, memGB: Int) -> (aneCores: Int, bandwidthGBs: Double) {
+        let lower = name.lowercased()
+
+        // M4 family (2024)
+        if lower.contains("m4 ultra") { return (32, 800) }
+        if lower.contains("m4 max") { return (16, 546) }
+        if lower.contains("m4 pro") { return (16, 273) }
+        if lower.contains("m4") { return (16, 120) }
+
+        // M3 family (2023)
+        if lower.contains("m3 ultra") { return (32, 800) }
+        if lower.contains("m3 max") { return (16, 400) }
+        if lower.contains("m3 pro") { return (16, 150) }
+        if lower.contains("m3") { return (16, 100) }
+
+        // M2 family (2022-2023)
+        if lower.contains("m2 ultra") { return (32, 800) }
+        if lower.contains("m2 max") { return (16, 400) }
+        if lower.contains("m2 pro") { return (16, 200) }
+        if lower.contains("m2") { return (16, 100) }
+
+        // M1 family (2020-2022)
+        if lower.contains("m1 ultra") { return (32, 800) }
+        if lower.contains("m1 max") { return (16, 400) }
+        if lower.contains("m1 pro") { return (16, 200) }
+        if lower.contains("m1") { return (16, 68.25) }
+
+        // Fallback
+        return (16, 100)
     }
 }

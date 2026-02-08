@@ -14,19 +14,14 @@ import os
 /// re-evaluation of text streaming or other UI elements.
 @MainActor
 final class BenchmarkChartStore: ObservableObject {
-    @Published private(set) var chartData: BenchmarkChartData = BenchmarkChartData(
-        gpuUtilization: [],
-        cpuUtilization: [],
-        memoryUtilization: [],
-        tokensPerSecond: []
-    )
+    @Published private(set) var chartData: BenchmarkChartData = .empty
 
     func update(_ data: BenchmarkChartData) {
         chartData = data
     }
 
     func reset() {
-        chartData = BenchmarkChartData(gpuUtilization: [], cpuUtilization: [], memoryUtilization: [], tokensPerSecond: [])
+        chartData = .empty
     }
 }
 
@@ -48,6 +43,13 @@ final class BenchmarkViewModel: ObservableObject {
     /// Accumulated response text
     @Published private(set) var responseText = ""
 
+    /// When false, suppress response text rendering during benchmark for minimal CPU interference.
+    /// Text is still accumulated internally and shown on completion.
+    @Published var streamResponse = true
+
+    /// Whether to show live charts during benchmark
+    @Published var showLiveCharts = true
+
     /// Current tokens per second (real-time average)
     @Published private(set) var currentTokensPerSecond: Double = 0
 
@@ -64,6 +66,18 @@ final class BenchmarkViewModel: ObservableObject {
     @Published private(set) var modelMemoryTotal: Int64 = 0
     @Published private(set) var modelMemoryGPU: Int64 = 0
     @Published private(set) var modelMemoryCPU: Int64 = 0
+
+    /// Running average GPU power during benchmark
+    @Published private(set) var avgGpuPower: Double = 0
+
+    /// Peak GPU power observed during benchmark
+    @Published private(set) var peakGpuPower: Double = 0
+
+    /// Running average system power during benchmark
+    @Published private(set) var avgSystemPower: Double = 0
+
+    /// Peak system power observed during benchmark
+    @Published private(set) var peakSystemPower: Double = 0
 
     /// Total tokens generated so far
     @Published private(set) var tokensGenerated = 0
@@ -131,6 +145,12 @@ final class BenchmarkViewModel: ObservableObject {
     /// Debug inspector state
     @Published private(set) var debugState = DebugInspectorState()
 
+    /// Available processes for custom selection
+    @Published private(set) var candidateProcesses: [ProcessCandidate] = []
+
+    /// Whether a custom process is being monitored
+    @Published private(set) var isCustomProcessActive = false
+
     /// Error state
     @Published private(set) var error: AnubisError?
 
@@ -169,6 +189,13 @@ final class BenchmarkViewModel: ObservableObject {
     private var pendingTokenCount: Int = 0
     private var pendingTps: Double = 0
     private var pendingPeakTps: Double = 0
+
+    // Running power accumulators (updated each sample, flushed to @Published at UI rate)
+    private var gpuPowerSum: Double = 0
+    private var systemPowerSum: Double = 0
+    private var powerSampleCount: Int = 0
+    private var pendingPeakGpuPower: Double = 0
+    private var pendingPeakSystemPower: Double = 0
 
     // Batched DB writes — accumulate samples in memory, flush periodically
     private var pendingDBSamples: [BenchmarkSample] = []
@@ -274,6 +301,10 @@ final class BenchmarkViewModel: ObservableObject {
         modelMemoryTotal = 0
         modelMemoryGPU = 0
         modelMemoryCPU = 0
+        avgGpuPower = 0
+        peakGpuPower = 0
+        avgSystemPower = 0
+        peakSystemPower = 0
         elapsedTime = 0
         debugState.reset()
         error = nil
@@ -285,6 +316,11 @@ final class BenchmarkViewModel: ObservableObject {
         pendingTokenCount = 0
         pendingTps = 0
         pendingPeakTps = 0
+        gpuPowerSum = 0
+        systemPowerSum = 0
+        powerSampleCount = 0
+        pendingPeakGpuPower = 0
+        pendingPeakSystemPower = 0
         lastChartUpdate = .distantPast
         pendingDBSamples = []
         lastDBFlush = .distantPast
@@ -304,6 +340,17 @@ final class BenchmarkViewModel: ObservableObject {
 
         // Start metrics collection
         metricsService.startCollecting()
+
+        // Auto-detect backend process by port (more reliable than path matching)
+        if !isCustomProcessActive {
+            Task {
+                if let port = extractPort(from: connectionURL) {
+                    if let detected = await metricsService.autoDetectByPort(port) {
+                        Log.benchmark.info("Port \(port) → \(detected.name) (PID \(detected.pid), \(Formatters.bytes(detected.memoryBytes)))")
+                    }
+                }
+            }
+        }
 
         // Start elapsed timer
         startElapsedTimer()
@@ -359,7 +406,6 @@ final class BenchmarkViewModel: ObservableObject {
                 var debugChunkCount = 0
                 let startTime = Date()
                 var firstTokenTime: Date?
-                var peakMemory: Int64 = 0
                 var lastSampleTime = startTime
                 var lastSampleTokens = 0
                 let instantaneousSampleInterval: TimeInterval = 0.25  // Calculate instantaneous rate every 250ms
@@ -376,10 +422,6 @@ final class BenchmarkViewModel: ObservableObject {
                         // Fetch model memory now that model is loaded
                         await self.fetchModelMemory()
                     }
-
-                    // Track peak memory (internal tracking)
-                    let currentMemory = self.getCurrentMemoryUsage()
-                    peakMemory = max(peakMemory, currentMemory)
 
                     // Buffer text and stats (don't update @Published on every token)
                     textBuffer += chunk.text
@@ -410,7 +452,6 @@ final class BenchmarkViewModel: ObservableObject {
 
                     // Update pending values for UI timer to flush
                     pendingTokenCount = tokenCount
-                    currentPeakMemory = peakMemory
 
                     if chunk.done, let chunkStats = chunk.stats {
                         stats = chunkStats
@@ -423,13 +464,19 @@ final class BenchmarkViewModel: ObservableObject {
                 // Calculate TTFT
                 let ttft: TimeInterval? = firstTokenTime.map { $0.timeIntervalSince(startTime) }
 
+                // Compute power summary from collected samples
+                let powerSummary = BenchmarkSample.computePowerSummary(from: self.currentSamplesInternal)
+                let backendName = self.metricsService.latestMetrics?.backendProcessName
+
                 // Complete session
                 if let finalStats = stats {
                     session.complete(
                         with: finalStats,
                         response: responseText,
                         timeToFirstToken: ttft,
-                        peakMemoryBytes: peakMemory > 0 ? peakMemory : nil
+                        peakMemoryBytes: currentPeakMemory > 0 ? currentPeakMemory : nil,
+                        powerSummary: powerSummary,
+                        backendProcessName: backendName
                     )
                 } else {
                     // Create stats from our tracking
@@ -448,7 +495,9 @@ final class BenchmarkViewModel: ObservableObject {
                         with: manualStats,
                         response: responseText,
                         timeToFirstToken: ttft,
-                        peakMemoryBytes: peakMemory > 0 ? peakMemory : nil
+                        peakMemoryBytes: currentPeakMemory > 0 ? currentPeakMemory : nil,
+                        powerSummary: powerSummary,
+                        backendProcessName: backendName
                     )
                 }
 
@@ -581,6 +630,25 @@ final class BenchmarkViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Process Selection
+
+    /// Refresh the list of candidate processes for the picker
+    func refreshProcessList() async {
+        candidateProcesses = await metricsService.listCandidateProcesses()
+    }
+
+    /// Set a custom process to monitor
+    func selectCustomProcess(_ process: ProcessCandidate) {
+        metricsService.setCustomProcess(pid: process.pid, name: process.name)
+        isCustomProcessActive = true
+    }
+
+    /// Clear custom process and return to auto-detection
+    func clearCustomProcess() {
+        metricsService.clearCustomProcess()
+        isCustomProcessActive = false
+    }
+
     /// Get chart data for current samples (uses cached data for performance)
     func getChartData() -> BenchmarkChartData {
         chartStore.chartData
@@ -614,7 +682,8 @@ final class BenchmarkViewModel: ObservableObject {
 
     private func startUIUpdateTimer() {
         uiUpdateTimer?.invalidate()
-        uiUpdateTimer = Timer.scheduledTimer(withTimeInterval: uiUpdateInterval, repeats: true) { [weak self] _ in
+        let interval = streamResponse ? uiUpdateInterval : 1.0
+        uiUpdateTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.flushUIUpdates()
             }
@@ -623,13 +692,13 @@ final class BenchmarkViewModel: ObservableObject {
 
     /// Flush buffered updates to @Published properties (called at fixed interval)
     private func flushUIUpdates() {
-        // Only flush if there's new content
-        if !textBuffer.isEmpty {
+        // Only flush text if streaming is enabled (otherwise accumulate in buffer until completion)
+        if streamResponse && !textBuffer.isEmpty {
             responseText += textBuffer
             textBuffer = ""
         }
 
-        // Update numeric values
+        // Numeric updates are cheap — always flush
         if pendingTokenCount != tokensGenerated {
             tokensGenerated = pendingTokenCount
         }
@@ -638,6 +707,17 @@ final class BenchmarkViewModel: ObservableObject {
         }
         if pendingPeakTps != peakTokensPerSecond {
             peakTokensPerSecond = pendingPeakTps
+        }
+
+        // Power running stats
+        if powerSampleCount > 0 {
+            let newAvgGpu = gpuPowerSum / Double(powerSampleCount)
+            if newAvgGpu != avgGpuPower { avgGpuPower = newAvgGpu }
+            if pendingPeakGpuPower != peakGpuPower { peakGpuPower = pendingPeakGpuPower }
+
+            let newAvgSys = systemPowerSum / Double(powerSampleCount)
+            if newAvgSys != avgSystemPower { avgSystemPower = newAvgSys }
+            if pendingPeakSystemPower != peakSystemPower { peakSystemPower = pendingPeakSystemPower }
         }
     }
 
@@ -677,22 +757,29 @@ final class BenchmarkViewModel: ObservableObject {
         // Read cached metrics — NO system calls, just a property read
         guard let metrics = metricsService.latestMetrics else { return }
 
-        // Use current wall-clock time, not the cached metrics timestamp.
-        // The cached metrics may have been collected at a slightly different time,
-        // and multiple samples can read the same cached object. Using our own
-        // timestamp ensures monotonically increasing x-values for charts.
-        // Combine Ollama process memory with model memory footprint (from /api/ps)
-        // so the chart shows total memory used by the model + server
-        let combinedMemory = metrics.memoryUsedBytes + modelMemoryTotal
-
-        var sample = BenchmarkSample(
-            sessionId: sessionId,
+        // Process tree memory (from ProcessMonitor) already includes model memory
+        // in RSS — no need to add modelMemoryTotal from /api/ps on top.
+        let snapshotMetrics = SystemMetrics(
             timestamp: Date(),
             gpuUtilization: metrics.gpuUtilization,
             cpuUtilization: metrics.cpuUtilization,
-            memoryUsedBytes: combinedMemory,
+            memoryUsedBytes: metrics.memoryUsedBytes,
             memoryTotalBytes: metrics.memoryTotalBytes,
-            thermalState: metrics.thermalState.rawValue,
+            thermalState: metrics.thermalState,
+            gpuPowerWatts: metrics.gpuPowerWatts,
+            cpuPowerWatts: metrics.cpuPowerWatts,
+            anePowerWatts: metrics.anePowerWatts,
+            dramPowerWatts: metrics.dramPowerWatts,
+            systemPowerWatts: metrics.systemPowerWatts,
+            gpuFrequencyMHz: metrics.gpuFrequencyMHz,
+            backendProcessMemoryBytes: metrics.backendProcessMemoryBytes,
+            backendProcessCPUPercent: metrics.backendProcessCPUPercent,
+            backendProcessName: metrics.backendProcessName
+        )
+
+        var sample = BenchmarkSample(
+            sessionId: sessionId,
+            metrics: snapshotMetrics,
             tokensGenerated: pendingTokenCount,
             cumulativeTokensPerSecond: pendingTps
         )
@@ -700,6 +787,24 @@ final class BenchmarkViewModel: ObservableObject {
         // Assign a local ID for in-memory tracking (DB will assign real ID on flush)
         currentSamplesInternal.append(sample)
         pendingDBSamples.append(sample)
+
+        // Track peak backend process memory
+        if metrics.memoryUsedBytes > currentPeakMemory {
+            currentPeakMemory = metrics.memoryUsedBytes
+        }
+
+        // Accumulate power stats for running avg/peak
+        if let gpuW = metrics.gpuPowerWatts, gpuW > 0 {
+            gpuPowerSum += gpuW
+            pendingPeakGpuPower = max(pendingPeakGpuPower, gpuW)
+        }
+        if let sysW = metrics.systemPowerWatts, sysW > 0 {
+            systemPowerSum += sysW
+            pendingPeakSystemPower = max(pendingPeakSystemPower, sysW)
+        }
+        if (metrics.gpuPowerWatts ?? 0) > 0 || (metrics.systemPowerWatts ?? 0) > 0 {
+            powerSampleCount += 1
+        }
 
         // Flush to database periodically (every 5s) instead of on every sample
         let now = Date()
@@ -764,6 +869,12 @@ final class BenchmarkViewModel: ObservableObject {
         uiUpdateTimer = nil
         benchmarkStartTime = nil
 
+        // Dump any suppressed text before final flush
+        if !streamResponse && !textBuffer.isEmpty {
+            responseText += textBuffer
+            textBuffer = ""
+        }
+
         // Final flush of any remaining buffered content
         flushUIUpdates()
 
@@ -783,21 +894,28 @@ final class BenchmarkViewModel: ObservableObject {
 
         metricsService.stopCollecting()
 
+        // Clear port-detected process (unless user manually pinned one)
+        if !isCustomProcessActive {
+            metricsService.clearCustomProcess()
+        }
+
         // Reload recent sessions
         await loadRecentSessions()
     }
 
-    /// Get current process memory usage in bytes
-    private func getCurrentMemoryUsage() -> Int64 {
-        var info = mach_task_basic_info()
-        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
-        let result = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: 1) {
-                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
-            }
+    /// Extract TCP port from a URL string (e.g. "http://localhost:11434" → 11434)
+    private func extractPort(from urlString: String) -> UInt16? {
+        if let url = URL(string: urlString), let port = url.port {
+            return UInt16(port)
         }
-        return result == KERN_SUCCESS ? Int64(info.resident_size) : 0
+        // Common defaults if no explicit port
+        if urlString.hasPrefix("https") { return 443 }
+        if urlString.hasPrefix("http") { return 80 }
+        return nil
     }
+
+    // Peak memory is now tracked from backend process tree metrics in collectSample(),
+    // not from the app's own mach_task_self_ (which was only a few hundred MB).
 }
 
 // MARK: - Convenience Extensions
@@ -822,18 +940,17 @@ extension BenchmarkViewModel {
         Formatters.tokensPerSecond(peakTokensPerSecond)
     }
 
-    /// Formatted memory usage (process memory - not very useful)
+    /// Formatted process tree memory (includes model + server + children)
     var formattedMemoryUsage: String? {
         guard let metrics = currentMetrics else { return nil }
         return Formatters.bytes(metrics.memoryUsedBytes)
     }
 
-    /// Formatted total memory (model + process)
+    /// Formatted total process memory (process tree RSS — includes model in memory)
     var formattedTotalMemory: String {
         let processMemory = currentMetrics?.memoryUsedBytes ?? 0
-        let total = modelMemoryTotal + processMemory
-        if total > 0 {
-            return Formatters.bytes(total)
+        if processMemory > 0 {
+            return Formatters.bytes(processMemory)
         }
         return "—"
     }
@@ -880,5 +997,80 @@ extension BenchmarkViewModel {
     /// Whether hardware metrics are available
     var hasHardwareMetrics: Bool {
         metricsService.isIOReportAvailable
+    }
+
+    /// Whether power metrics (IOReport subscription) are available
+    var hasPowerMetrics: Bool {
+        metricsService.isPowerMetricsAvailable
+    }
+
+    /// Average GPU power formatted (running avg during benchmark, final after)
+    var avgGPUPowerFormatted: String {
+        if let session = currentSession, session.status == .completed,
+           let avg = session.avgGpuPowerWatts {
+            return Formatters.watts(avg)
+        }
+        guard avgGpuPower > 0 else { return "—" }
+        return Formatters.watts(avgGpuPower)
+    }
+
+    /// Peak GPU power formatted
+    var peakGPUPowerFormatted: String {
+        if let session = currentSession, session.status == .completed,
+           let peak = session.peakGpuPowerWatts {
+            return Formatters.watts(peak)
+        }
+        guard peakGpuPower > 0 else { return "—" }
+        return Formatters.watts(peakGpuPower)
+    }
+
+    /// Average system power formatted (running avg during benchmark, final after)
+    var avgSystemPowerFormatted: String {
+        if let session = currentSession, session.status == .completed,
+           let avg = session.avgSystemPowerWatts {
+            return Formatters.watts(avg)
+        }
+        guard avgSystemPower > 0 else { return "—" }
+        return Formatters.watts(avgSystemPower)
+    }
+
+    /// Peak system power formatted
+    var peakSystemPowerFormatted: String {
+        if let session = currentSession, session.status == .completed,
+           let peak = session.peakSystemPowerWatts {
+            return Formatters.watts(peak)
+        }
+        guard peakSystemPower > 0 else { return "—" }
+        return Formatters.watts(peakSystemPower)
+    }
+
+    /// Current GPU frequency formatted
+    var currentGPUFrequencyFormatted: String {
+        guard let freq = currentMetrics?.gpuFrequencyMHz, freq > 0 else { return "—" }
+        return String(format: "%.0f MHz", freq)
+    }
+
+    /// Watts per token formatted (avg system power / avg tok/s)
+    var currentWattsPerTokenFormatted: String {
+        if let session = currentSession, session.status == .completed,
+           let wpt = session.avgWattsPerToken {
+            return String(format: "%.2f W/tok", wpt)
+        }
+        guard avgSystemPower > 0, currentTokensPerSecond > 0 else { return "—" }
+        let wpt = avgSystemPower / currentTokensPerSecond
+        return String(format: "%.2f W/tok", wpt)
+    }
+
+    /// Formatted process memory (process tree RSS — includes model + server + children)
+    var formattedBackendMemory: String {
+        if let mem = currentMetrics?.backendProcessMemoryBytes, mem > 0 {
+            return Formatters.bytes(mem)
+        }
+        return "—"
+    }
+
+    /// Backend process name (from ProcessMonitor)
+    var currentBackendProcessName: String? {
+        currentMetrics?.backendProcessName
     }
 }

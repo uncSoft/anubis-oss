@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import GRDB
+import os
 
 /// ViewModel for the Arena comparison module
 @MainActor
@@ -477,11 +478,20 @@ final class ArenaViewModel: ObservableObject {
         )
         updateDebug(debugState)
 
+        // Start metrics collection for sample recording
+        metricsService.startCollecting()
+
         var responseText = ""
         var stats: InferenceStats?
         let startTime = Date()
         var firstTokenTime: Date?
         var chunkCount = 0
+        var tokenCount = 0
+
+        // Sample collection for arena (lightweight, in-memory)
+        var collectedSamples: [BenchmarkSample] = []
+        let sampleInterval: TimeInterval = 0.5
+        var lastSampleTime = startTime
 
         let stream = await resolvedBackend.generate(request: request)
 
@@ -499,12 +509,31 @@ final class ArenaViewModel: ObservableObject {
 
                         responseText += chunk.text
                         chunkCount += 1
+                        tokenCount += 1
                         debugState.chunksReceived = chunkCount
                         debugState.bytesReceived += chunk.text.utf8.count
                         debugState.lastChunkAt = Date()
                         debugState.phase = .streaming
 
                         updateResponse(responseText)
+
+                        // Collect metrics samples at fixed interval
+                        let now = Date()
+                        if now.timeIntervalSince(lastSampleTime) >= sampleInterval,
+                           let sessionId = session.id,
+                           let metrics = self.metricsService.latestMetrics {
+                            let tps = now.timeIntervalSince(startTime) > 0
+                                ? Double(tokenCount) / now.timeIntervalSince(startTime)
+                                : 0
+                            let sample = BenchmarkSample(
+                                sessionId: sessionId,
+                                metrics: metrics,
+                                tokensGenerated: tokenCount,
+                                cumulativeTokensPerSecond: tps
+                            )
+                            collectedSamples.append(sample)
+                            lastSampleTime = now
+                        }
 
                         // Throttle debug UI updates: every 10 chunks or on done
                         if chunkCount % 10 == 0 || chunk.done {
@@ -529,6 +558,7 @@ final class ArenaViewModel: ObservableObject {
                 group.cancelAll()
             }
         } catch {
+            metricsService.stopCollecting()
             debugState.phase = .error
             debugState.errorMessage = error.localizedDescription
             debugState.completedAt = Date()
@@ -536,10 +566,23 @@ final class ArenaViewModel: ObservableObject {
             throw error
         }
 
+        metricsService.stopCollecting()
+
+        // Compute power summary from collected samples
+        let powerSummary = BenchmarkSample.computePowerSummary(from: collectedSamples)
+        let backendName = metricsService.latestMetrics?.backendProcessName
+
         // Complete session
         let ttft = firstTokenTime.map { $0.timeIntervalSince(startTime) }
         if let finalStats = stats {
-            session.complete(with: finalStats, response: responseText, timeToFirstToken: ttft, peakMemoryBytes: nil)
+            session.complete(
+                with: finalStats,
+                response: responseText,
+                timeToFirstToken: ttft,
+                peakMemoryBytes: nil,
+                powerSummary: powerSummary,
+                backendProcessName: backendName
+            )
             debugState.finalTokensPerSecond = finalStats.tokensPerSecond
             debugState.finalTotalTokens = finalStats.totalTokens
         } else {
@@ -554,7 +597,14 @@ final class ArenaViewModel: ObservableObject {
                 loadDuration: 0,
                 contextLength: 0
             )
-            session.complete(with: manualStats, response: responseText, timeToFirstToken: ttft, peakMemoryBytes: nil)
+            session.complete(
+                with: manualStats,
+                response: responseText,
+                timeToFirstToken: ttft,
+                peakMemoryBytes: nil,
+                powerSummary: powerSummary,
+                backendProcessName: backendName
+            )
         }
 
         debugState.phase = .complete
@@ -564,6 +614,22 @@ final class ArenaViewModel: ObservableObject {
         // Update session in database
         try await databaseManager.queue.write { db in
             try session.update(db)
+        }
+
+        // Batch-write collected samples to database
+        if !collectedSamples.isEmpty {
+            let samplesToWrite = collectedSamples
+            Task.detached(priority: .utility) { [databaseManager] in
+                do {
+                    try await databaseManager.queue.write { db in
+                        for var sample in samplesToWrite {
+                            try sample.insert(db)
+                        }
+                    }
+                } catch {
+                    Log.benchmark.error("Arena: Failed to write samples: \(error.localizedDescription)")
+                }
+            }
         }
 
         return session
