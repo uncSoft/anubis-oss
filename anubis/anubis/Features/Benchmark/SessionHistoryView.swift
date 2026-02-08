@@ -476,77 +476,18 @@ struct SessionDetailView: View {
         }
     }
 
+    private var chartData: BenchmarkChartData {
+        BenchmarkSample.chartData(from: samples)
+    }
+
     private var chartsSection: some View {
-        VStack(spacing: Spacing.md) {
-            let chartData = BenchmarkSample.chartData(from: samples)
-            let columns = [GridItem(.flexible()), GridItem(.flexible())]
-
-            LazyVGrid(columns: columns, spacing: Spacing.md) {
-                if !chartData.tokensPerSecond.isEmpty {
-                    TimelineChart(
-                        title: "Tokens per Second",
-                        data: chartData.tokensPerSecond,
-                        color: .chartTokens,
-                        unit: "tok/s"
-                    )
-                }
-
-                if !chartData.gpuUtilization.isEmpty || !chartData.cpuUtilization.isEmpty {
-                    MultiSeriesChart(
-                        title: "Utilization",
-                        series: [
-                            ("GPU", chartData.gpuUtilization, .chartGPU),
-                            ("CPU", chartData.cpuUtilization, .chartCPU)
-                        ].filter { !$0.1.isEmpty }
-                    )
-                }
-
-                if !chartData.memoryUtilization.isEmpty {
-                    MemoryTimelineChart(
-                        title: "Backend Memory",
-                        data: chartData.memoryUtilization,
-                        currentBytes: samples.last?.memoryUsedBytes ?? 0,
-                        totalBytes: samples.last?.memoryTotalBytes ?? 1,
-                        color: .chartMemory
-                    )
-                }
-
-                // Power charts (if data available)
-                if chartData.hasPowerData {
-                    TimelineChart(
-                        title: "GPU Power",
-                        data: chartData.gpuPower,
-                        color: .chartGPUPower,
-                        unit: "W"
-                    )
-
-                    TimelineChart(
-                        title: "System Power",
-                        data: chartData.systemPower,
-                        color: .chartSystemPower,
-                        unit: "W"
-                    )
-
-                    if !chartData.gpuFrequency.isEmpty {
-                        TimelineChart(
-                            title: "GPU Frequency",
-                            data: chartData.gpuFrequency,
-                            color: .chartFrequency,
-                            unit: "MHz"
-                        )
-                    }
-
-                    if !chartData.wattsPerToken.isEmpty {
-                        TimelineChart(
-                            title: "Watts per Token",
-                            data: chartData.wattsPerToken,
-                            color: .chartEfficiency,
-                            unit: "W/tok"
-                        )
-                    }
-                }
-            }
-        }
+        ChartGrid(
+            data: chartData,
+            hasHardwareMetrics: !chartData.gpuUtilization.isEmpty,
+            hasPowerMetrics: chartData.hasPowerData,
+            currentMemoryBytes: samples.last?.memoryUsedBytes ?? 0,
+            totalMemoryBytes: samples.last?.memoryTotalBytes ?? 1
+        )
     }
 
     private var promptResponseSection: some View {

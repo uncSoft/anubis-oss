@@ -985,86 +985,17 @@ struct ExpandedMetricsView: View {
         }
     }
 
-    // MARK: - Charts Section
+    // MARK: - Charts Section (mirrors LiveChartsView layout)
 
     private var chartsSection: some View {
-        VStack(spacing: Spacing.md) {
-            let chartData = viewModel.chartStore.chartData
-            let columns = [GridItem(.flexible()), GridItem(.flexible())]
-
-            LazyVGrid(columns: columns, spacing: Spacing.md) {
-                TimelineChart(
-                    title: "Tokens per Second",
-                    data: chartData.tokensPerSecond,
-                    color: .chartTokens,
-                    unit: "tok/s"
-                )
-
-                if viewModel.hasHardwareMetrics {
-                    TimelineChart(
-                        title: "GPU Utilization",
-                        data: chartData.gpuUtilization,
-                        color: .chartGPU,
-                        unit: "%",
-                        maxValue: 100
-                    )
-                }
-
-                TimelineChart(
-                    title: "CPU Utilization",
-                    data: chartData.cpuUtilization,
-                    color: .chartCPU,
-                    unit: "%",
-                    maxValue: 100
-                )
-
-                MemoryTimelineChart(
-                    title: "Process Memory",
-                    data: chartData.memoryUtilization,
-                    currentBytes: (viewModel.currentMetrics?.memoryUsedBytes ?? 0) + viewModel.modelMemoryTotal,
-                    totalBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
-                    color: .chartMemory
-                )
-
-                // Power charts (if available)
-                if viewModel.hasPowerMetrics && chartData.hasPowerData {
-                    TimelineChart(
-                        title: "GPU Power",
-                        data: chartData.gpuPower,
-                        color: .chartGPUPower,
-                        unit: "W"
-                    )
-
-                    TimelineChart(
-                        title: "CPU Power",
-                        data: chartData.cpuPower,
-                        color: .chartCPUPower,
-                        unit: "W"
-                    )
-
-                    TimelineChart(
-                        title: "System Power",
-                        data: chartData.systemPower,
-                        color: .chartSystemPower,
-                        unit: "W"
-                    )
-
-                    TimelineChart(
-                        title: "GPU Frequency",
-                        data: chartData.gpuFrequency,
-                        color: .chartFrequency,
-                        unit: "MHz"
-                    )
-
-                    TimelineChart(
-                        title: "Watts per Token",
-                        data: chartData.wattsPerToken,
-                        color: .chartEfficiency,
-                        unit: "W/tok"
-                    )
-                }
-            }
-        }
+        LiveChartsView(
+            chartStore: viewModel.chartStore,
+            isRunning: viewModel.isRunning,
+            hasHardwareMetrics: viewModel.hasHardwareMetrics,
+            hasPowerMetrics: viewModel.hasPowerMetrics,
+            currentMemoryBytes: (viewModel.currentMetrics?.memoryUsedBytes ?? 0) + viewModel.modelMemoryTotal,
+            totalMemoryBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1
+        )
     }
 
     // MARK: - Detailed Stats Section
@@ -1241,9 +1172,10 @@ private struct ProcessPickerMenu: View {
 /// Isolated chart view that observes only the BenchmarkChartStore.
 /// This prevents chart data updates from invalidating the text streaming view
 /// and vice versa, eliminating the main cause of streaming choppiness.
-private struct LiveChartsView: View {
-    @ObservedObject var chartStore: BenchmarkChartStore
-    let isRunning: Bool
+/// Shared chart grid used by LiveChartsView, ExpandedMetricsView, and SessionDetailView.
+/// Single source of truth for chart names, colors, ordering, and layout.
+struct ChartGrid: View {
+    let data: BenchmarkChartData
     let hasHardwareMetrics: Bool
     let hasPowerMetrics: Bool
     let currentMemoryBytes: Int64
@@ -1252,8 +1184,6 @@ private struct LiveChartsView: View {
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
-        let data = chartStore.chartData
-
         LazyVGrid(columns: columns, spacing: Spacing.md) {
             // Row 1: Tokens/sec | GPU Utilization
             TimelineChart(
@@ -1281,7 +1211,7 @@ private struct LiveChartsView: View {
                 )
             }
 
-            // Row 2: CPU Utilization | Backend Memory
+            // Row 2: CPU Utilization | Process Memory
             if hasHardwareMetrics {
                 TimelineChart(
                     title: "CPU Utilization",
@@ -1300,7 +1230,7 @@ private struct LiveChartsView: View {
                 color: .chartMemory
             )
 
-            // Row 3: GPU Power | CPU Power (if power available)
+            // Row 3: GPU Power | CPU Power
             if hasPowerMetrics && data.hasPowerData {
                 TimelineChart(
                     title: "GPU Power",
@@ -1340,5 +1270,26 @@ private struct LiveChartsView: View {
                 )
             }
         }
+    }
+}
+
+/// Live chart wrapper that observes BenchmarkChartStore independently,
+/// isolating chart re-renders from the main view's body.
+private struct LiveChartsView: View {
+    @ObservedObject var chartStore: BenchmarkChartStore
+    let isRunning: Bool
+    let hasHardwareMetrics: Bool
+    let hasPowerMetrics: Bool
+    let currentMemoryBytes: Int64
+    let totalMemoryBytes: Int64
+
+    var body: some View {
+        ChartGrid(
+            data: chartStore.chartData,
+            hasHardwareMetrics: hasHardwareMetrics,
+            hasPowerMetrics: hasPowerMetrics,
+            currentMemoryBytes: currentMemoryBytes,
+            totalMemoryBytes: totalMemoryBytes
+        )
     }
 }

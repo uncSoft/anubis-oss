@@ -63,13 +63,14 @@ struct TimelineChart: View {
         Chart(data, id: \.0) { point in
             AreaMark(
                 x: .value("Time", point.0),
-                y: .value(title, point.1)
+                yStart: .value("Baseline", 0),
+                yEnd: .value(title, point.1)
             )
             .foregroundStyle(
                 LinearGradient(
-                    colors: [color.opacity(0.2), color.opacity(0.02)],
-                    startPoint: .top,
-                    endPoint: .bottom
+                    colors: [color.opacity(0.02), color.opacity(0.2)],
+                    startPoint: .bottom,
+                    endPoint: .top
                 )
             )
             .interpolationMethod(.linear)
@@ -101,7 +102,7 @@ struct TimelineChart: View {
         }
         .chartYScale(domain: yDomain)
         .frame(height: 120)
-        .drawingGroup() // Render via Metal for better performance
+        .clipped()
     }
 
     private var yDomain: ClosedRange<Double> {
@@ -212,13 +213,14 @@ struct MemoryTimelineChart: View {
         Chart(data, id: \.0) { point in
             AreaMark(
                 x: .value("Time", point.0),
-                y: .value("GB", point.1)
+                yStart: .value("Baseline", 0),
+                yEnd: .value("GB", point.1)
             )
             .foregroundStyle(
                 LinearGradient(
-                    colors: [color.opacity(0.2), color.opacity(0.02)],
-                    startPoint: .top,
-                    endPoint: .bottom
+                    colors: [color.opacity(0.02), color.opacity(0.2)],
+                    startPoint: .bottom,
+                    endPoint: .top
                 )
             )
             .interpolationMethod(.linear)
@@ -250,7 +252,7 @@ struct MemoryTimelineChart: View {
         }
         .chartYScale(domain: yDomain)
         .frame(height: 150)
-        .drawingGroup() // Render via Metal for better performance
+        .clipped()
     }
 
     private var yDomain: ClosedRange<Double> {
