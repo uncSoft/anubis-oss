@@ -38,6 +38,7 @@ Real-time performance dashboard for single-model testing.
 - **Prompt presets** organized by category (Quick, Reasoning, Coding, Creative, Benchmarking)
 - **Session history** with full replay, CSV export, and Markdown reports
 - Expanded full-screen metrics dashboard
+- **Image export**: Copy to clipboard, save as PNG, or share — 2x retina rendering with watermark, respects light/dark mode
 
 ### Arena
 
@@ -78,7 +79,7 @@ Unified model management across all backends.
 
 | Backend | Type | Default Port | Setup |
 |---------|------|--------------|-------|
-| **Ollama** | Native support | 11434 | Install from [ollama.ai](https://ollama.ai) — auto-detected on launch |
+| **Ollama** | Native support | 11434 | Install from [ollama.com](https://ollama.com) — auto-detected on launch |
 | **LM Studio** | OpenAI-compatible | 1234 | Enable local server in LM Studio settings |
 | **mlx-lm** | OpenAI-compatible | 8080 | `pip install mlx-lm && mlx_lm.server --model <model>` |
 | **vLLM** | OpenAI-compatible | 8000 | Add in Settings |
@@ -311,12 +312,16 @@ Contributions are welcome. A few guidelines:
 
 ---
 
+## Support the Project
+
+If Anubis is useful to you, consider [sponsoring on GitHub](https://github.com/sponsors/Cyberpunk69420). It helps fund continued development and new features.
+
+A sandboxed version is also available on the [Mac App Store](https://www.devpadapp.com/nabu.html) if you prefer a managed install.
+
+---
+
 ## License
 
 MIT License — see [LICENSE](LICENSE) for details.
 
-**Check out some of my other projects:**
-
-https://www.devpadapp.com
-
-https://www.devpadapp.com/nabu.html
+**Other projects:** [DevPad](https://www.devpadapp.com) · [Nabu](https://www.devpadapp.com/nabu.html)

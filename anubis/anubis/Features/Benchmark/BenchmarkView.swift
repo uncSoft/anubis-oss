@@ -1620,8 +1620,10 @@ struct ChartGrid: View {
                     unit: "W"
                 )
 
-                CoreUtilizationGrid(snapshot: perCoreSnapshot) {
-                    onExpandCores?()
+                if !perCoreSnapshot.isEmpty {
+                    CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                        onExpandCores?()
+                    }
                 }
 
                 // Row 4: System Power | GPU Frequency
@@ -1656,7 +1658,7 @@ struct ChartGrid: View {
             }
 
             // Show core grid even without power metrics (standalone in last row)
-            if !hasPowerMetrics || !data.hasPowerData {
+            if (!hasPowerMetrics || !data.hasPowerData) && !perCoreSnapshot.isEmpty {
                 CoreUtilizationGrid(snapshot: perCoreSnapshot) {
                     onExpandCores?()
                 }
