@@ -8,6 +8,18 @@
 import Foundation
 import IOKit
 
+// MARK: - Per-Core Types
+
+enum CoreType: String, Codable, Sendable {
+    case performance, efficiency
+}
+
+struct CoreUtilization: Sendable, Codable {
+    let coreIndex: Int
+    let coreType: CoreType
+    let utilization: Double  // 0.0–1.0
+}
+
 /// Hardware and system metrics captured during benchmarking
 struct SystemMetrics: Sendable, Codable {
     /// Timestamp of the measurement
@@ -59,6 +71,11 @@ struct SystemMetrics: Sendable, Codable {
     /// Backend process name (e.g. "Ollama", "LM Studio")
     let backendProcessName: String?
 
+    // MARK: - Per-Core Utilization (live-only, not persisted)
+
+    /// Per-core CPU utilization breakdown (nil when not collected)
+    let perCoreUtilization: [CoreUtilization]?
+
     // MARK: - Backward-compatible convenience init (original 6 parameters)
 
     init(
@@ -84,6 +101,7 @@ struct SystemMetrics: Sendable, Codable {
         self.backendProcessMemoryBytes = nil
         self.backendProcessCPUPercent = nil
         self.backendProcessName = nil
+        self.perCoreUtilization = nil
     }
 
     // MARK: - Full init
@@ -103,7 +121,8 @@ struct SystemMetrics: Sendable, Codable {
         gpuFrequencyMHz: Double?,
         backendProcessMemoryBytes: Int64?,
         backendProcessCPUPercent: Double?,
-        backendProcessName: String?
+        backendProcessName: String?,
+        perCoreUtilization: [CoreUtilization]? = nil
     ) {
         self.timestamp = timestamp
         self.gpuUtilization = gpuUtilization
@@ -120,6 +139,7 @@ struct SystemMetrics: Sendable, Codable {
         self.backendProcessMemoryBytes = backendProcessMemoryBytes
         self.backendProcessCPUPercent = backendProcessCPUPercent
         self.backendProcessName = backendProcessName
+        self.perCoreUtilization = perCoreUtilization
     }
 
     // MARK: - Computed Properties
@@ -216,6 +236,20 @@ struct ChipInfo: Sendable, Codable {
         )
     }
 
+    /// Mac model marketing name (e.g. "MacBook Pro", "Mac mini")
+    static var macModelName: String {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        if service != 0 {
+            defer { IOObjectRelease(service) }
+            if let cfVal = IORegistryEntryCreateCFProperty(service, "product-name" as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue() as? Data,
+               let name = String(data: cfVal, encoding: .utf8)?.trimmingCharacters(in: .controlCharacters),
+               !name.isEmpty {
+                return name
+            }
+        }
+        return sysctlString("hw.model") ?? "Mac"
+    }
+
     /// Summary string for display (e.g. "Apple M2 Pro · 6P+4E · 19 GPU")
     var summary: String {
         var parts: [String] = [name]
@@ -305,3 +339,4 @@ struct ChipInfo: Sendable, Codable {
         return (16, 100)
     }
 }
+

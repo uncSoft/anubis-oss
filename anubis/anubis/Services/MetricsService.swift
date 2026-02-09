@@ -18,8 +18,8 @@ private actor MetricsCollector {
     // ProcessMonitor replaces inline Ollama-only PID scanning
     let processMonitor = ProcessMonitor()
 
-    // CPU tick tracking for delta calculation
-    private var previousCPUTicks: (user: UInt64, system: UInt64, idle: UInt64, nice: UInt64)?
+    // Per-core CPU tick tracking for delta calculation
+    private var previousPerCoreTicks: [Int: (user: UInt64, system: UInt64, idle: UInt64, nice: UInt64)] = [:]
 
     /// One-time baseline sample for IOReport
     func establishBaseline(bridge: IOReportBridge) {
@@ -43,8 +43,8 @@ private actor MetricsCollector {
         // IOKit GPU + IOReport power/frequency read
         let hardwareMetrics = bridge.sample()
 
-        // CPU utilization via host_processor_info
-        let cpuUtilization = getCPUUtilization()
+        // Per-core CPU utilization via host_processor_info (also yields aggregate)
+        let (cpuUtilization, perCoreUtilization) = getCPUUtilizationPerCore()
 
         let gpuUtilization = hardwareMetrics.isAvailable ? hardwareMetrics.gpuUtilization : 0.0
 
@@ -63,12 +63,13 @@ private actor MetricsCollector {
             gpuFrequencyMHz: hardwareMetrics.gpuFrequencyMHz > 0 ? hardwareMetrics.gpuFrequencyMHz : nil,
             backendProcessMemoryBytes: backendMemory > 0 ? backendMemory : nil,
             backendProcessCPUPercent: backendCPU > 0 ? backendCPU : nil,
-            backendProcessName: backendName
+            backendProcessName: backendName,
+            perCoreUtilization: perCoreUtilization
         )
     }
 
     func resetCPUTracking() {
-        previousCPUTicks = nil
+        previousPerCoreTicks = [:]
     }
 
     func setCustomProcess(pid: pid_t, name: String) {
@@ -89,7 +90,9 @@ private actor MetricsCollector {
 
     // MARK: - Private
 
-    private func getCPUUtilization() -> Double {
+    /// Returns (aggregate CPU utilization, per-core breakdown).
+    /// On Apple Silicon: cores 0..<eCores are E-cores, eCores..<total are P-cores.
+    private func getCPUUtilizationPerCore() -> (Double, [CoreUtilization]) {
         var cpuInfo: processor_info_array_t?
         var numCPUInfo: mach_msg_type_number_t = 0
         var numCPUs: natural_t = 0
@@ -103,44 +106,59 @@ private actor MetricsCollector {
         )
 
         guard result == KERN_SUCCESS, let cpuInfo = cpuInfo else {
-            return 0.0
+            return (0.0, [])
         }
 
         defer {
             vm_deallocate(mach_task_self_, vm_address_t(bitPattern: cpuInfo), vm_size_t(numCPUInfo))
         }
 
-        var totalUser: UInt64 = 0
-        var totalSystem: UInt64 = 0
-        var totalIdle: UInt64 = 0
-        var totalNice: UInt64 = 0
+        let cpuCount = Int(numCPUs)
+        let chip = ChipInfo.current
+        // Apple Silicon ordering: E-cores first, then P-cores
+        let eCores = chip.efficiencyCores
+        let isFirstSample = previousPerCoreTicks.isEmpty
 
-        cpuInfo.withMemoryRebound(to: processor_cpu_load_info.self, capacity: Int(numCPUs)) { ptr in
-            for i in 0..<Int(numCPUs) {
-                totalUser += UInt64(ptr[i].cpu_ticks.0)
-                totalSystem += UInt64(ptr[i].cpu_ticks.1)
-                totalIdle += UInt64(ptr[i].cpu_ticks.2)
-                totalNice += UInt64(ptr[i].cpu_ticks.3)
+        var perCore: [CoreUtilization] = []
+        perCore.reserveCapacity(cpuCount)
+        var totalActiveAll: UInt64 = 0
+        var totalDeltaAll: UInt64 = 0
+
+        cpuInfo.withMemoryRebound(to: processor_cpu_load_info.self, capacity: cpuCount) { ptr in
+            for i in 0..<cpuCount {
+                let user = UInt64(ptr[i].cpu_ticks.0)
+                let system = UInt64(ptr[i].cpu_ticks.1)
+                let idle = UInt64(ptr[i].cpu_ticks.2)
+                let nice = UInt64(ptr[i].cpu_ticks.3)
+
+                let coreType: CoreType = i < eCores ? .efficiency : .performance
+
+                var utilization = 0.0
+                if let prev = previousPerCoreTicks[i] {
+                    let dU = user - prev.user
+                    let dS = system - prev.system
+                    let dI = idle - prev.idle
+                    let dN = nice - prev.nice
+                    let total = dU + dS + dI + dN
+                    if total > 0 {
+                        let active = dU + dS + dN
+                        utilization = Double(active) / Double(total)
+                        totalActiveAll += active
+                        totalDeltaAll += total
+                    }
+                }
+
+                previousPerCoreTicks[i] = (user, system, idle, nice)
+                perCore.append(CoreUtilization(coreIndex: i, coreType: coreType, utilization: utilization))
             }
         }
 
-        guard let previous = previousCPUTicks else {
-            previousCPUTicks = (totalUser, totalSystem, totalIdle, totalNice)
-            return 0.0
+        if isFirstSample {
+            return (0.0, perCore)
         }
 
-        let deltaUser = totalUser - previous.user
-        let deltaSystem = totalSystem - previous.system
-        let deltaIdle = totalIdle - previous.idle
-        let deltaNice = totalNice - previous.nice
-
-        previousCPUTicks = (totalUser, totalSystem, totalIdle, totalNice)
-
-        let totalDelta = deltaUser + deltaSystem + deltaIdle + deltaNice
-        guard totalDelta > 0 else { return 0.0 }
-
-        let activeTime = deltaUser + deltaSystem + deltaNice
-        return Double(activeTime) / Double(totalDelta)
+        let aggregate = totalDeltaAll > 0 ? Double(totalActiveAll) / Double(totalDeltaAll) : 0.0
+        return (aggregate, perCore)
     }
 }
 

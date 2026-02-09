@@ -104,6 +104,16 @@ Click the **History** button in the toolbar to view past benchmark sessions:
 
 Click the **Expand** button to open a full-screen metrics dashboard with larger charts and more detailed statistics.
 
+### Exporting Results
+
+Click the **Export** button (share icon) in the toolbar to share benchmark results as an image:
+
+- **Copy to Clipboard** (Cmd+C) — paste directly into any app
+- **Save as PNG** — saves a high-resolution 2x image with auto-generated filename
+- **Share** — opens the macOS share sheet
+
+Exported images include all metrics cards, session details, and charts with a subtle "anubis by JT" watermark. The export respects your current light/dark mode setting. Export is available from both the main benchmark view and the expanded metrics window.
+
 ---
 
 ## Arena

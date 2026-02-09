@@ -8,10 +8,25 @@
 import SwiftUI
 import Charts
 import AppKit
+import UniformTypeIdentifiers
+
+// MARK: - Export Mode Environment Key
+
+private struct IsExportingKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var isExporting: Bool {
+        get { self[IsExportingKey.self] }
+        set { self[IsExportingKey.self] = newValue }
+    }
+}
 
 /// Main benchmark dashboard view
 struct BenchmarkView: View {
     @StateObject private var viewModel: BenchmarkViewModel
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showSystemPrompt = false
     @State private var showParameters = false
 
@@ -37,7 +52,7 @@ struct BenchmarkView: View {
                     responseSection
                 }
             }
-            .frame(minWidth: 280, idealWidth: 300)
+            .frame(minWidth: 380, idealWidth: 380, maxWidth: 600)
 
             // Right panel - Metrics Dashboard (~70% default)
             ScrollView {
@@ -48,10 +63,35 @@ struct BenchmarkView: View {
                 }
                 .padding(Spacing.md)
             }
-            .frame(minWidth: 500, idealWidth: 700)
+            .frame(minWidth: 500)
+            .layoutPriority(1)
         }
         .toolbar {
             ToolbarItemGroup {
+                Menu {
+                    Button {
+                        copyToClipboard()
+                    } label: {
+                        Label("Copy to Clipboard", systemImage: "doc.on.doc")
+                    }
+                    .keyboardShortcut("c", modifiers: .command)
+
+                    Button {
+                        saveAsPNG()
+                    } label: {
+                        Label("Save as PNG…", systemImage: "square.and.arrow.down")
+                    }
+
+                    Button {
+                        shareImage()
+                    } label: {
+                        Label("Share…", systemImage: "square.and.arrow.up")
+                    }
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .help("Export benchmark results")
+
                 Button {
                     viewModel.openExpandedMetricsWindow()
                 } label: {
@@ -78,6 +118,81 @@ struct BenchmarkView: View {
                 await viewModel.loadModels()
             }
         }
+    }
+
+    // MARK: - Export
+
+    private var exportableContent: some View {
+        VStack(spacing: Spacing.md) {
+            metricsCardsSection
+            detailedStatsSection
+            chartsSection
+        }
+        .padding(Spacing.md)
+        .overlay(alignment: .bottomTrailing) {
+            HStack(spacing: 4) {
+                if let appIcon = NSApp.applicationIconImage {
+                    Image(nsImage: appIcon)
+                        .resizable()
+                        .frame(width: 16, height: 16)
+                }
+                Text("anubis by JT")
+                    .font(.system(size: 11, weight: .medium))
+            }
+            .foregroundStyle(.primary)
+            .opacity(0.4)
+            .padding(.bottom, Spacing.md)
+            .padding(.trailing, Spacing.lg)
+        }
+    }
+
+    @MainActor
+    private func renderImage() -> NSImage? {
+        let content = exportableContent
+            .frame(width: 1100)
+            .environment(\.colorScheme, colorScheme)
+            .environment(\.isExporting, true)
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = 2.0
+        return renderer.nsImage
+    }
+
+    private func copyToClipboard() {
+        guard let image = renderImage() else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([image])
+    }
+
+    private func saveAsPNG() {
+        guard let image = renderImage(),
+              let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let pngData = bitmap.representation(using: .png, properties: [:])
+        else { return }
+
+        let modelSlug = (viewModel.selectedModel?.name ?? viewModel.currentSession?.modelName ?? "benchmark")
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let defaultName = "anubis-\(modelSlug)-\(timestamp).png"
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = defaultName
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? pngData.write(to: url)
+    }
+
+    private func shareImage() {
+        guard let image = renderImage() else { return }
+        guard let contentView = NSApp.keyWindow?.contentView else { return }
+        let picker = NSSharingServicePicker(items: [image])
+        let anchorRect = NSRect(x: contentView.bounds.maxX - 40, y: contentView.bounds.maxY - 40, width: 1, height: 1)
+        picker.show(relativeTo: anchorRect, of: contentView, preferredEdge: .minY)
     }
 
     // MARK: - Controls Section
@@ -510,7 +625,7 @@ struct BenchmarkView: View {
             )
 
             CompactMetricsCard(
-                title: "Process Mem",
+                title: "Total Memory",
                 value: viewModel.formattedBackendMemory,
                 icon: "memorychip",
                 color: .chartMemory,
@@ -541,8 +656,10 @@ struct BenchmarkView: View {
                     isRunning: viewModel.isRunning,
                     hasHardwareMetrics: viewModel.hasHardwareMetrics,
                     hasPowerMetrics: viewModel.hasPowerMetrics,
-                    currentMemoryBytes: viewModel.currentMetrics?.memoryUsedBytes ?? 0,
-                    totalMemoryBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1
+                    currentMemoryBytes: viewModel.effectiveBackendMemoryBytes,
+                    totalMemoryBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
+                    perCoreSnapshot: viewModel.latestPerCoreSnapshot,
+                    onExpandCores: { viewModel.openCoreDetailWindow() }
                 )
             } else {
                 // Collapsed state - show placeholder
@@ -586,22 +703,30 @@ struct BenchmarkView: View {
                 // Row 1: Latency / Load / Context / GPU Frequency
                 DetailStatCell(
                     title: "Avg Token Latency",
-                    value: viewModel.currentSession?.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—"
+                    value: viewModel.currentSession?.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—",
+                    icon: "clock.fill",
+                    color: .chartTokens
                 )
 
                 DetailStatCell(
                     title: "Model Load Time",
-                    value: viewModel.currentSession?.loadDuration.map { Formatters.duration($0) } ?? "—"
+                    value: viewModel.currentSession?.loadDuration.map { Formatters.duration($0) } ?? "—",
+                    icon: "arrow.down.circle.fill",
+                    color: .anubisMuted
                 )
 
                 DetailStatCell(
                     title: "Context Length",
-                    value: viewModel.currentSession?.contextLength.map { "\($0) tokens" } ?? "—"
+                    value: viewModel.currentSession?.contextLength.map { "\($0) tokens" } ?? "—",
+                    icon: "text.alignleft",
+                    color: .chartCPU
                 )
 
                 DetailStatCell(
                     title: "GPU Frequency",
-                    value: viewModel.currentGPUFrequencyFormatted
+                    value: viewModel.currentGPUFrequencyFormatted,
+                    icon: "gauge.with.dots.needle.67percent",
+                    color: .chartFrequency
                 )
 
                 // Row 2: Peak Memory / Prompt Tokens / Completion Tokens / Eval Duration
@@ -609,51 +734,75 @@ struct BenchmarkView: View {
                     title: "Peak Memory",
                     value: viewModel.currentPeakMemory > 0
                         ? Formatters.bytes(viewModel.currentPeakMemory)
-                        : viewModel.currentSession?.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—"
+                        : viewModel.currentSession?.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—",
+                    icon: "arrow.up.right",
+                    color: .chartMemory
                 )
 
                 DetailStatCell(
                     title: "Prompt Tokens",
-                    value: viewModel.currentSession?.promptTokens.map { "\($0)" } ?? "—"
+                    value: viewModel.currentSession?.promptTokens.map { "\($0)" } ?? "—",
+                    icon: "arrow.right.circle.fill",
+                    color: .chartCPU
                 )
 
                 DetailStatCell(
                     title: "Completion Tokens",
                     value: viewModel.currentSession?.completionTokens.map { "\($0)" }
-                        ?? (viewModel.tokensGenerated > 0 ? "\(viewModel.tokensGenerated)" : "—")
+                        ?? (viewModel.tokensGenerated > 0 ? "\(viewModel.tokensGenerated)" : "—"),
+                    icon: "number",
+                    color: .chartTokens
                 )
 
                 DetailStatCell(
                     title: "Eval Duration",
-                    value: viewModel.currentSession?.evalDuration.map { Formatters.duration($0) } ?? "—"
+                    value: viewModel.currentSession?.evalDuration.map { Formatters.duration($0) } ?? "—",
+                    icon: "timer",
+                    color: .anubisMuted
                 )
 
                 // Row 3: Thermal / Peak GPU Power / Avg W/Token / Connection
                 DetailStatCell(
                     title: "Thermal",
-                    value: viewModel.currentMetrics?.thermalState.description ?? "—"
+                    value: viewModel.currentMetrics?.thermalState.description ?? "—",
+                    icon: "thermometer.medium",
+                    color: .anubisWarning
                 )
 
                 DetailStatCell(
                     title: "Peak GPU Power",
-                    value: viewModel.currentSession?.peakGpuPowerWatts.map { Formatters.watts($0) } ?? "—"
+                    value: viewModel.currentSession?.peakGpuPowerWatts.map { Formatters.watts($0) } ?? "—",
+                    icon: "bolt.fill",
+                    color: .chartGPUPower
                 )
 
                 DetailStatCell(
                     title: "Avg W/Token",
-                    value: viewModel.currentSession?.avgWattsPerToken.map { String(format: "%.2f W/tok", $0) } ?? "—"
+                    value: viewModel.currentSession?.avgWattsPerToken.map { String(format: "%.2f W/tok", $0) } ?? "—",
+                    icon: "leaf.fill",
+                    color: .chartEfficiency
                 )
 
                 DetailStatCell(
                     title: "Connection",
-                    value: viewModel.connectionName
+                    value: viewModel.connectionName,
+                    icon: "network",
+                    color: .anubisMuted
                 )
             }
 
             // Chip info + backend summary line
             HStack(spacing: Spacing.sm) {
+                Text(viewModel.selectedModel?.name ?? viewModel.currentSession?.modelName ?? "—")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                Text("•")
+                    .font(.caption2)
+                    .foregroundStyle(.quaternary)
+
                 let chip = ChipInfo.current
-                Text("Chip: \(chip.summary)")
+                Text(chip.summary)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -661,7 +810,14 @@ struct BenchmarkView: View {
                     .font(.caption2)
                     .foregroundStyle(.quaternary)
 
+                Text("Process: \(viewModel.currentBackendProcessName ?? "None")")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                // Menu renders as broken image in ImageRenderer, so keep it
+                // minimal — the static text above carries the info for exports.
                 ProcessPickerMenu(viewModel: viewModel)
+                    .accessibilityIdentifier("processPickerMenu")
 
                 Spacer()
 
@@ -770,12 +926,21 @@ private struct InferenceStatsButton: View {
 struct DetailStatCell: View {
     let title: String
     let value: String
+    var icon: String? = nil
+    var color: Color? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                if let icon, let color {
+                    Image(systemName: icon)
+                        .font(.system(size: 9))
+                        .foregroundStyle(color)
+                }
+                Text(title)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             Text(value)
                 .font(.mono(13, weight: .medium))
                 .foregroundStyle(value == "—" ? .tertiary : .primary)
@@ -933,7 +1098,7 @@ struct ModelMemoryCard: View {
     let cpu: Int64
     var isOllamaBackend: Bool = true
 
-    private let helpText = "Model allocation reported by Ollama's /api/ps endpoint. On Apple Silicon, GPU and CPU share unified memory. Process Memory (above) shows the full resident footprint."
+    private let helpText = "Model allocation reported by Ollama's /api/ps endpoint. On Apple Silicon, GPU and CPU share unified memory. Total Memory (above) shows the full resident footprint."
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -996,151 +1161,280 @@ struct ModelMemoryCard: View {
 
 // MARK: - Expanded Metrics View
 
-/// Expanded metrics dashboard (presented as a resizable window)
+/// Screenshot-friendly benchmark results dashboard.
+/// Designed for content creators to capture and share in videos/posts.
 struct ExpandedMetricsView: View {
     @ObservedObject var viewModel: BenchmarkViewModel
 
+    private var chip: ChipInfo { ChipInfo.current }
+    private let topColumns = [GridItem(.flexible()), GridItem(.flexible())]
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Title bar
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Benchmark Results")
-                        .font(.headline)
-                    if let model = viewModel.selectedModel {
-                        Text(model.name)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+        ScrollView {
+            VStack(spacing: Spacing.md) {
+                // Top row: Hero header card | Metrics card
+                LazyVGrid(columns: topColumns, spacing: Spacing.md) {
+                    heroCard
+                    metricsCard
                 }
 
-                Spacer()
-
-                if viewModel.isRunning {
-                    HStack(spacing: Spacing.xs) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Running...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Button("Done") { NSApp.keyWindow?.close() }
-                    .keyboardShortcut(.escape, modifiers: [])
+                // Charts
+                chartsSection
             }
-            .padding(Spacing.md)
-            .background(.bar)
-
-            Divider()
-
-            // Main content
-            ScrollView {
-                VStack(spacing: Spacing.lg) {
-                    // Metrics cards in wider layout
-                    metricsCardsSection
-
-                    // Detailed stats
-                    detailedStatsSection
-
-                    // Charts section
-                    chartsSection
-                }
+            .padding(Spacing.lg)
+        }
+        .overlay(alignment: .topTrailing) {
+            exportMenu
                 .padding(Spacing.lg)
+        }
+    }
+
+    // MARK: - Export
+
+    private var exportMenu: some View {
+        Menu {
+            Button {
+                copyToClipboard()
+            } label: {
+                Label("Copy to Clipboard", systemImage: "doc.on.doc")
             }
+            .keyboardShortcut("c", modifiers: .command)
+
+            Button {
+                saveAsPNG()
+            } label: {
+                Label("Save as PNG…", systemImage: "square.and.arrow.down")
+            }
+
+            Button {
+                shareImage()
+            } label: {
+                Label("Share…", systemImage: "square.and.arrow.up")
+            }
+        } label: {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .help("Export benchmark results")
+    }
+
+    /// The content rendered for export — same layout as the live view but with a watermark overlay.
+    private var exportableContent: some View {
+        VStack(spacing: Spacing.md) {
+            LazyVGrid(columns: topColumns, spacing: Spacing.md) {
+                heroCard
+                metricsCard
+            }
+            chartsSection
+        }
+        .padding(Spacing.lg)
+        .overlay(alignment: .bottomTrailing) {
+            watermark
+                .padding(.bottom, Spacing.md)
+                .padding(.trailing, Spacing.lg)
         }
     }
 
-    // MARK: - Metrics Cards Section
-
-    private var metricsCardsSection: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
-            // Row 1: Performance
-            CompactMetricsCard(
-                title: "Tokens/sec",
-                value: viewModel.formattedTokensPerSecond,
-                icon: "bolt.fill",
-                color: .chartTokens,
-                subtitle: viewModel.peakTokensPerSecond > 0 ? "Peak: \(viewModel.formattedPeakTokensPerSecond)" : nil,
-                help: "Average tokens generated per second."
-            )
-
-            CompactMetricsCard(
-                title: "GPU",
-                value: String(format: "%.0f%%", viewModel.gpuUtilizationPercent),
-                icon: "gpu",
-                color: .chartGPU,
-                available: viewModel.hasHardwareMetrics,
-                help: "GPU utilization from IOReport."
-            )
-
-            CompactMetricsCard(
-                title: "CPU",
-                value: String(format: "%.0f%%", viewModel.cpuUtilizationPercent),
-                icon: "cpu",
-                color: .chartCPU,
-                help: "CPU utilization across all cores."
-            )
-
-            CompactMetricsCard(
-                title: "TTFT",
-                value: viewModel.timeToFirstToken.map { Formatters.milliseconds($0 * 1000) } ?? "—",
-                icon: "clock.arrow.circlepath",
-                color: .chartTokens,
-                help: "Time to first token."
-            )
-
-            // Row 2: Power & System
-            CompactMetricsCard(
-                title: "Avg GPU Power",
-                value: viewModel.avgGPUPowerFormatted,
-                icon: "bolt.horizontal.fill",
-                color: .chartGPUPower,
-                available: viewModel.hasPowerMetrics,
-                subtitle: viewModel.peakGpuPower > 0 ? "Peak: \(viewModel.peakGPUPowerFormatted)" : nil,
-                help: "Average GPU power during benchmark."
-            )
-
-            CompactMetricsCard(
-                title: "Avg System Power",
-                value: viewModel.avgSystemPowerFormatted,
-                icon: "powerplug.fill",
-                color: .chartSystemPower,
-                available: viewModel.hasPowerMetrics,
-                subtitle: viewModel.peakSystemPower > 0 ? "Peak: \(viewModel.peakSystemPowerFormatted)" : nil,
-                help: "Average SoC power (GPU + CPU + ANE + DRAM)."
-            )
-
-            CompactMetricsCard(
-                title: "W/Token",
-                value: viewModel.currentWattsPerTokenFormatted,
-                icon: "leaf.fill",
-                color: .chartEfficiency,
-                available: viewModel.hasPowerMetrics,
-                help: "Power efficiency: avg system watts ÷ tokens/sec."
-            )
-
-            CompactMetricsCard(
-                title: "Backend Mem",
-                value: viewModel.formattedBackendMemory,
-                icon: "memorychip",
-                color: .chartMemory,
-                help: "Backend process resident memory."
-            )
+    private var watermark: some View {
+        HStack(spacing: 4) {
+            if let appIcon = NSApp.applicationIconImage {
+                Image(nsImage: appIcon)
+                    .resizable()
+                    .frame(width: 16, height: 16)
+            }
+            Text("anubis by JT")
+                .font(.system(size: 11, weight: .medium))
         }
+        .foregroundStyle(.primary)
+        .opacity(0.4)
     }
 
-    private var thermalColor: Color {
-        switch viewModel.currentMetrics?.thermalState {
-        case .nominal: return .green
-        case .fair: return .yellow
-        case .serious: return .orange
-        case .critical: return .red
-        case .none: return .gray
-        }
+    @Environment(\.colorScheme) private var colorScheme
+
+    @MainActor
+    private func renderImage() -> NSImage? {
+        let content = exportableContent
+            .frame(width: 1100)
+            .environment(\.colorScheme, colorScheme)
+            .environment(\.isExporting, true)
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = 2.0
+        return renderer.nsImage
     }
 
-    // MARK: - Charts Section (mirrors LiveChartsView layout)
+    private func copyToClipboard() {
+        guard let image = renderImage() else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([image])
+    }
+
+    private func saveAsPNG() {
+        guard let image = renderImage(),
+              let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let pngData = bitmap.representation(using: .png, properties: [:])
+        else { return }
+
+        let modelSlug = (viewModel.selectedModel?.name ?? viewModel.currentSession?.modelName ?? "benchmark")
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let defaultName = "anubis-\(modelSlug)-\(timestamp).png"
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = defaultName
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? pngData.write(to: url)
+    }
+
+    private func shareImage() {
+        guard let image = renderImage() else { return }
+        // Find the key window's content view to anchor the sharing picker
+        guard let contentView = NSApp.keyWindow?.contentView else { return }
+        let picker = NSSharingServicePicker(items: [image])
+        // Anchor near the top-right where the export button is
+        let anchorRect = NSRect(x: contentView.bounds.maxX - 40, y: contentView.bounds.maxY - 40, width: 1, height: 1)
+        picker.show(relativeTo: anchorRect, of: contentView, preferredEdge: .minY)
+    }
+
+    // MARK: - Hero Card (left)
+
+    private var heroCard: some View {
+        HStack(spacing: 0) {
+            // Left half: Model + Chip
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                Text(viewModel.selectedModel?.name ?? viewModel.currentSession?.modelName ?? "—")
+                    .font(.system(size: 24, weight: .bold, design: .default))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+
+                Spacer(minLength: Spacing.xs)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ChipInfo.macModelName)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(chip.name)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: Spacing.xs) {
+                        Text("\(chip.performanceCores)P + \(chip.efficiencyCores)E")
+                        if chip.gpuCores > 0 {
+                            Text("·")
+                                .foregroundStyle(.secondary)
+                            Text("\(chip.gpuCores) GPU")
+                                .font(.system(size: 16, weight: .medium))
+                        }
+                        Text("·")
+                            .foregroundStyle(.secondary)
+                        Text("\(chip.unifiedMemoryGB) GB")
+                            .font(.system(size: 16, weight: .medium))
+                    }
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(Spacing.md)
+
+            // Right half: tok/s hero with tinted background
+            VStack(spacing: Spacing.sm) {
+                Spacer(minLength: 0)
+
+                HStack(alignment: .firstTextBaseline, spacing: Spacing.xs) {
+                    Text(viewModel.formattedTokensPerSecond)
+                        .font(.system(size: 36, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color.chartTokens)
+                    Text("")
+                        .font(.system(size: 15, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.chartTokens.opacity(0.7))
+                }
+
+                HStack(spacing: Spacing.sm) {
+                    if viewModel.peakTokensPerSecond > 0 {
+                        Label("Peak \(viewModel.formattedPeakTokensPerSecond)", systemImage: "arrow.up")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    }
+                    if let ttft = viewModel.timeToFirstToken {
+                        Label("TTFT \(Formatters.milliseconds(ttft * 1000))", systemImage: "clock")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    }
+                    if viewModel.elapsedTime > 0 {
+                        Label(Formatters.duration(viewModel.elapsedTime), systemImage: "timer")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(Spacing.md)
+            .background(Color.chartTokens.opacity(0.06))
+        }
+        .background {
+            RoundedRectangle(cornerRadius: CornerRadius.lg)
+                .fill(Color.cardBackgroundElevated)
+                .overlay {
+                    RoundedRectangle(cornerRadius: CornerRadius.lg)
+                        .strokeBorder(Color.cardBorder, lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.lg))
+    }
+
+    // MARK: - Metrics Card (right)
+
+    private var metricsCard: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: Spacing.sm) {
+            // Row 1: Utilization + TTFT
+            expandedStat(icon: "gpu", label: "GPU", value: String(format: "%.0f%%", viewModel.gpuUtilizationPercent), color: .chartGPU, available: viewModel.hasHardwareMetrics)
+            expandedStat(icon: "cpu", label: "CPU", value: String(format: "%.0f%%", viewModel.cpuUtilizationPercent), color: .chartCPU)
+            expandedStat(icon: "clock", label: "TTFT", value: viewModel.timeToFirstToken.map { Formatters.milliseconds($0 * 1000) } ?? "—", color: .chartTokens)
+            expandedStat(icon: "memorychip", label: "Memory", value: viewModel.formattedBackendMemory, color: .chartMemory)
+
+            // Row 2: Power
+            expandedStat(icon: "bolt.horizontal.fill", label: "GPU Power", value: viewModel.avgGPUPowerFormatted, color: .chartGPUPower, available: viewModel.hasPowerMetrics)
+            expandedStat(icon: "powerplug.fill", label: "System Power", value: viewModel.avgSystemPowerFormatted, color: .chartSystemPower, available: viewModel.hasPowerMetrics)
+            expandedStat(icon: "leaf.fill", label: "W/Token", value: viewModel.currentWattsPerTokenFormatted, color: .chartEfficiency, available: viewModel.hasPowerMetrics)
+            expandedStat(icon: "gauge.with.dots.needle.67percent", label: "GPU Freq", value: viewModel.currentGPUFrequencyFormatted, color: .chartFrequency, available: viewModel.hasPowerMetrics)
+
+            // Row 3: Session details
+            expandedStat(icon: "number", label: "Tokens", value: viewModel.tokensGenerated > 0 ? "\(viewModel.tokensGenerated)" : "—", color: .chartTokens)
+            expandedStat(icon: "arrow.up.right", label: "Peak Memory", value: viewModel.currentPeakMemory > 0 ? Formatters.bytes(viewModel.currentPeakMemory) : "—", color: .chartMemory)
+            expandedStat(icon: "bolt.fill", label: "Peak GPU Power", value: viewModel.peakGpuPower > 0 ? viewModel.peakGPUPowerFormatted : "—", color: .chartGPUPower, available: viewModel.hasPowerMetrics)
+            expandedStat(icon: "network", label: "Connection", value: viewModel.connectionName, color: .anubisMuted)
+        }
+        .cardStyle()
+    }
+
+    private func expandedStat(icon: String, label: String, value: String, color: Color, available: Bool = true) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 9))
+                    .foregroundStyle(color)
+                Text(label)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            Text(available ? value : "—")
+                .font(.mono(14, weight: .semibold))
+                .foregroundStyle(available && value != "—" ? .primary : .tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Charts Section
 
     private var chartsSection: some View {
         LiveChartsView(
@@ -1148,84 +1442,11 @@ struct ExpandedMetricsView: View {
             isRunning: viewModel.isRunning,
             hasHardwareMetrics: viewModel.hasHardwareMetrics,
             hasPowerMetrics: viewModel.hasPowerMetrics,
-            currentMemoryBytes: (viewModel.currentMetrics?.memoryUsedBytes ?? 0) + viewModel.modelMemoryTotal,
-            totalMemoryBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1
+            currentMemoryBytes: viewModel.effectiveBackendMemoryBytes,
+            totalMemoryBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
+            perCoreSnapshot: viewModel.latestPerCoreSnapshot,
+            onExpandCores: { viewModel.openCoreDetailWindow() }
         )
-    }
-
-    // MARK: - Detailed Stats Section
-
-    private var detailedStatsSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text("Session Details")
-                .font(.headline)
-                .padding(.bottom, Spacing.xs)
-
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
-                DetailStatCell(
-                    title: "Avg Token Latency",
-                    value: viewModel.currentSession?.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—"
-                )
-
-                DetailStatCell(
-                    title: "Total Duration",
-                    value: viewModel.elapsedTime > 0
-                        ? Formatters.duration(viewModel.elapsedTime)
-                        : "—"
-                )
-
-                DetailStatCell(
-                    title: "Model Load Time",
-                    value: viewModel.currentSession?.loadDuration.map { Formatters.duration($0) } ?? "—"
-                )
-
-                DetailStatCell(
-                    title: "GPU Frequency",
-                    value: viewModel.currentGPUFrequencyFormatted
-                )
-
-                DetailStatCell(
-                    title: "Peak Memory",
-                    value: viewModel.currentPeakMemory > 0
-                        ? Formatters.bytes(viewModel.currentPeakMemory)
-                        : viewModel.currentSession?.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—"
-                )
-
-                DetailStatCell(
-                    title: "Peak GPU Power",
-                    value: viewModel.currentSession?.peakGpuPowerWatts.map { Formatters.watts($0) } ?? "—"
-                )
-
-                DetailStatCell(
-                    title: "Avg W/Token",
-                    value: viewModel.currentSession?.avgWattsPerToken.map { String(format: "%.2f W/tok", $0) } ?? "—"
-                )
-
-                DetailStatCell(
-                    title: "Connection",
-                    value: viewModel.connectionName
-                )
-            }
-
-            // Chip info summary
-            HStack(spacing: Spacing.sm) {
-                let chip = ChipInfo.current
-                Text("Chip: \(chip.summary)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                Text("•")
-                    .font(.caption2)
-                    .foregroundStyle(.quaternary)
-
-                ProcessPickerMenu(viewModel: viewModel)
-
-                Spacer()
-            }
-            .padding(.top, Spacing.xxs)
-        }
-        .padding(Spacing.md)
-        .background(Color.cardBackgroundElevated, in: RoundedRectangle(cornerRadius: CornerRadius.lg))
     }
 }
 
@@ -1235,6 +1456,7 @@ struct ExpandedMetricsView: View {
 /// Shows auto-detected backend or lets user pick any process with >50MB RSS.
 private struct ProcessPickerMenu: View {
     @ObservedObject var viewModel: BenchmarkViewModel
+    @Environment(\.isExporting) private var isExporting
 
     /// Top N processes to show (already sorted by memory descending)
     private var topProcesses: [ProcessCandidate] {
@@ -1242,6 +1464,7 @@ private struct ProcessPickerMenu: View {
     }
 
     var body: some View {
+        if !isExporting {
         Menu {
             // Auto-detect option
             Button {
@@ -1312,6 +1535,7 @@ private struct ProcessPickerMenu: View {
                 Task { await viewModel.refreshProcessList() }
             }
         }
+        } // if !isExporting
     }
 
     private var processDisplayName: String {
@@ -1335,6 +1559,8 @@ struct ChartGrid: View {
     let hasPowerMetrics: Bool
     let currentMemoryBytes: Int64
     let totalMemoryBytes: Int64
+    var perCoreSnapshot: [CoreUtilization] = []
+    var onExpandCores: (() -> Void)? = nil
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -1366,7 +1592,7 @@ struct ChartGrid: View {
                 )
             }
 
-            // Row 2: CPU Utilization | Process Memory
+            // Row 2: CPU Utilization | Total Memory
             if hasHardwareMetrics {
                 TimelineChart(
                     title: "CPU Utilization",
@@ -1378,14 +1604,14 @@ struct ChartGrid: View {
             }
 
             MemoryTimelineChart(
-                title: "Process Memory",
+                title: "Total Memory",
                 data: data.memoryUtilization,
                 currentBytes: currentMemoryBytes,
                 totalBytes: totalMemoryBytes,
                 color: .chartMemory
             )
 
-            // Row 3: GPU Power | CPU Power
+            // Row 3: GPU Power | CPU Cores
             if hasPowerMetrics && data.hasPowerData {
                 TimelineChart(
                     title: "GPU Power",
@@ -1394,12 +1620,9 @@ struct ChartGrid: View {
                     unit: "W"
                 )
 
-                TimelineChart(
-                    title: "CPU Power",
-                    data: data.cpuPower,
-                    color: .chartCPUPower,
-                    unit: "W"
-                )
+                CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                    onExpandCores?()
+                }
 
                 // Row 4: System Power | GPU Frequency
                 TimelineChart(
@@ -1416,13 +1639,27 @@ struct ChartGrid: View {
                     unit: "MHz"
                 )
 
-                // Row 5: Watts/Token
+                // Row 5: Watts/Token | CPU Power
                 TimelineChart(
                     title: "Watts per Token",
                     data: data.wattsPerToken,
                     color: .chartEfficiency,
                     unit: "W/tok"
                 )
+
+                TimelineChart(
+                    title: "CPU Power",
+                    data: data.cpuPower,
+                    color: .chartCPUPower,
+                    unit: "W"
+                )
+            }
+
+            // Show core grid even without power metrics (standalone in last row)
+            if !hasPowerMetrics || !data.hasPowerData {
+                CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                    onExpandCores?()
+                }
             }
         }
     }
@@ -1437,6 +1674,8 @@ private struct LiveChartsView: View {
     let hasPowerMetrics: Bool
     let currentMemoryBytes: Int64
     let totalMemoryBytes: Int64
+    var perCoreSnapshot: [CoreUtilization] = []
+    var onExpandCores: (() -> Void)? = nil
 
     var body: some View {
         ChartGrid(
@@ -1444,7 +1683,9 @@ private struct LiveChartsView: View {
             hasHardwareMetrics: hasHardwareMetrics,
             hasPowerMetrics: hasPowerMetrics,
             currentMemoryBytes: currentMemoryBytes,
-            totalMemoryBytes: totalMemoryBytes
+            totalMemoryBytes: totalMemoryBytes,
+            perCoreSnapshot: perCoreSnapshot,
+            onExpandCores: onExpandCores
         )
     }
 }

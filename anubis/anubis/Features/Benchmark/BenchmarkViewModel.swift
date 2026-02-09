@@ -44,6 +44,37 @@ final class ResponseTextStore: ObservableObject {
     }
 }
 
+// MARK: - Per-Core Chart Data (live-only)
+
+struct CoreTimeSeries {
+    let coreIndex: Int
+    let coreType: CoreType
+    var samples: [(Date, Double)]  // utilization 0–100%
+
+    static let maxSamples = 60
+}
+
+struct PerCoreChartData {
+    var cores: [Int: CoreTimeSeries]  // keyed by coreIndex
+
+    mutating func append(snapshot: [CoreUtilization], at date: Date) {
+        for core in snapshot {
+            var series = cores[core.coreIndex] ?? CoreTimeSeries(
+                coreIndex: core.coreIndex,
+                coreType: core.coreType,
+                samples: []
+            )
+            series.samples.append((date, core.utilization * 100))
+            if series.samples.count > CoreTimeSeries.maxSamples {
+                series.samples.removeFirst()
+            }
+            cores[core.coreIndex] = series
+        }
+    }
+
+    static let empty = PerCoreChartData(cores: [:])
+}
+
 /// ViewModel for the Benchmark module
 /// Manages benchmark sessions, coordinates inference with metrics collection
 @MainActor
@@ -183,6 +214,12 @@ final class BenchmarkViewModel: ObservableObject {
     /// entire view hierarchy (especially text streaming) on every chart update.
     let chartStore = BenchmarkChartStore()
 
+    /// Per-core utilization data (live-only, not persisted)
+    @Published private(set) var perCoreData: PerCoreChartData = .empty
+
+    /// Latest per-core snapshot for the inline grid
+    @Published private(set) var latestPerCoreSnapshot: [CoreUtilization] = []
+
     /// Response text lives in a separate observable so metric card @Published
     /// updates don't trigger NSTextView re-evaluation (the #1 streaming bottleneck).
     let responseTextStore = ResponseTextStore()
@@ -205,6 +242,7 @@ final class BenchmarkViewModel: ObservableObject {
     /// References to spawned windows (kept alive while open)
     private(set) var historyWindow: NSWindow?
     private(set) var expandedMetricsWindow: NSWindow?
+    private(set) var coreDetailWindow: NSWindow?
     private var sessionDetailWindows: [Int64: NSWindow] = [:]
 
     // Sampling configuration
@@ -354,6 +392,8 @@ final class BenchmarkViewModel: ObservableObject {
         error = nil
         currentSamplesInternal = []
         chartStore.reset()
+        perCoreData = .empty
+        latestPerCoreSnapshot = []
 
         // Reset stream buffers
         streamLock.withLock { $0 = StreamBuffers() }
@@ -790,9 +830,8 @@ final class BenchmarkViewModel: ObservableObject {
         let contentSize = NSSize(width: width, height: height)
 
         let view = ExpandedMetricsView(viewModel: self)
-            .frame(minWidth: 700, idealWidth: width, minHeight: 500, idealHeight: height)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         let controller = NSHostingController(rootView: view)
-        controller.preferredContentSize = contentSize
 
         let mask: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
         let window = NSWindow(
@@ -816,12 +855,45 @@ final class BenchmarkViewModel: ObservableObject {
         expandedMetricsWindow = window
     }
 
+    /// Open the per-core CPU detail window
+    func openCoreDetailWindow() {
+        if let existing = coreDetailWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(self)
+            return
+        }
+
+        let view = CoreDetailView(viewModel: self)
+            .frame(minWidth: 500, minHeight: 400)
+        let controller = NSHostingController(rootView: view)
+
+        let mask: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 500),
+            styleMask: mask,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.title = "CPU Core Detail"
+        window.minSize = NSSize(width: 500, height: 400)
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .disallowed
+        let autosaveName = NSWindow.FrameAutosaveName("AnubisCoreDetailWindow")
+        if !window.setFrameAutosaveName(autosaveName) {
+            window.center()
+        }
+        window.makeKeyAndOrderFront(self)
+        coreDetailWindow = window
+    }
+
     /// Close any open auxiliary windows (called when navigating away)
     func closeAuxiliaryWindows() {
         historyWindow?.close()
         historyWindow = nil
         expandedMetricsWindow?.close()
         expandedMetricsWindow = nil
+        coreDetailWindow?.close()
+        coreDetailWindow = nil
         for (_, window) in sessionDetailWindows {
             window.close()
         }
@@ -834,7 +906,15 @@ final class BenchmarkViewModel: ObservableObject {
         metricsSubscription = metricsService.$currentMetrics
             .receive(on: DispatchQueue.main)
             .sink { [weak self] metrics in
-                self?.currentMetrics = metrics
+                guard let self = self else { return }
+                self.currentMetrics = metrics
+                // Update per-core snapshot from live metrics (even outside benchmark)
+                if let perCore = metrics?.perCoreUtilization, !perCore.isEmpty {
+                    self.latestPerCoreSnapshot = perCore
+                    if self.isRunning {
+                        self.perCoreData.append(snapshot: perCore, at: Date())
+                    }
+                }
             }
     }
 
@@ -954,13 +1034,23 @@ final class BenchmarkViewModel: ObservableObject {
         // Read cached metrics — NO system calls, just a property read
         guard let metrics = metricsService.latestMetrics else { return }
 
-        // Process tree memory (from ProcessMonitor) already includes model memory
-        // in RSS — no need to add modelMemoryTotal from /api/ps on top.
+        // Process tree walk may miss the model runner process (e.g. ollama_llama_server).
+        // When the API reports a model allocation larger than the tree RSS, the runner
+        // wasn't captured — add model size on top. When tree RSS already exceeds the
+        // model allocation, the tree captured everything — use it as-is.
+        let reportedMemory = metrics.memoryUsedBytes
+        let effectiveMemory: Int64
+        if modelMemoryTotal > 0, reportedMemory < modelMemoryTotal {
+            effectiveMemory = reportedMemory + modelMemoryTotal
+        } else {
+            effectiveMemory = reportedMemory
+        }
+
         let snapshotMetrics = SystemMetrics(
             timestamp: Date(),
             gpuUtilization: metrics.gpuUtilization,
             cpuUtilization: metrics.cpuUtilization,
-            memoryUsedBytes: metrics.memoryUsedBytes,
+            memoryUsedBytes: effectiveMemory,
             memoryTotalBytes: metrics.memoryTotalBytes,
             thermalState: metrics.thermalState,
             gpuPowerWatts: metrics.gpuPowerWatts,
@@ -969,7 +1059,7 @@ final class BenchmarkViewModel: ObservableObject {
             dramPowerWatts: metrics.dramPowerWatts,
             systemPowerWatts: metrics.systemPowerWatts,
             gpuFrequencyMHz: metrics.gpuFrequencyMHz,
-            backendProcessMemoryBytes: metrics.backendProcessMemoryBytes,
+            backendProcessMemoryBytes: effectiveMemory > 0 ? effectiveMemory : nil,
             backendProcessCPUPercent: metrics.backendProcessCPUPercent,
             backendProcessName: metrics.backendProcessName
         )
@@ -994,9 +1084,9 @@ final class BenchmarkViewModel: ObservableObject {
         currentSamplesInternal.append(sample)
         pendingDBSamples.append(sample)
 
-        // Track peak backend process memory
-        if metrics.memoryUsedBytes > currentPeakMemory {
-            currentPeakMemory = metrics.memoryUsedBytes
+        // Track peak backend process memory (using compensated value)
+        if effectiveMemory > currentPeakMemory {
+            currentPeakMemory = effectiveMemory
         }
 
         // Accumulate power stats for running avg/peak
@@ -1182,15 +1272,16 @@ extension BenchmarkViewModel {
 
     /// Formatted process tree memory (includes model + server + children)
     var formattedMemoryUsage: String? {
-        guard let metrics = currentMetrics else { return nil }
-        return Formatters.bytes(metrics.memoryUsedBytes)
+        let mem = effectiveBackendMemoryBytes
+        guard mem > 0 else { return nil }
+        return Formatters.bytes(mem)
     }
 
     /// Formatted total process memory (process tree RSS — includes model in memory)
     var formattedTotalMemory: String {
-        let processMemory = currentMetrics?.memoryUsedBytes ?? 0
-        if processMemory > 0 {
-            return Formatters.bytes(processMemory)
+        let mem = effectiveBackendMemoryBytes
+        if mem > 0 {
+            return Formatters.bytes(mem)
         }
         return "—"
     }
@@ -1284,10 +1375,15 @@ extension BenchmarkViewModel {
         return Formatters.watts(peakSystemPower)
     }
 
-    /// Current GPU frequency formatted
+    /// Current GPU frequency formatted (live metrics, falling back to session average)
     var currentGPUFrequencyFormatted: String {
-        guard let freq = currentMetrics?.gpuFrequencyMHz, freq > 0 else { return "—" }
-        return String(format: "%.0f MHz", freq)
+        if let freq = currentMetrics?.gpuFrequencyMHz, freq > 0 {
+            return String(format: "%.0f MHz", freq)
+        }
+        if let freq = currentSession?.avgGpuFrequencyMHz, freq > 0 {
+            return String(format: "%.0f MHz", freq)
+        }
+        return "—"
     }
 
     /// Watts per token formatted (avg system power / avg tok/s)
@@ -1301,9 +1397,21 @@ extension BenchmarkViewModel {
         return String(format: "%.2f W/tok", wpt)
     }
 
+    /// Effective backend memory: compensates when process tree walk misses the model runner.
+    /// When the API-reported model allocation exceeds the tree RSS, the runner wasn't captured
+    /// — add model size on top. Otherwise the tree already includes it.
+    var effectiveBackendMemoryBytes: Int64 {
+        let reported = currentMetrics?.memoryUsedBytes ?? 0
+        if modelMemoryTotal > 0, reported < modelMemoryTotal {
+            return reported + modelMemoryTotal
+        }
+        return reported
+    }
+
     /// Formatted process memory (process tree RSS — includes model + server + children)
     var formattedBackendMemory: String {
-        if let mem = currentMetrics?.backendProcessMemoryBytes, mem > 0 {
+        let mem = effectiveBackendMemoryBytes
+        if mem > 0 {
             return Formatters.bytes(mem)
         }
         return "—"
