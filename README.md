@@ -2,7 +2,7 @@
 
 [![macOS 15+](https://img.shields.io/badge/macOS-15.0%2B-blue?logo=apple&logoColor=white)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-5-orange?logo=swift&logoColor=white)](https://swift.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/Cyberpunk69420/anubis-oss?label=Download&color=brightgreen)](https://github.com/Cyberpunk69420/anubis-oss/releases/latest)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Tip%20Jar-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/jtatuncsoft/tip)
 
@@ -330,6 +330,6 @@ A sandboxed, less feature rich version is also available on the [Mac App Store](
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+GPL-3.0 License — see [LICENSE](LICENSE) for details.
 
 **Other projects:** [DevPad](https://www.devpadapp.com) · [Nabu](https://www.devpadapp.com/nabu.html)
