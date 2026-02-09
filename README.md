@@ -174,10 +174,10 @@ git clone https://github.com/Cyberpunk69420/anubis-oss.git
 cd anubis-oss/anubis
 
 # Build via command line
-xcodebuild -scheme anubis -configuration Debug build
+xcodebuild -scheme anubis-oss -configuration Debug build
 
 # Run tests
-xcodebuild -scheme anubis -configuration Debug test
+xcodebuild -scheme anubis-oss -configuration Debug test
 
 # Or just open in Xcode
 open anubis.xcodeproj
@@ -314,7 +314,7 @@ Contributions are welcome. A few guidelines:
 
 ## Support the Project
 
-If Anubis is useful to you, consider [sponsoring on GitHub](https://github.com/sponsors/Cyberpunk69420). It helps fund continued development and new features.
+If Anubis is useful to you, consider [buying me a coffee on Ko-fi](https://ko-fi.com/jtatuncsoft/tip) or [sponsoring on GitHub](https://github.com/sponsors/Cyberpunk69420). It helps fund continued development and new features.
 
 A sandboxed, less feature rich version is also available on the [Mac App Store](https://apps.apple.com/us/app-bundle/the-architects-toolkit/id1874965091?mt=12) if you prefer a managed install.
 
