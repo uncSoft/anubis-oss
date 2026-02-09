@@ -147,7 +147,7 @@ struct BenchmarkView: View {
                     .padding(Spacing.xs)
                     .background {
                         RoundedRectangle(cornerRadius: CornerRadius.md)
-                            .fill(.regularMaterial)
+                            .fill(Color.cardBackground)
                             .overlay {
                                 RoundedRectangle(cornerRadius: CornerRadius.md)
                                     .strokeBorder(Color.cardBorder, lineWidth: 1)
@@ -276,7 +276,7 @@ struct BenchmarkView: View {
                     .padding(Spacing.xs)
                     .background {
                         RoundedRectangle(cornerRadius: CornerRadius.md)
-                            .fill(.regularMaterial)
+                            .fill(Color.cardBackground)
                             .overlay {
                                 RoundedRectangle(cornerRadius: CornerRadius.md)
                                     .strokeBorder(Color.cardBorder, lineWidth: 1)
@@ -395,6 +395,11 @@ struct BenchmarkView: View {
             HStack {
                 Text("Response")
                     .font(.headline)
+                if let session = viewModel.currentSession,
+                   session.status == .completed,
+                   session.evalDuration != nil {
+                    InferenceStatsButton(session: session)
+                }
                 Spacer()
                 Text(Formatters.tokens(viewModel.tokensGenerated))
                     .font(.caption)
@@ -669,13 +674,94 @@ struct BenchmarkView: View {
         .padding(Spacing.md)
         .background {
             RoundedRectangle(cornerRadius: CornerRadius.lg)
-                .fill(.regularMaterial)
+                .fill(Color.cardBackgroundElevated)
                 .overlay {
                     RoundedRectangle(cornerRadius: CornerRadius.lg)
                         .strokeBorder(Color.cardBorder, lineWidth: 1)
                 }
                 .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
         }
+    }
+}
+
+// MARK: - Inference Stats Button
+
+private struct InferenceStatsButton: View {
+    let session: BenchmarkSession
+    @State private var showing = false
+
+    var body: some View {
+        Button {
+            showing.toggle()
+        } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .popover(isPresented: $showing, arrowEdge: .top) {
+            popoverContent
+        }
+    }
+
+    private var popoverContent: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Inference Stats")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.bottom, 2)
+
+            if let v = session.tokensPerSecond {
+                statRow("response_token/s", formatDecimal(v))
+            }
+            if let promptTokens = session.promptTokens,
+               let promptEval = session.promptEvalDuration, promptEval > 0 {
+                statRow("prompt_token/s", formatDecimal(Double(promptTokens) / promptEval))
+            }
+            if let v = session.totalDuration {
+                statRow("total_duration", formatDuration(v))
+            }
+            if let v = session.loadDuration {
+                statRow("load_duration", formatDuration(v))
+            }
+            if let v = session.promptTokens {
+                statRow("prompt_eval_count", "\(v)")
+            }
+            if let v = session.completionTokens {
+                statRow("eval_count", "\(v)")
+            }
+            if let v = session.promptEvalDuration {
+                statRow("prompt_eval_duration", formatDuration(v))
+            }
+            if let v = session.evalDuration {
+                statRow("eval_duration", formatDuration(v))
+            }
+            if let v = session.totalTokens {
+                statRow("total_tokens", "\(v)")
+            }
+        }
+        .padding(Spacing.sm)
+        .frame(width: 260)
+    }
+
+    private func statRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.mono(12, weight: .medium))
+        }
+    }
+
+    private func formatDecimal(_ v: Double) -> String {
+        String(format: "%.2f", v)
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        String(format: "%.2fs", seconds)
     }
 }
 
@@ -1139,7 +1225,7 @@ struct ExpandedMetricsView: View {
             .padding(.top, Spacing.xxs)
         }
         .padding(Spacing.md)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: CornerRadius.lg))
+        .background(Color.cardBackgroundElevated, in: RoundedRectangle(cornerRadius: CornerRadius.lg))
     }
 }
 

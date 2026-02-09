@@ -55,7 +55,7 @@ struct TimelineChart: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(height: 120)
+        .frame(height: 150)
     }
 
     private var chart: some View {
@@ -100,7 +100,7 @@ struct TimelineChart: View {
             }
         }
         .chartYScale(domain: yDomain)
-        .frame(height: 120)
+        .frame(height: 150)
         .clipped()
     }
 
