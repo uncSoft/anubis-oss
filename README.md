@@ -10,7 +10,7 @@
 
 Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any OpenAI-compatible endpoint - Ollama, MLX, LM Studio Server, OpenWebUI, Docker Models, etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance - something no CLI tool or chat wrapper offers. Export benchmarks directly without having to screenshot, and export the raw data as .MD or .CSV from the history. You can even `OLLAMA PULL` models directly within the app.
 
-<img width="550" height="756" alt="anubis-gemma-7b-2026-02-09T18-48-54Z" src="https://github.com/user-attachments/assets/c52d4309-9adf-456f-84cc-12c0f0550996" />
+<img width="847" height="1058" alt="Screenshot 2026-02-09 at 5 48 57 PM" src="https://github.com/user-attachments/assets/88e70098-0790-4f62-8d79-35ff4a03f21a" />
 
 <img width="900" height="560" alt="Screenshot 2026-02-09 at 1 48 47 PM" src="https://github.com/user-attachments/assets/e8eabae3-3bba-4171-ab3f-f42bd73d4d19" />
 
