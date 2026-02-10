@@ -47,7 +47,7 @@ struct DebugInspectorPanel: View {
                     // Expanded detail panel (pops upward)
                     if isExpanded {
                         expandedContent
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .transition(.move(edge: .bottom).combined(with: .blurReplace))
                     }
 
                     // Slim status bar — always in layout
@@ -111,6 +111,7 @@ struct DebugInspectorPanel: View {
         }
         .padding(Spacing.sm)
         .background(Color.cardBackgroundElevated)
+        .background(.regularMaterial)
         .overlay(alignment: .top) {
             Divider()
         }
