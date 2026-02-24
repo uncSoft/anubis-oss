@@ -76,6 +76,9 @@ struct SystemMetrics: Sendable, Codable {
     /// Per-core CPU utilization breakdown (nil when not collected)
     let perCoreUtilization: [CoreUtilization]?
 
+    /// GPU P-state frequency distribution (nil when not available)
+    let gpuPStateDistribution: [GPUPStateResidency]?
+
     // MARK: - Backward-compatible convenience init (original 6 parameters)
 
     init(
@@ -102,6 +105,7 @@ struct SystemMetrics: Sendable, Codable {
         self.backendProcessCPUPercent = nil
         self.backendProcessName = nil
         self.perCoreUtilization = nil
+        self.gpuPStateDistribution = nil
     }
 
     // MARK: - Full init
@@ -122,7 +126,8 @@ struct SystemMetrics: Sendable, Codable {
         backendProcessMemoryBytes: Int64?,
         backendProcessCPUPercent: Double?,
         backendProcessName: String?,
-        perCoreUtilization: [CoreUtilization]? = nil
+        perCoreUtilization: [CoreUtilization]? = nil,
+        gpuPStateDistribution: [GPUPStateResidency]? = nil
     ) {
         self.timestamp = timestamp
         self.gpuUtilization = gpuUtilization
@@ -140,6 +145,7 @@ struct SystemMetrics: Sendable, Codable {
         self.backendProcessCPUPercent = backendProcessCPUPercent
         self.backendProcessName = backendProcessName
         self.perCoreUtilization = perCoreUtilization
+        self.gpuPStateDistribution = gpuPStateDistribution
     }
 
     // MARK: - Computed Properties
@@ -212,6 +218,13 @@ struct ChipInfo: Sendable, Codable {
     let unifiedMemoryGB: Int
     let memoryBandwidthGBs: Double
 
+    /// Mac model marketing name (e.g. "MacBook Pro (14-inch, M4, Nov 2024)")
+    /// Optional for backward compatibility with sessions stored before this field existed.
+    let macModel: String?
+
+    /// Raw hw.model identifier (e.g. "Mac16,1")
+    let macModelIdentifier: String?
+
     /// Detect real chip info using sysctl and IOKit
     static var current: ChipInfo {
         let brandString = sysctlString("machdep.cpu.brand_string") ?? "Apple Silicon"
@@ -232,12 +245,22 @@ struct ChipInfo: Sendable, Codable {
             gpuCores: gpuCores,
             neuralEngineCores: aneCores,
             unifiedMemoryGB: memGB,
-            memoryBandwidthGBs: bandwidth
+            memoryBandwidthGBs: bandwidth,
+            macModel: macModelName,
+            macModelIdentifier: Self.macModelIdentifier
         )
     }
 
-    /// Mac model marketing name (e.g. "MacBook Pro", "Mac mini")
+    /// Mac model marketing name (e.g. "MacBook Pro (14-inch, Nov 2024)")
+    /// Uses hw.model identifier → TelemetryDeck/AppleModelNames lookup for specific names.
+    /// Falls back to IORegistry product-name (generic, e.g. "MacBook Pro") then hw.model raw.
     static var macModelName: String {
+        // Primary: hw.model → lookup table for specific model name
+        if let modelId = sysctlString("hw.model"),
+           let readable = macModelNameTable[modelId] {
+            return readable
+        }
+        // Secondary: IORegistry product-name (generic marketing name)
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
         if service != 0 {
             defer { IOObjectRelease(service) }
@@ -249,6 +272,88 @@ struct ChipInfo: Sendable, Codable {
         }
         return sysctlString("hw.model") ?? "Mac"
     }
+
+    /// hw.model identifier (e.g. "Mac16,1") — exposed for reports/data export
+    static var macModelIdentifier: String {
+        sysctlString("hw.model") ?? "Unknown"
+    }
+
+    // Model identifier → marketing name lookup table
+    // Source: https://github.com/TelemetryDeck/AppleModelNames
+    // cSpell:disable
+    private static let macModelNameTable: [String: String] = [
+        // Apple Silicon — Mac (new identifier format)
+        "Mac13,1": "Mac Studio (M1 Max, 2022)",
+        "Mac13,2": "Mac Studio (M1 Ultra, 2022)",
+        "Mac14,2": "MacBook Air (M2, 2022)",
+        "Mac14,3": "Mac mini (M2, 2023)",
+        "Mac14,5": "MacBook Pro (14-inch, M2 Max, 2023)",
+        "Mac14,6": "MacBook Pro (16-inch, M2 Max, 2023)",
+        "Mac14,7": "MacBook Pro (13-inch, M2, 2022)",
+        "Mac14,8": "Mac Pro (M2 Ultra, 2023)",
+        "Mac14,9": "MacBook Pro (14-inch, M2 Pro, 2023)",
+        "Mac14,10": "MacBook Pro (16-inch, M2 Pro, 2023)",
+        "Mac14,12": "Mac mini (M2 Pro, 2023)",
+        "Mac14,13": "Mac Studio (M2 Max, 2023)",
+        "Mac14,14": "Mac Studio (M2 Ultra, 2023)",
+        "Mac14,15": "MacBook Air (15-inch, M2, 2023)",
+        "Mac15,3": "MacBook Pro (14-inch, M3, Nov 2023)",
+        "Mac15,4": "iMac (24-inch, M3, 2023)",
+        "Mac15,5": "iMac (24-inch, M3, 2023)",
+        "Mac15,6": "MacBook Pro (14-inch, M3 Pro, Nov 2023)",
+        "Mac15,7": "MacBook Pro (16-inch, M3 Pro, Nov 2023)",
+        "Mac15,8": "MacBook Pro (14-inch, M3 Max, Nov 2023)",
+        "Mac15,9": "MacBook Pro (16-inch, M3 Max, Nov 2023)",
+        "Mac15,10": "MacBook Pro (14-inch, M3 Pro, Nov 2023)",
+        "Mac15,11": "MacBook Pro (16-inch, M3 Max, Nov 2023)",
+        "Mac15,12": "MacBook Air (13-inch, M3, 2024)",
+        "Mac15,13": "MacBook Air (15-inch, M3, 2024)",
+        "Mac15,14": "Mac Studio (M3 Ultra, 2025)",
+        "Mac16,1": "MacBook Pro (14-inch, M4, Nov 2024)",
+        "Mac16,2": "iMac (24-inch, M4, 2024)",
+        "Mac16,3": "iMac (24-inch, M4, 2024)",
+        "Mac16,5": "MacBook Pro (16-inch, M4 Max, Nov 2024)",
+        "Mac16,6": "MacBook Pro (14-inch, M4 Pro, Nov 2024)",
+        "Mac16,7": "MacBook Pro (16-inch, M4 Pro, Nov 2024)",
+        "Mac16,8": "MacBook Pro (14-inch, M4 Max, Nov 2024)",
+        "Mac16,9": "Mac Studio (M4 Max, 2025)",
+        "Mac16,10": "Mac mini (M4, 2024)",
+        "Mac16,11": "Mac mini (M4 Pro, 2024)",
+        "Mac16,12": "MacBook Air (13-inch, M4, 2025)",
+        "Mac16,13": "MacBook Air (15-inch, M4, 2025)",
+        "Mac17,2": "MacBook Pro (14-inch, M5, 2025)",
+        // Apple Silicon — legacy identifier format
+        "MacBookAir10,1": "MacBook Air (M1, 2020)",
+        "MacBookPro17,1": "MacBook Pro (13-inch, M1, 2020)",
+        "MacBookPro18,1": "MacBook Pro (16-inch, M1 Max, 2021)",
+        "MacBookPro18,2": "MacBook Pro (16-inch, M1 Max, 2021)",
+        "MacBookPro18,3": "MacBook Pro (14-inch, M1 Pro, 2021)",
+        "MacBookPro18,4": "MacBook Pro (14-inch, M1 Max, 2021)",
+        "Macmini9,1": "Mac mini (M1, 2020)",
+        "iMac21,1": "iMac (24-inch, M1, 2021)",
+        "iMac21,2": "iMac (24-inch, M1, 2021)",
+        // Virtual machines
+        "VirtualMac2,1": "Apple Virtual Machine",
+        // Recent Intel Macs (for completeness)
+        "MacBookPro15,1": "MacBook Pro (15-inch, 2018)",
+        "MacBookPro15,2": "MacBook Pro (13-inch, 2018)",
+        "MacBookPro15,3": "MacBook Pro (15-inch, 2019)",
+        "MacBookPro15,4": "MacBook Pro (13-inch, 2019)",
+        "MacBookPro16,1": "MacBook Pro (16-inch, 2019)",
+        "MacBookPro16,2": "MacBook Pro (13-inch, 2020)",
+        "MacBookPro16,3": "MacBook Pro (13-inch, 2020)",
+        "MacBookAir8,1": "MacBook Air (2018)",
+        "MacBookAir8,2": "MacBook Air (2019)",
+        "MacBookAir9,1": "MacBook Air (2020)",
+        "Macmini8,1": "Mac mini (2018)",
+        "MacPro7,1": "Mac Pro (2019)",
+        "iMac19,1": "iMac (27-inch, 2019)",
+        "iMac19,2": "iMac (21.5-inch, 2019)",
+        "iMac20,1": "iMac (27-inch, 2020)",
+        "iMac20,2": "iMac (27-inch, 2020)",
+        "iMacPro1,1": "iMac Pro (2017)",
+    ]
+    // cSpell:enable
 
     /// Summary string for display (e.g. "Apple M2 Pro · 6P+4E · 19 GPU")
     var summary: String {

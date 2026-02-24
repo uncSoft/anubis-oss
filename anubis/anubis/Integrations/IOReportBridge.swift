@@ -360,6 +360,11 @@ final class IOReportBridge {
         energyReady
     }
 
+    /// GPU P-state frequency table (MHz values, sorted ascending)
+    var frequencyTable: [Double] {
+        gpuFreqTable
+    }
+
     /// Sample current hardware metrics.
     func sample() -> HardwareMetrics {
         // GPU utilization from IORegistry (AGXAccelerator)
@@ -379,6 +384,7 @@ final class IOReportBridge {
                 gpuUtilization: min(1.0, max(0.0, gpuUtilization)),
                 gpuPowerWatts: 0, cpuPowerWatts: 0, anePowerWatts: 0,
                 dramPowerWatts: 0, systemPowerWatts: 0, gpuFrequencyMHz: 0,
+                pStateDistribution: [],
                 isAvailable: gpuServiceAvailable
             )
         }
@@ -409,14 +415,17 @@ final class IOReportBridge {
             }
         }
 
-        // --- GPU Stats delta (frequency) ---
+        // --- GPU Stats delta (frequency + P-state distribution) ---
         var gpuFrequencyMHz: Double = 0
+        var pStateDistribution: [GPUPStateResidency] = []
 
         if gpuStatsReady, let sub = gpuStatsSub, let subbed = gpuStatsSubbed {
             if let current = fns.createSamples(sub, subbed, nil)?.takeRetainedValue() {
                 if let prev = gpuStatsPrevSample {
                     if let delta = fns.createSamplesDelta(prev, current, nil)?.takeRetainedValue() {
-                        gpuFrequencyMHz = parseGPUFrequencyDelta(delta: delta, fns: fns)
+                        let result = parseGPUFrequencyDelta(delta: delta, fns: fns)
+                        gpuFrequencyMHz = result.weightedAverageMHz
+                        pStateDistribution = result.pStateDistribution
                     }
                 }
                 gpuStatsPrevSample = current
@@ -433,6 +442,7 @@ final class IOReportBridge {
             dramPowerWatts: dramPower,
             systemPowerWatts: systemPower,
             gpuFrequencyMHz: gpuFrequencyMHz,
+            pStateDistribution: pStateDistribution,
             isAvailable: gpuServiceAvailable || energyReady
         )
     }
@@ -444,6 +454,11 @@ final class IOReportBridge {
         var cpuPower: Double = 0
         var anePower: Double = 0
         var dramPower: Double = 0
+    }
+
+    private struct GPUFrequencyResult {
+        let weightedAverageMHz: Double
+        let pStateDistribution: [GPUPStateResidency]
     }
 
     private func parseEnergyDelta(delta: CFDictionary, fns: IOReportFunctions, intervalSeconds: Double) -> ParsedPower {
@@ -482,9 +497,11 @@ final class IOReportBridge {
     /// Parse GPU frequency from "GPU Stats" / "GPU Performance States" delta.
     /// The GPUPH channel has state residencies for each P-state.
     /// Weighted average frequency = sum(freq[i] * residency[i]) / sum(residency[i])
-    private func parseGPUFrequencyDelta(delta: CFDictionary, fns: IOReportFunctions) -> Double {
+    /// Also returns per-P-state residency distribution for the detail view.
+    private func parseGPUFrequencyDelta(delta: CFDictionary, fns: IOReportFunctions) -> GPUFrequencyResult {
         var weightedFreqSum: Double = 0
         var totalResidency: Int64 = 0
+        var stateEntries: [(frequencyMHz: Double, residencyNs: Int64)] = []
         let shouldLog = !hasLoggedGpuStats
 
         fns.iterate(delta as NSDictionary) { sample in
@@ -535,6 +552,7 @@ final class IOReportBridge {
                     if freqMHz > 0 {
                         weightedFreqSum += freqMHz * Double(residency)
                         totalResidency += residency
+                        stateEntries.append((frequencyMHz: freqMHz, residencyNs: residency))
                     }
                 }
             }
@@ -547,10 +565,18 @@ final class IOReportBridge {
             Log.metrics.info("GPU Stats result: totalResidency=\(totalResidency) freqTable=\(self.gpuFreqTable.count) states")
         }
 
-        if totalResidency > 0 {
-            return weightedFreqSum / Double(totalResidency)
-        }
-        return 0
+        let avgFreq = totalResidency > 0 ? weightedFreqSum / Double(totalResidency) : 0
+        let distribution: [GPUPStateResidency] = stateEntries
+            .sorted { $0.frequencyMHz < $1.frequencyMHz }
+            .map { entry in
+                GPUPStateResidency(
+                    frequencyMHz: entry.frequencyMHz,
+                    residencyNs: entry.residencyNs,
+                    fraction: totalResidency > 0 ? Double(entry.residencyNs) / Double(totalResidency) : 0
+                )
+            }
+
+        return GPUFrequencyResult(weightedAverageMHz: avgFreq, pStateDistribution: distribution)
     }
 
     /// Parse frequency in MHz from a state name.
@@ -584,6 +610,18 @@ final class IOReportBridge {
     }
 }
 
+// MARK: - GPU P-State Residency
+
+/// Per-P-state residency from IOReport GPU Stats.
+/// Shows how much time the GPU spent at each frequency level.
+struct GPUPStateResidency: Sendable, Codable, Identifiable {
+    let frequencyMHz: Double
+    let residencyNs: Int64
+    let fraction: Double  // 0.0–1.0, proportion of total residency
+
+    var id: Double { frequencyMHz }
+}
+
 // MARK: - Hardware Metrics
 
 /// Hardware metrics from IOKit + IOReport
@@ -595,6 +633,7 @@ struct HardwareMetrics: Sendable {
     let dramPowerWatts: Double      // DRAM power in watts
     let systemPowerWatts: Double    // Sum of all power components
     let gpuFrequencyMHz: Double     // Weighted average GPU frequency (IOReport GPU Stats)
+    let pStateDistribution: [GPUPStateResidency]  // Per-P-state residency distribution
     let isAvailable: Bool
 
     static let unavailable = HardwareMetrics(
@@ -605,6 +644,7 @@ struct HardwareMetrics: Sendable {
         dramPowerWatts: 0,
         systemPowerWatts: 0,
         gpuFrequencyMHz: 0,
+        pStateDistribution: [],
         isAvailable: false
     )
 }

@@ -75,6 +75,42 @@ struct PerCoreChartData {
     static let empty = PerCoreChartData(cores: [:])
 }
 
+// MARK: - GPU Detail Data (live-only)
+
+struct GPUMetricTimeSeries {
+    var samples: [(Date, Double)] = []
+    static let maxSamples = 60
+
+    mutating func append(_ value: Double, at date: Date) {
+        samples.append((date, value))
+        if samples.count > Self.maxSamples {
+            samples.removeFirst()
+        }
+    }
+}
+
+struct GPUDetailData {
+    var utilization = GPUMetricTimeSeries()
+    var frequencyMHz = GPUMetricTimeSeries()
+    var powerWatts = GPUMetricTimeSeries()
+    var latestPStateDistribution: [GPUPStateResidency] = []
+
+    mutating func append(metrics: SystemMetrics, at date: Date) {
+        utilization.append(metrics.gpuUtilization * 100, at: date)
+        if let freq = metrics.gpuFrequencyMHz {
+            frequencyMHz.append(freq, at: date)
+        }
+        if let power = metrics.gpuPowerWatts {
+            powerWatts.append(power, at: date)
+        }
+        if let pState = metrics.gpuPStateDistribution {
+            latestPStateDistribution = pState
+        }
+    }
+
+    static let empty = GPUDetailData()
+}
+
 /// ViewModel for the Benchmark module
 /// Manages benchmark sessions, coordinates inference with metrics collection
 @MainActor
@@ -220,6 +256,12 @@ final class BenchmarkViewModel: ObservableObject {
     /// Latest per-core snapshot for the inline grid
     @Published private(set) var latestPerCoreSnapshot: [CoreUtilization] = []
 
+    /// GPU detail data for the GPU detail pop-out window
+    @Published private(set) var gpuDetailData: GPUDetailData = .empty
+
+    /// Latest GPU utilization for the inline GPU core grid
+    @Published private(set) var latestGPUUtilization: Double = 0
+
     /// Response text lives in a separate observable so metric card @Published
     /// updates don't trigger NSTextView re-evaluation (the #1 streaming bottleneck).
     let responseTextStore = ResponseTextStore()
@@ -243,6 +285,7 @@ final class BenchmarkViewModel: ObservableObject {
     private(set) var historyWindow: NSWindow?
     private(set) var expandedMetricsWindow: NSWindow?
     private(set) var coreDetailWindow: NSWindow?
+    private(set) var gpuDetailWindow: NSWindow?
     private var sessionDetailWindows: [Int64: NSWindow] = [:]
 
     // Sampling configuration
@@ -394,6 +437,7 @@ final class BenchmarkViewModel: ObservableObject {
         chartStore.reset()
         perCoreData = .empty
         latestPerCoreSnapshot = []
+        gpuDetailData = .empty
 
         // Reset stream buffers
         streamLock.withLock { $0 = StreamBuffers() }
@@ -896,6 +940,40 @@ final class BenchmarkViewModel: ObservableObject {
         coreDetailWindow = window
     }
 
+    /// Open the GPU core detail window
+    func openGPUDetailWindow() {
+        if let existing = gpuDetailWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(self)
+            return
+        }
+
+        let view = GPUDetailView(viewModel: self)
+            .frame(minWidth: 600, minHeight: 500)
+        let controller = NSHostingController(rootView: view)
+
+        let mask: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 700),
+            styleMask: mask,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.title = "GPU Core Detail"
+        window.minSize = NSSize(width: 600, height: 500)
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .disallowed
+        let autosaveName = NSWindow.FrameAutosaveName("AnubisGPUDetailWindow")
+        if !window.setFrameAutosaveName(autosaveName) {
+            window.center()
+        } else if window.frame.width < window.minSize.width || window.frame.height < window.minSize.height {
+            window.setContentSize(NSSize(width: 800, height: 700))
+            window.center()
+        }
+        window.makeKeyAndOrderFront(self)
+        gpuDetailWindow = window
+    }
+
     /// Close any open auxiliary windows (called when navigating away)
     func closeAuxiliaryWindows() {
         historyWindow?.close()
@@ -904,6 +982,8 @@ final class BenchmarkViewModel: ObservableObject {
         expandedMetricsWindow = nil
         coreDetailWindow?.close()
         coreDetailWindow = nil
+        gpuDetailWindow?.close()
+        gpuDetailWindow = nil
         for (_, window) in sessionDetailWindows {
             window.close()
         }
@@ -923,6 +1003,13 @@ final class BenchmarkViewModel: ObservableObject {
                     self.latestPerCoreSnapshot = perCore
                     if self.isRunning {
                         self.perCoreData.append(snapshot: perCore, at: Date())
+                    }
+                }
+                // Update GPU utilization and detail data
+                if let metrics = metrics {
+                    self.latestGPUUtilization = metrics.gpuUtilization
+                    if self.isRunning {
+                        self.gpuDetailData.append(metrics: metrics, at: Date())
                     }
                 }
             }

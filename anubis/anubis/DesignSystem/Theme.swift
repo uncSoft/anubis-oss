@@ -29,6 +29,7 @@ extension Color {
     /// Per-core chart colors
     static let chartPCore = Color(hex: "5E5CE6")  // indigo (matches chartGPU family)
     static let chartECore = Color(hex: "32ADE6")   // blue (matches chartCPU family)
+    static let chartGPUCore = Color(hex: "7B7BF7") // lighter indigo, distinct from CPU P-core
 
     /// Power & frequency chart colors
     static let chartGPUPower = Color(hex: "FF6961")

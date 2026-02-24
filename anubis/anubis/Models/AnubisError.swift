@@ -20,6 +20,7 @@ enum AnubisError: LocalizedError {
     case databaseError(underlying: Error)
     case mlxNotAvailable(reason: String)
     case invalidOperation(reason: String)
+    case leaderboardError(reason: String)
 
     var errorDescription: String? {
         switch self {
@@ -45,6 +46,8 @@ enum AnubisError: LocalizedError {
             return "MLX not available: \(reason)"
         case .invalidOperation(let reason):
             return "Invalid operation: \(reason)"
+        case .leaderboardError(let reason):
+            return "Leaderboard error: \(reason)"
         }
     }
 
@@ -76,6 +79,8 @@ enum AnubisError: LocalizedError {
             return "Ensure mlx-swift is properly installed"
         case .invalidOperation:
             return nil
+        case .leaderboardError:
+            return "Check your internet connection and try again"
         }
     }
 }

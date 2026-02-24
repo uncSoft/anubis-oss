@@ -48,6 +48,8 @@ private actor MetricsCollector {
 
         let gpuUtilization = hardwareMetrics.isAvailable ? hardwareMetrics.gpuUtilization : 0.0
 
+        let pStateDist = hardwareMetrics.pStateDistribution.isEmpty ? nil : hardwareMetrics.pStateDistribution
+
         return SystemMetrics(
             timestamp: Date(),
             gpuUtilization: gpuUtilization,
@@ -64,7 +66,8 @@ private actor MetricsCollector {
             backendProcessMemoryBytes: backendMemory > 0 ? backendMemory : nil,
             backendProcessCPUPercent: backendCPU > 0 ? backendCPU : nil,
             backendProcessName: backendName,
-            perCoreUtilization: perCoreUtilization
+            perCoreUtilization: perCoreUtilization,
+            gpuPStateDistribution: pStateDist
         )
     }
 
@@ -410,6 +413,22 @@ extension MetricsService {
         let dramPower = 1.5 + Double.random(in: -0.2...0.2)
         let anePower = demoSimulatedLoad * 0.5
 
+        // Synthetic P-state distribution
+        let demoFreqs: [Double] = [400, 700, 1000, 1200, 1400]
+        let demoPState: [GPUPStateResidency] = demoFreqs.enumerated().map { i, freq in
+            // Higher load biases toward higher frequencies
+            let weight = demoSimulatedLoad * Double(i + 1) / Double(demoFreqs.count) + Double.random(in: 0...0.2)
+            return GPUPStateResidency(frequencyMHz: freq, residencyNs: Int64(weight * 1_000_000), fraction: 0)
+        }
+        let totalNs = demoPState.map(\.residencyNs).reduce(0, +)
+        let normalizedPState = demoPState.map { entry in
+            GPUPStateResidency(
+                frequencyMHz: entry.frequencyMHz,
+                residencyNs: entry.residencyNs,
+                fraction: totalNs > 0 ? Double(entry.residencyNs) / Double(totalNs) : 0
+            )
+        }
+
         return SystemMetrics(
             timestamp: Date(),
             gpuUtilization: gpuUtilization,
@@ -425,7 +444,8 @@ extension MetricsService {
             gpuFrequencyMHz: 1000 + demoSimulatedLoad * 400 + Double.random(in: -50...50),
             backendProcessMemoryBytes: memoryUsed,
             backendProcessCPUPercent: cpuUtilization * 100,
-            backendProcessName: "Demo"
+            backendProcessName: "Demo",
+            gpuPStateDistribution: normalizedPState
         )
     }
 

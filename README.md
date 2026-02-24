@@ -61,6 +61,16 @@ Side-by-side A/B model comparison with the same prompt.
 - Model manager: view loaded models and unload to free memory
 - Comparison history with voting records
 
+### Leaderboard *(New in 2.1)*
+
+Upload your benchmark results to the [community leaderboard](https://devpadapp.com/leaderboard.html) and see how your Mac stacks up against other Apple Silicon machines.
+
+- **One-click upload** from the benchmark toolbar after a completed run
+- **Community rankings** sorted by tokens/sec with full drill-down into performance, power, and hardware details
+- **Filter by chip or model** to compare like-for-like (e.g. all M4 Max results, or all Llama 3.2 runs)
+- **Privacy-first**: no accounts, no response text uploaded — just metrics and a display name
+- HMAC-signed submissions with server-side rate limiting
+
 ### Vault
 
 Unified model management across all backends.

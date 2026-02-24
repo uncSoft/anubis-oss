@@ -15,7 +15,9 @@ enum Constants {
         static let ollamaDefault = URL(string: "http://localhost:11434")!
         static let openAIDefault = URL(string: "http://localhost:8080")!
         static let privacyPolicy = URL(string: "https://devpadapp.com/anubis/privacy.html")!
-        static let website = URL(string: "https://devpadapp.com/anubis/index.html")!
+        static let website = URL(string: "https://devpadapp.com/anubis-oss.html")!
+        static let leaderboardAPI = URL(string: "https://devpadapp.com/anubis/api/")!
+        static let leaderboardPage = URL(string: "https://devpadapp.com/leaderboard.html")!
 
         /// Safely parse a URL string with a fallback
         static func parse(_ string: String, fallback: URL) -> URL {
@@ -54,6 +56,12 @@ enum Constants {
         ]
     }
 
+    // MARK: - Leaderboard
+
+    enum Leaderboard {
+        static let maxDisplayNameLength = 64
+    }
+
     // MARK: - Arena
 
     enum Arena {
@@ -86,5 +94,6 @@ enum Constants {
         static let ollamaBaseURL = "ollamaBaseURL"
         static let metricsPollingInterval = "metricsPollingInterval"
         static let mlxModelDirectories = "mlxModelDirectories"
+        static let leaderboardDisplayName = "leaderboardDisplayName"
     }
 }

@@ -29,6 +29,8 @@ struct BenchmarkView: View {
     @Environment(\.colorScheme) private var colorScheme
     @State private var showSystemPrompt = false
     @State private var showParameters = false
+    @State private var showPerformance = false
+    @State private var showLeaderboardUpload = false
 
     init(
         inferenceService: InferenceService,
@@ -52,7 +54,7 @@ struct BenchmarkView: View {
                     responseSection
                 }
             }
-            .frame(minWidth: 380, idealWidth: 380, maxWidth: 600)
+            .frame(minWidth: 400, idealWidth: 500, maxWidth: 700)
 
             // Right panel - Metrics Dashboard (~70% default)
             ScrollView {
@@ -63,7 +65,7 @@ struct BenchmarkView: View {
                 }
                 .padding(Spacing.md)
             }
-            .frame(minWidth: 500)
+            .frame(minWidth: 300)
             .layoutPriority(1)
         }
         .toolbar {
@@ -87,10 +89,19 @@ struct BenchmarkView: View {
                     } label: {
                         Label("Share…", systemImage: "square.and.arrow.up")
                     }
+
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .help("Export benchmark results")
+
+                Button {
+                    showLeaderboardUpload = true
+                } label: {
+                    Label("Leaderboard", systemImage: "globe.badge.chevron.backward")
+                }
+                .disabled(viewModel.currentSession?.status != .completed)
+                .help("Upload to community leaderboard")
 
                 Button {
                     viewModel.openExpandedMetricsWindow()
@@ -108,6 +119,11 @@ struct BenchmarkView: View {
         }
         .onDisappear {
             viewModel.closeAuxiliaryWindows()
+        }
+        .sheet(isPresented: $showLeaderboardUpload) {
+            if let session = viewModel.currentSession {
+                LeaderboardUploadView(session: session)
+            }
         }
         .task {
             await viewModel.loadModels()
@@ -457,17 +473,8 @@ struct BenchmarkView: View {
                 }
             }
 
-            // Performance toggles
-            VStack(alignment: .leading, spacing: Spacing.sm) {
-                HStack(spacing: Spacing.xs) {
-                    Image(systemName: "gauge.with.dots.needle.33percent")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("Performance")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
+            // Performance toggles (collapsible)
+            DisclosureGroup(isExpanded: $showPerformance) {
                 HStack(spacing: Spacing.md) {
                     Toggle(isOn: $viewModel.streamResponse) {
                         Text("Stream Response")
@@ -484,21 +491,21 @@ struct BenchmarkView: View {
                     .toggleStyle(.switch)
                     .controlSize(.small)
                 }
-
-                Text("Disable to reduce UI load during benchmarks for more accurate measurements.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(Spacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: CornerRadius.md)
-                    .fill(Color.cardBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: CornerRadius.md)
-                            .strokeBorder(Color.cardBorder, lineWidth: 1)
+                .padding(.top, Spacing.xxs)
+            } label: {
+                HStack {
+                    Text("Performance")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if !viewModel.streamResponse || !viewModel.showLiveCharts {
+                        Text("modified")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { showPerformance.toggle() }
             }
         }
         .padding(Spacing.md)
@@ -660,7 +667,9 @@ struct BenchmarkView: View {
                     currentMemoryBytes: viewModel.effectiveBackendMemoryBytes,
                     totalMemoryBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
                     perCoreSnapshot: viewModel.latestPerCoreSnapshot,
-                    onExpandCores: { viewModel.openCoreDetailWindow() }
+                    onExpandCores: { viewModel.openCoreDetailWindow() },
+                    gpuUtilization: viewModel.latestGPUUtilization,
+                    onExpandGPU: { viewModel.openGPUDetailWindow() }
                 )
             } else {
                 // Collapsed state - show placeholder
@@ -1166,6 +1175,7 @@ struct ModelMemoryCard: View {
 /// Designed for content creators to capture and share in videos/posts.
 struct ExpandedMetricsView: View {
     @ObservedObject var viewModel: BenchmarkViewModel
+    @State private var showLeaderboardUpload = false
 
     private var chip: ChipInfo { ChipInfo.current }
     private let topColumns = [GridItem(.flexible()), GridItem(.flexible())]
@@ -1185,8 +1195,26 @@ struct ExpandedMetricsView: View {
             .padding(Spacing.lg)
         }
         .overlay(alignment: .topTrailing) {
-            exportMenu
-                .padding(Spacing.lg)
+            HStack(spacing: Spacing.sm) {
+                Button {
+                    showLeaderboardUpload = true
+                } label: {
+                    Image(systemName: "globe.badge.chevron.backward")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.currentSession?.status != .completed)
+                .help("Upload to community leaderboard")
+
+                exportMenu
+            }
+            .padding(Spacing.lg)
+        }
+        .sheet(isPresented: $showLeaderboardUpload) {
+            if let session = viewModel.currentSession {
+                LeaderboardUploadView(session: session)
+            }
         }
     }
 
@@ -1447,7 +1475,9 @@ struct ExpandedMetricsView: View {
             currentMemoryBytes: viewModel.effectiveBackendMemoryBytes,
             totalMemoryBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
             perCoreSnapshot: viewModel.latestPerCoreSnapshot,
-            onExpandCores: { viewModel.openCoreDetailWindow() }
+            onExpandCores: { viewModel.openCoreDetailWindow() },
+            gpuUtilization: viewModel.latestGPUUtilization,
+            onExpandGPU: { viewModel.openGPUDetailWindow() }
         )
     }
 }
@@ -1563,6 +1593,8 @@ struct ChartGrid: View {
     let totalMemoryBytes: Int64
     var perCoreSnapshot: [CoreUtilization] = []
     var onExpandCores: (() -> Void)? = nil
+    var gpuUtilization: Double = 0
+    var onExpandGPU: (() -> Void)? = nil
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -1613,8 +1645,19 @@ struct ChartGrid: View {
                 color: .chartMemory
             )
 
-            // Row 3: GPU Power | CPU Cores
+            // Row 3: CPU Cores | GPU Cores
             if hasPowerMetrics && data.hasPowerData {
+                if !perCoreSnapshot.isEmpty {
+                    CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                        onExpandCores?()
+                    }
+                }
+
+                GPUCoreGrid(gpuUtilization: gpuUtilization) {
+                    onExpandGPU?()
+                }
+
+                // Row 4: GPU Power | System Power
                 TimelineChart(
                     title: "GPU Power",
                     data: data.gpuPower,
@@ -1622,13 +1665,6 @@ struct ChartGrid: View {
                     unit: "W"
                 )
 
-                if !perCoreSnapshot.isEmpty {
-                    CoreUtilizationGrid(snapshot: perCoreSnapshot) {
-                        onExpandCores?()
-                    }
-                }
-
-                // Row 4: System Power | GPU Frequency
                 TimelineChart(
                     title: "System Power",
                     data: data.systemPower,
@@ -1636,6 +1672,7 @@ struct ChartGrid: View {
                     unit: "W"
                 )
 
+                // Row 5: GPU Frequency | Watts/Token
                 TimelineChart(
                     title: "GPU Frequency",
                     data: data.gpuFrequency,
@@ -1643,7 +1680,6 @@ struct ChartGrid: View {
                     unit: "MHz"
                 )
 
-                // Row 5: Watts/Token | CPU Power
                 TimelineChart(
                     title: "Watts per Token",
                     data: data.wattsPerToken,
@@ -1651,6 +1687,7 @@ struct ChartGrid: View {
                     unit: "W/tok"
                 )
 
+                // Row 6: CPU Power
                 TimelineChart(
                     title: "CPU Power",
                     data: data.cpuPower,
@@ -1659,10 +1696,16 @@ struct ChartGrid: View {
                 )
             }
 
-            // Show core grid even without power metrics (standalone in last row)
-            if (!hasPowerMetrics || !data.hasPowerData) && !perCoreSnapshot.isEmpty {
-                CoreUtilizationGrid(snapshot: perCoreSnapshot) {
-                    onExpandCores?()
+            // Show core grids even without power metrics
+            if !hasPowerMetrics || !data.hasPowerData {
+                if !perCoreSnapshot.isEmpty {
+                    CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                        onExpandCores?()
+                    }
+                }
+
+                GPUCoreGrid(gpuUtilization: gpuUtilization) {
+                    onExpandGPU?()
                 }
             }
         }
@@ -1680,6 +1723,8 @@ private struct LiveChartsView: View {
     let totalMemoryBytes: Int64
     var perCoreSnapshot: [CoreUtilization] = []
     var onExpandCores: (() -> Void)? = nil
+    var gpuUtilization: Double = 0
+    var onExpandGPU: (() -> Void)? = nil
 
     var body: some View {
         ChartGrid(
@@ -1689,7 +1734,9 @@ private struct LiveChartsView: View {
             currentMemoryBytes: currentMemoryBytes,
             totalMemoryBytes: totalMemoryBytes,
             perCoreSnapshot: perCoreSnapshot,
-            onExpandCores: onExpandCores
+            onExpandCores: onExpandCores,
+            gpuUtilization: gpuUtilization,
+            onExpandGPU: onExpandGPU
         )
     }
 }
