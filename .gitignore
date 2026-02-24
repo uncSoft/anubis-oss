@@ -54,6 +54,7 @@ anubis/anubis/README.md
 anubis_icon_final.png
 hf-post.md
 anubis-oss.html
+anubis - Release Steps for Auto-Update.md
 
 # Secrets (HMAC keys, API tokens — never commit)
 **/Secrets.swift

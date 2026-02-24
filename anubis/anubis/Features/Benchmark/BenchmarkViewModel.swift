@@ -379,6 +379,9 @@ final class BenchmarkViewModel: ObservableObject {
 
     /// Load available models from current backend
     func loadModels() async {
+        // Clear any stale error (e.g. backend-not-running from a previous switch)
+        error = nil
+
         // Refresh models from all backends first
         await inferenceService.refreshAllModels()
 
