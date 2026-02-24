@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		6B5DF09C2F26EEF4007B4E9D /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 6B5DF0662F26EE24007B4E9D /* GRDB */; };
+		6B60C9D32F4D5C8400771941 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 6B60C8D92F4D58DF00771941 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -56,6 +57,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6B60C9D32F4D5C8400771941 /* Sparkle in Frameworks */,
 				6B5DF09C2F26EEF4007B4E9D /* GRDB in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -118,6 +120,7 @@
 			name = anubis;
 			packageProductDependencies = (
 				6B5DF0662F26EE24007B4E9D /* GRDB */,
+				6B60C8D92F4D58DF00771941 /* Sparkle */,
 			);
 			productName = anubis;
 			productReference = 6B5DEF6D2F26DE6F007B4E9D /* anubis.app */;
@@ -203,6 +206,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				6B5DF0652F26EE24007B4E9D /* XCRemoteSwiftPackageReference "GRDB.swift" */,
+				6B60C8D82F4D58DF00771941 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 6B5DEF6E2F26DE6F007B4E9D /* Products */;
@@ -424,6 +428,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = anubis/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Anubis OSS";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -474,6 +479,7 @@
 				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = anubis/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Anubis OSS";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -632,6 +638,14 @@
 				kind = branch;
 			};
 		};
+		6B60C8D82F4D58DF00771941 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.7.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -639,6 +653,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 6B5DF0652F26EE24007B4E9D /* XCRemoteSwiftPackageReference "GRDB.swift" */;
 			productName = GRDB;
+		};
+		6B60C8D92F4D58DF00771941 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6B60C8D82F4D58DF00771941 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

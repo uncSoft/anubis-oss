@@ -196,6 +196,7 @@ struct KeygenAboutView: View {
         VStack(spacing: 4) {
             AboutAcknowledgementLink(text: "GRDB.swift .... Gwendal Roué", url: "https://github.com/groue/GRDB.swift", color: goldBright)
             AboutAcknowledgementLink(text: "Ollama ........ Ollama Team", url: "https://ollama.ai", color: goldBright)
+            AboutAcknowledgementLink(text: "Sparkle ....... Sparkle Project", url: "https://sparkle-project.org", color: goldBright)
             AboutAcknowledgementLink(text: "Swift Charts ... Apple", url: "https://developer.apple.com/documentation/charts", color: goldBright)
         }
     }

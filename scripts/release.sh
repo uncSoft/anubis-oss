@@ -135,7 +135,49 @@ fi
 echo "→ Final Gatekeeper check..."
 spctl --assess --type execute --verbose "$EXPORT_DIR/$APP_NAME" 2>&1 || true
 
-# ─── Step 8: GitHub Release ──────────────────────────────────────
+# ─── Step 8: Sparkle EdDSA signing & appcast ────────────────────
+echo ""
+echo "→ Sparkle: signing zip and generating appcast..."
+
+# Locate Sparkle command-line tools (prebuilt binaries in SPM artifacts)
+SPARKLE_BIN="${SPARKLE_BIN:-}"
+if [[ -z "$SPARKLE_BIN" ]]; then
+    SPARKLE_BIN="$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+        -path '*/artifacts/sparkle/Sparkle/bin/sign_update' -type f 2>/dev/null | head -1 | xargs dirname 2>/dev/null || true)"
+fi
+
+if [[ -z "$SPARKLE_BIN" || ! -x "$SPARKLE_BIN/sign_update" ]]; then
+    echo "  ⚠ Sparkle bin tools not found."
+    echo "    Set SPARKLE_BIN=/path/to/sparkle/bin or build the project first so DerivedData is populated."
+    echo "    Skipping Sparkle signing — you can run this manually later:"
+    echo "      sign_update \"$ZIP_PATH\""
+    echo "      generate_appcast /tmp/anubis-release/export --download-url-prefix https://github.com/uncSoft/anubis-oss/releases/download/$VERSION/"
+else
+    echo "  Using Sparkle tools at: $SPARKLE_BIN"
+
+    # Sign the zip — prints the EdDSA signature attributes for the appcast
+    EDDSA_SIG=$("$SPARKLE_BIN/sign_update" "$ZIP_PATH")
+    echo "  EdDSA signature: $EDDSA_SIG"
+
+    # Generate appcast.xml from the export directory
+    "$SPARKLE_BIN/generate_appcast" \
+        --download-url-prefix "https://github.com/uncSoft/anubis-oss/releases/download/$VERSION/" \
+        "$EXPORT_DIR"
+
+    APPCAST_PATH="$EXPORT_DIR/appcast.xml"
+    if [[ -f "$APPCAST_PATH" ]]; then
+        echo "  Appcast generated: $APPCAST_PATH"
+        echo ""
+        echo "  ╔══════════════════════════════════════════════════════════╗"
+        echo "  ║  REMINDER: Upload appcast.xml to devpadapp.com/anubis/  ║"
+        echo "  ║  scp $APPCAST_PATH server:anubis/appcast.xml            ║"
+        echo "  ╚══════════════════════════════════════════════════════════╝"
+    else
+        echo "  ⚠ generate_appcast did not produce appcast.xml"
+    fi
+fi
+
+# ─── Step 9: GitHub Release ──────────────────────────────────────
 if [[ "$SKIP_GITHUB" == true ]]; then
     echo ""
     echo "→ Skipping GitHub release (--skip-github)"

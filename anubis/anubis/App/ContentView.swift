@@ -13,10 +13,10 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView {
             SidebarView()
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 300)
         } detail: {
             DetailView()
         }
-        .navigationSplitViewStyle(.balanced)
         .overlay(alignment: .topTrailing) {
             if DemoMode.isEnabled {
                 DemoModeIndicator()
@@ -474,6 +474,7 @@ struct VaultPlaceholderView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var updaterService: UpdaterService
     @State private var showAddBackend = false
     @State private var showAbout = false
     @State private var showHelp = false
@@ -568,6 +569,13 @@ struct SettingsView: View {
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                 LabeledContent("Build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
+
+                Button {
+                    updaterService.checkForUpdates()
+                } label: {
+                    Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(!updaterService.canCheckForUpdates)
 
                 Button {
                     showAbout = true

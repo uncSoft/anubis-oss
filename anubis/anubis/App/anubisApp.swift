@@ -10,6 +10,7 @@ import SwiftUI
 @main
 struct AnubisApp: App {
     @StateObject private var appState = AppState()
+    @StateObject private var updaterService = UpdaterService()
     @State private var showAbout = false
     @State private var showHelp = false
 
@@ -17,6 +18,7 @@ struct AnubisApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
+                .environmentObject(updaterService)
                 .task {
                     await appState.initialize()
                 }
@@ -35,6 +37,12 @@ struct AnubisApp: App {
                     showAbout = true
                 }
             }
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") {
+                    updaterService.checkForUpdates()
+                }
+                .disabled(!updaterService.canCheckForUpdates)
+            }
             CommandGroup(replacing: .help) {
                 Button("Anubis Help") {
                     showHelp = true
@@ -47,6 +55,7 @@ struct AnubisApp: App {
         Settings {
             SettingsView()
                 .environmentObject(appState)
+                .environmentObject(updaterService)
         }
         #endif
     }

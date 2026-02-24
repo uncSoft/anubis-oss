@@ -54,7 +54,7 @@ struct BenchmarkView: View {
                     responseSection
                 }
             }
-            .frame(minWidth: 400, idealWidth: 500, maxWidth: 700)
+            .frame(minWidth: 400, maxWidth: 700)
 
             // Right panel - Metrics Dashboard (~70% default)
             ScrollView {
