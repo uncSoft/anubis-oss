@@ -6,7 +6,7 @@ SCHEME="anubis-oss"
 PROJECT_DIR="$(cd "$(dirname "$0")/../anubis" && pwd)"
 ARCHIVE_PATH="/tmp/anubis-release/anubis-oss.xcarchive"
 EXPORT_DIR="/tmp/anubis-release/export"
-APP_NAME="Anubis OSS.app"
+APP_NAME="anubis.app"
 ZIP_NAME="anubis-oss.zip"
 SIGNING_IDENTITY="Developer ID Application: John Taverna (J7NK5LQP48)"
 TEAM_ID="J7NK5LQP48"
@@ -144,7 +144,7 @@ else
     echo ""
     echo "→ Creating GitHub release $VERSION..."
 
-    cd "$(dirname "$0")/.."
+    cd "$(cd "$(dirname "$0")" && git rev-parse --show-toplevel)"
 
     NOTES=$(cat <<'EOF'
 ## Anubis OSS $TAG
