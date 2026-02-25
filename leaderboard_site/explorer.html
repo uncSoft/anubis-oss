@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anubis OSS - Data Explorer</title>
+
+    <!-- Perspective themes -->
+    <link rel="stylesheet" crossorigin="anonymous"
+        href="https://cdn.jsdelivr.net/npm/@finos/perspective-viewer@3.8.0/dist/css/themes.css" />
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        a { color: #6cb4ee; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* Header */
+        .header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #1a1a1a;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .header h1 {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .header h1 .accent { color: #6cb4ee; }
+
+        .header-badge {
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: #1a1a2e;
+            color: #8888cc;
+        }
+
+        .header-links {
+            display: flex;
+            gap: 16px;
+            font-size: 0.82rem;
+        }
+
+        .header-links a { color: #666; }
+        .header-links a:hover { color: #6cb4ee; }
+
+        /* Status */
+        .status-bar {
+            padding: 10px 24px;
+            font-size: 0.8rem;
+            color: #555;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+
+        .status-bar .count { color: #888; }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #444;
+        }
+
+        .status-dot.loaded { background: #4c8; }
+
+        /* Loading state */
+        .loading-overlay {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 16px;
+            color: #666;
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #222;
+            border-top-color: #6cb4ee;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .error-state {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #cc4444;
+            padding: 40px;
+            text-align: center;
+        }
+
+        /* Perspective viewer */
+        #viewer-container {
+            flex: 1;
+            position: relative;
+            display: none;
+        }
+
+        perspective-viewer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <h1><span class="accent">Anubis</span> Data Explorer</h1>
+            <span class="header-badge">PERSPECTIVE</span>
+        </div>
+        <div class="header-links">
+            <a href="leaderboard.html">&larr; Leaderboard</a>
+            <a href="https://devpadapp.com/anubis-oss.html">Anubis OSS</a>
+            <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Loading data...</span>
+    </div>
+
+    <div class="loading-overlay" id="loading">
+        <div class="spinner"></div>
+        <p>Loading benchmark data...</p>
+    </div>
+
+    <div class="error-state" id="error" style="display:none"></div>
+
+    <div id="viewer-container">
+        <perspective-viewer id="viewer" theme="Pro Dark"></perspective-viewer>
+    </div>
+
+    <script type="module">
+        import perspective from "https://cdn.jsdelivr.net/npm/@finos/perspective@3.8.0/dist/cdn/perspective.js";
+        import "https://cdn.jsdelivr.net/npm/@finos/perspective-viewer@3.8.0/dist/cdn/perspective-viewer.js";
+        import "https://cdn.jsdelivr.net/npm/@finos/perspective-viewer-datagrid@3.8.0/dist/cdn/perspective-viewer-datagrid.js";
+        import "https://cdn.jsdelivr.net/npm/@finos/perspective-viewer-d3fc@3.8.0/dist/cdn/perspective-viewer-d3fc.js";
+
+        const loadingEl = document.getElementById("loading");
+        const errorEl = document.getElementById("error");
+        const containerEl = document.getElementById("viewer-container");
+        const statusDot = document.getElementById("status-dot");
+        const statusText = document.getElementById("status-text");
+
+        try {
+            // Fetch leaderboard data
+            const resp = await fetch("/anubis/api/leaderboard.php?limit=10000");
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            const entries = data.entries || [];
+
+            if (entries.length === 0) {
+                throw new Error("No benchmark data available yet.");
+            }
+
+            // Clean up data for Perspective — pick the most interesting columns
+            // and ensure numeric types
+            const cleaned = entries.map(e => ({
+                "Name":             e.display_name || "Anonymous",
+                "Model":            e.model_name || "",
+                "Chip":             e.chip_name || "",
+                "Mac":              e.chip_mac_model || "",
+                "Memory (GB)":      num(e.chip_memory_gb),
+                "GPU Cores":        num(e.chip_gpu_cores),
+                "CPU Cores":        num(e.chip_core_count),
+                "Bandwidth (GB/s)": num(e.chip_bandwidth_gbs),
+                "Tokens/sec":       num(e.tokens_per_second),
+                "TTFT (ms)":        e.time_to_first_token != null ? num(e.time_to_first_token * 1000) : null,
+                "Avg Latency (ms)": num(e.avg_token_latency_ms),
+                "Eval Duration (s)": num(e.eval_duration),
+                "Total Duration (s)": num(e.total_duration),
+                "Load Time (s)":    num(e.load_duration),
+                "Prompt Tokens":    num(e.prompt_tokens),
+                "Completion Tokens": num(e.completion_tokens),
+                "Total Tokens":     num(e.total_tokens),
+                "Context Length":   num(e.context_length),
+                "Avg GPU Power (W)": num(e.avg_gpu_power_watts),
+                "Peak GPU Power (W)": num(e.peak_gpu_power_watts),
+                "Avg System Power (W)": num(e.avg_system_power_watts),
+                "Peak System Power (W)": num(e.peak_system_power_watts),
+                "Watts/Token":      num(e.avg_watts_per_token),
+                "Avg GPU Freq (MHz)": num(e.avg_gpu_frequency_mhz),
+                "Peak GPU Freq (MHz)": num(e.peak_gpu_frequency_mhz),
+                "Peak Memory (GB)": e.peak_memory_bytes != null ? round(e.peak_memory_bytes / 1073741824, 2) : null,
+                "Backend":          e.backend || "",
+                "Submitted":        e.submitted_at || "",
+            }));
+
+            // Initialize Perspective
+            const worker = await perspective.worker();
+            const table = await worker.table(cleaned);
+
+            // Show viewer
+            loadingEl.style.display = "none";
+            containerEl.style.display = "block";
+
+            const viewer = document.getElementById("viewer");
+            await viewer.load(table);
+
+            // Default view: datagrid sorted by tok/s descending
+            await viewer.restore({
+                plugin: "Datagrid",
+                theme: "Pro Dark",
+                columns: [
+                    "Name", "Model", "Chip", "Memory (GB)",
+                    "Tokens/sec", "TTFT (ms)", "Watts/Token",
+                    "Avg GPU Power (W)", "Peak Memory (GB)", "Backend"
+                ],
+                sort: [["Tokens/sec", "desc"]],
+                settings: true,
+            });
+
+            // Update status
+            statusDot.classList.add("loaded");
+            statusText.textContent = `${entries.length} benchmark entries loaded`;
+
+        } catch (err) {
+            loadingEl.style.display = "none";
+            errorEl.style.display = "flex";
+            errorEl.textContent = `Failed to load: ${err.message}`;
+            statusText.textContent = "Error loading data";
+        }
+
+        function num(v) {
+            if (v == null) return null;
+            const n = Number(v);
+            return isNaN(n) ? null : n;
+        }
+
+        function round(v, d) {
+            if (v == null) return null;
+            const f = Math.pow(10, d);
+            return Math.round(v * f) / f;
+        }
+    </script>
+</body>
+</html>
