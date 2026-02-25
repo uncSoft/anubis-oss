@@ -134,21 +134,46 @@ if [[ ! -d "$EXPORT_DIR/$APP_NAME" ]]; then
     exit 1
 fi
 
-# ─── Step 5: Verify code signature ──────────────────────────────
+# ─── Step 5: Fix Sparkle framework for Gatekeeper ───────────────
+# Sparkle's SPM binary has non-standard symlinks in the framework root
+# (Autoupdate, Updater.app, XPCServices) that cause spctl to reject the
+# app with "unsealed contents present in the root directory of an embedded
+# framework".  Remove them and re-sign before notarization.
+SPARKLE_FW="$EXPORT_DIR/$APP_NAME/Contents/Frameworks/Sparkle.framework"
+ENTITLEMENTS="$PROJECT_DIR/anubis/anubis.entitlements"
+
+if [[ -d "$SPARKLE_FW" ]]; then
+    echo "→ Cleaning Sparkle.framework for Gatekeeper compliance..."
+    rm -f "$SPARKLE_FW/Autoupdate" "$SPARKLE_FW/Updater.app" "$SPARKLE_FW/XPCServices"
+
+    echo "  Re-signing Sparkle internals..."
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW/Versions/B/XPCServices/Installer.xpc"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW/Versions/B/Autoupdate"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW/Versions/B/Updater.app"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW"
+
+    echo "  Re-signing app..."
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
+        --entitlements "$ENTITLEMENTS" "$EXPORT_DIR/$APP_NAME"
+    echo "  Done"
+fi
+
+# ─── Step 6: Verify code signature ──────────────────────────────
 echo "→ Verifying code signature..."
 codesign --verify --deep --strict "$EXPORT_DIR/$APP_NAME"
 echo "  Signature valid"
 
 codesign -dv "$EXPORT_DIR/$APP_NAME" 2>&1 | grep -E "Authority|TeamIdentifier"
 
-# ─── Step 6: Create zip for notarization ─────────────────────────
+# ─── Step 7: Create zip for notarization ─────────────────────────
 echo "→ Creating zip..."
 cd "$EXPORT_DIR"
 /usr/bin/ditto -c -k --keepParent "$APP_NAME" "$ZIP_NAME"
 ZIP_PATH="$EXPORT_DIR/$ZIP_NAME"
 echo "  Created $ZIP_PATH ($(du -h "$ZIP_PATH" | cut -f1))"
 
-# ─── Step 7: Notarize ───────────────────────────────────────────
+# ─── Step 8: Notarize ───────────────────────────────────────────
 if [[ "$SKIP_NOTARIZE" == true ]]; then
     echo "→ Skipping notarization (--skip-notarize)"
 else
@@ -166,11 +191,11 @@ else
     echo "  Final zip: $ZIP_PATH ($(du -h "$ZIP_PATH" | cut -f1))"
 fi
 
-# ─── Step 8: Final verification ─────────────────────────────────
+# ─── Step 9: Final verification ─────────────────────────────────
 echo "→ Final Gatekeeper check..."
 spctl --assess --type execute --verbose "$EXPORT_DIR/$APP_NAME" 2>&1 || true
 
-# ─── Step 9: Sparkle EdDSA signing & appcast ────────────────────
+# ─── Step 10: Sparkle EdDSA signing & appcast ───────────────────
 echo ""
 echo "→ Sparkle: signing zip and generating appcast..."
 
@@ -212,7 +237,7 @@ else
     fi
 fi
 
-# ─── Step 10: GitHub Release ─────────────────────────────────────
+# ─── Step 11: GitHub Release ─────────────────────────────────────
 if [[ "$SKIP_GITHUB" == true ]]; then
     echo ""
     echo "→ Skipping GitHub release (--skip-github)"
