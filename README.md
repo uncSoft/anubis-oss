@@ -68,8 +68,17 @@ Upload your benchmark results to the [community leaderboard](https://devpadapp.c
 - **One-click upload** from the benchmark toolbar after a completed run
 - **Community rankings** sorted by tokens/sec with full drill-down into performance, power, and hardware details
 - **Filter by chip or model** to compare like-for-like (e.g. all M4 Max results, or all Llama 3.2 runs)
+- **[Data Explorer](https://devpadapp.com/explorer.html)** — interactive pivot table and charting powered by FINOS Perspective
 - **Privacy-first**: no accounts, no response text uploaded — just metrics and a display name
 - HMAC-signed submissions with server-side rate limiting
+
+### Auto-Update *(New in 2.3)*
+
+Anubis checks for updates automatically via [Sparkle](https://sparkle-project.org/) and notifies you when a new version is available.
+
+- **Automatic checks** on launch with user-controlled frequency
+- **Manual check** via the app menu (**Anubis OSS > Check for Updates...**) or **Settings > About**
+- Updates are code-signed, notarized, and verified with EdDSA before installation
 
 ### Vault
 
@@ -182,6 +191,10 @@ Anubis will auto-detect Ollama on launch. Other backends can be added in Setting
 3. Click **Run**
 4. Watch the metrics light up in real time
 
+### 4. Submit to the Leaderboard
+
+After a benchmark completes, click the **Upload** button in the benchmark toolbar to submit your results to the [community leaderboard](https://devpadapp.com/leaderboard.html). Enter a display name and your run will appear in the rankings — no account required. Only performance metrics and hardware info are submitted; response text is never uploaded.
+
 ---
 
 ## Building from Source
@@ -208,6 +221,7 @@ Resolved automatically by Swift Package Manager on first build:
 | Package | Purpose | License |
 |---------|---------|---------|
 | [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite database | MIT |
+| [Sparkle](https://github.com/sparkle-project/Sparkle) | Auto-update framework | MIT |
 | Swift Charts | Data visualization | Apple |
 
 ---
