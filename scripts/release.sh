@@ -94,7 +94,7 @@ xcodebuild archive \
     -quiet \
     CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
     DEVELOPMENT_TEAM="$TEAM_ID" \
-    CODE_SIGN_STYLE=Manual
+    CODE_SIGN_STYLE=Manual 2>&1 | grep -v "^warning:"
 
 echo "  Archive created at $ARCHIVE_PATH"
 
@@ -123,7 +123,7 @@ xcodebuild -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
     -exportOptionsPlist "$EXPORT_PLIST" \
     -exportPath "$EXPORT_DIR" \
-    -quiet
+    -quiet 2>&1 | grep -v "^warning:"
 
 echo "  Exported to $EXPORT_DIR"
 
@@ -147,11 +147,11 @@ if [[ -d "$SPARKLE_FW" ]]; then
     rm -f "$SPARKLE_FW/Autoupdate" "$SPARKLE_FW/Updater.app" "$SPARKLE_FW/XPCServices"
 
     echo "  Re-signing Sparkle internals..."
-    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
-    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW/Versions/B/XPCServices/Installer.xpc"
-    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW/Versions/B/Autoupdate"
-    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW/Versions/B/Updater.app"
-    codesign --force --sign "$SIGNING_IDENTITY" --timestamp "$SPARKLE_FW"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$SPARKLE_FW/Versions/B/XPCServices/Installer.xpc"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$SPARKLE_FW/Versions/B/Autoupdate"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$SPARKLE_FW/Versions/B/Updater.app"
+    codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$SPARKLE_FW"
 
     echo "  Re-signing app..."
     codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
@@ -169,7 +169,11 @@ codesign -dv "$EXPORT_DIR/$APP_NAME" 2>&1 | grep -E "Authority|TeamIdentifier"
 # ─── Step 7: Create zip for notarization ─────────────────────────
 echo "→ Creating zip..."
 cd "$EXPORT_DIR"
-/usr/bin/ditto -c -k --keepParent "$APP_NAME" "$ZIP_NAME"
+# Strip AppleDouble ._ resource fork files — they become "unsealed contents"
+# inside frameworks when the zip is extracted, causing Gatekeeper rejection.
+find "$APP_NAME" -name '._*' -delete 2>/dev/null || true
+dot_clean "$APP_NAME" 2>/dev/null || true
+/usr/bin/ditto -c -k --norsrc --keepParent "$APP_NAME" "$ZIP_NAME"
 ZIP_PATH="$EXPORT_DIR/$ZIP_NAME"
 echo "  Created $ZIP_PATH ($(du -h "$ZIP_PATH" | cut -f1))"
 
@@ -187,13 +191,21 @@ else
 
     echo "→ Re-creating zip with stapled ticket..."
     rm "$ZIP_PATH"
-    /usr/bin/ditto -c -k --keepParent "$APP_NAME" "$ZIP_NAME"
+    find "$APP_NAME" -name '._*' -delete 2>/dev/null || true
+    dot_clean "$APP_NAME" 2>/dev/null || true
+    /usr/bin/ditto -c -k --norsrc --keepParent "$APP_NAME" "$ZIP_NAME"
     echo "  Final zip: $ZIP_PATH ($(du -h "$ZIP_PATH" | cut -f1))"
 fi
 
 # ─── Step 9: Final verification ─────────────────────────────────
 echo "→ Final Gatekeeper check..."
-spctl --assess --type execute --verbose "$EXPORT_DIR/$APP_NAME" 2>&1 || true
+spctl --assess --type execute --verbose "$EXPORT_DIR/$APP_NAME" 2>&1
+echo "→ Verifying zip round-trip..."
+VERIFY_DIR=$(mktemp -d)
+/usr/bin/ditto -x -k "$ZIP_PATH" "$VERIFY_DIR"
+spctl --assess --type execute --verbose "$VERIFY_DIR/$APP_NAME" 2>&1
+rm -rf "$VERIFY_DIR"
+echo "  Zip round-trip passed"
 
 # ─── Step 10: Sparkle EdDSA signing & appcast ───────────────────
 echo ""
