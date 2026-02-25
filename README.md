@@ -10,9 +10,9 @@
 
 Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any OpenAI-compatible endpoint - Ollama, MLX, LM Studio Server, OpenWebUI, Docker Models, etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance - something no CLI tool or chat wrapper offers. Export benchmarks directly without having to screenshot, and export the raw data as .MD or .CSV from the history. You can even `OLLAMA PULL` models directly within the app.
 
-<img width="847" height="1058" alt="image" src="https://github.com/user-attachments/assets/c4b81dca-1a81-4b1e-8bbb-109a99a7e7bb" />
+<img width="780" height="1100" alt="image" src="https://github.com/user-attachments/assets/c4b81dca-1a81-4b1e-8bbb-109a99a7e7bb" />
 
-<img width="900" height="560" alt="image" src="https://github.com/user-attachments/assets/5da02ee4-ef48-4785-9c46-1803b07d553f" />
+<img width="950" height="600" alt="image" src="https://github.com/user-attachments/assets/5da02ee4-ef48-4785-9c46-1803b07d553f" />
 
 ---
 
@@ -28,6 +28,9 @@ The local LLM ecosystem on macOS is fragmented:
 Anubis fills that gap with three integrated modules - all in a native macOS app.
 
 ---
+
+## Leaderboard Submissions Now Available! Submit directly through the app
+### The dataset is robut and open source - [check it out here](https://devpadapp.com/explorer.html), please contribute! 
 
 ## Features
 
@@ -94,13 +97,18 @@ Unified model management across all backends.
 
 ---
 ## Screenshots
-<img width="900" height="600" alt="Screenshot 2026-02-09 at 1 55 10 PM" src="https://github.com/user-attachments/assets/fcbb9dbe-14bb-46ff-a956-64445372c53e" />
 
-<img width="850" height="560" alt="Screenshot 2026-02-09 at 1 53 46 PM" src="https://github.com/user-attachments/assets/81b14a1c-4196-4462-b56c-28d2da9cb0b6" />
+GPU Core detail
+<img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 08 44 PM" src="https://github.com/user-attachments/assets/7cf7d6f2-bcb5-4f96-b04b-19d96df29e87" />
 
-<img width="911" height="560" alt="Screenshot 2026-02-09 at 1 49 22 PM" src="https://github.com/user-attachments/assets/cb57267c-6070-4860-86c3-3f239811c012" />
+Arena Mode
+<img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 21 50 PM" src="https://github.com/user-attachments/assets/c364bd43-4300-4565-8e6b-7fcae9e8dcd8" />
 
-<img width="911" height="560" alt="Screenshot 2026-02-09 at 1 49 16 PM" src="https://github.com/user-attachments/assets/7703b283-f00e-49e9-a702-74a2bc2005ce" />
+Settings (add connections with quick presets)
+<img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 24 00 PM" src="https://github.com/user-attachments/assets/ff9bb9fa-aa6e-472a-a787-5583a3883105" />
+
+Vault - View model details, unload, and Pull models directly for Ollama
+<img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 14 57 PM" src="https://github.com/user-attachments/assets/795157b5-efe8-4895-b499-beef25de9683" />
 
 ## Supported Backends
 
@@ -111,6 +119,7 @@ Unified model management across all backends.
 | **mlx-lm** | OpenAI-compatible | 8080 | `pip install mlx-lm && mlx_lm.server --model <model>` |
 | **vLLM** | OpenAI-compatible | 8000 | Add in Settings |
 | **LocalAI** | OpenAI-compatible | 8080 | Add in Settings |
+| **Docker ModelRunner** | OpenAI-compatible | user selected | Add in Settings |
 
 Any OpenAI-compatible server can be added through **Settings > Add OpenAI-Compatible Server** with a name, URL, and optional API key.
 
