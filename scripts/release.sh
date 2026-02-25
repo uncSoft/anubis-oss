@@ -9,8 +9,8 @@ ARCHIVE_PATH="/tmp/anubis-release/anubis-oss.xcarchive"
 EXPORT_DIR="/tmp/anubis-release/export"
 APP_NAME="anubis.app"
 ZIP_NAME="anubis-oss.zip"
-SIGNING_IDENTITY="Developer ID Application: John Taverna (J7NK5LQP48)"
-TEAM_ID="J7NK5LQP48"
+SIGNING_IDENTITY="xx"
+TEAM_ID="xx"
 KEYCHAIN_PROFILE="notarytool"
 
 # ─── Parse args ──────────────────────────────────────────────────
