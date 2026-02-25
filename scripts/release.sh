@@ -9,9 +9,9 @@ ARCHIVE_PATH="/tmp/anubis-release/anubis-oss.xcarchive"
 EXPORT_DIR="/tmp/anubis-release/export"
 APP_NAME="anubis.app"
 ZIP_NAME="anubis-oss.zip"
-SIGNING_IDENTITY="xx"
-TEAM_ID="xx"
-KEYCHAIN_PROFILE="notarytool"
+SIGNING_IDENTITY="${ANUBIS_SIGNING_IDENTITY:?Set ANUBIS_SIGNING_IDENTITY env var (e.g. 'Developer ID Application: Name (TEAMID)')}"
+TEAM_ID="${ANUBIS_TEAM_ID:?Set ANUBIS_TEAM_ID env var (e.g. 'J7NK5LQP48')}"
+KEYCHAIN_PROFILE="${ANUBIS_KEYCHAIN_PROFILE:-notarytool}"
 
 # ─── Parse args ──────────────────────────────────────────────────
 VERSION=""
