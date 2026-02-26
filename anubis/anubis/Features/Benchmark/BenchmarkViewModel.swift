@@ -266,6 +266,14 @@ final class BenchmarkViewModel: ObservableObject {
     /// updates don't trigger NSTextView re-evaluation (the #1 streaming bottleneck).
     let responseTextStore = ResponseTextStore()
 
+    // MARK: - Pull State
+
+    @Published var showPullSheet = false
+    @Published var isPulling = false
+    @Published var pullModelName = ""
+    @Published var pullStatus = ""
+    @Published var pullProgress: Double = 0
+
     // MARK: - Dependencies
 
     private let inferenceService: InferenceService
@@ -761,6 +769,50 @@ final class BenchmarkViewModel: ObservableObject {
         } catch {
             Log.benchmark.error("Failed to cleanup running sessions: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - Ollama Pull
+
+    func startPull() {
+        showPullSheet = true
+        pullModelName = ""
+        pullStatus = ""
+        pullProgress = 0
+    }
+
+    func pullModel() async {
+        guard !pullModelName.isEmpty else { return }
+
+        isPulling = true
+        pullStatus = "Starting..."
+        pullProgress = 0
+
+        let modelName = pullModelName
+
+        do {
+            let stream = await inferenceService.ollamaClient.pullModel(modelName)
+            for try await progress in stream {
+                pullStatus = progress.status
+                if let percent = progress.percentComplete {
+                    pullProgress = percent
+                }
+                if progress.status == "success" { break }
+            }
+            await loadModels()
+            showPullSheet = false
+            pullModelName = ""
+        } catch {
+            pullStatus = "Error: \(error.localizedDescription)"
+        }
+
+        isPulling = false
+    }
+
+    func cancelPull() {
+        showPullSheet = false
+        pullModelName = ""
+        pullStatus = ""
+        pullProgress = 0
     }
 
     // MARK: - Process Selection

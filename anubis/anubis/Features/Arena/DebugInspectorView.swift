@@ -97,19 +97,22 @@ struct DebugInspectorPanel: View {
     // MARK: - Expanded Content
 
     private var expandedContent: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
-            requestSummary
-            streamingMetrics
+        ScrollView {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                requestSummary
+                streamingMetrics
 
-            if let errorMessage = debugState.errorMessage {
-                errorSection(errorMessage)
-            }
+                if let errorMessage = debugState.errorMessage {
+                    errorSection(errorMessage)
+                }
 
-            if let json = debugState.requestJSON, !json.isEmpty {
-                rawJSONSection(json)
+                if let json = debugState.requestJSON, !json.isEmpty {
+                    rawJSONSection(json)
+                }
             }
+            .padding(Spacing.sm)
         }
-        .padding(Spacing.sm)
+        .frame(maxHeight: 300)
         .background(Color.cardBackgroundElevated)
         .background(.regularMaterial)
         .overlay(alignment: .top) {

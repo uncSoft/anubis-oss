@@ -115,6 +115,13 @@ struct BenchmarkView: View {
                 } label: {
                     Label("History", systemImage: "clock.arrow.circlepath")
                 }
+
+                Button {
+                    viewModel.startPull()
+                } label: {
+                    Label("Pull Model", systemImage: "arrow.down.circle")
+                }
+                .help("Pull a model from Ollama")
             }
         }
         .onDisappear {
@@ -124,6 +131,9 @@ struct BenchmarkView: View {
             if let session = viewModel.currentSession {
                 LeaderboardUploadView(session: session)
             }
+        }
+        .sheet(isPresented: $viewModel.showPullSheet) {
+            BenchmarkPullModelSheet(viewModel: viewModel)
         }
         .task {
             await viewModel.loadModels()
@@ -1738,5 +1748,87 @@ private struct LiveChartsView: View {
             gpuUtilization: gpuUtilization,
             onExpandGPU: onExpandGPU
         )
+    }
+}
+
+// MARK: - Pull Model Sheet
+
+private struct BenchmarkPullModelSheet: View {
+    @ObservedObject var viewModel: BenchmarkViewModel
+
+    var body: some View {
+        VStack(spacing: Spacing.lg) {
+            Text("Pull Model")
+                .font(.headline)
+
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("Model Name")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                TextField("e.g. llama3.2:3b", text: $viewModel.pullModelName)
+                    .textFieldStyle(.roundedBorder)
+                    .disabled(viewModel.isPulling)
+            }
+
+            if viewModel.isPulling {
+                VStack(spacing: Spacing.sm) {
+                    ProgressView(value: viewModel.pullProgress)
+                        .progressViewStyle(.linear)
+
+                    Text(viewModel.pullStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if viewModel.pullProgress > 0 {
+                        Text("\(Int(viewModel.pullProgress * 100))%")
+                            .font(.mono(14, weight: .medium))
+                    }
+                }
+            }
+
+            HStack {
+                Button("Cancel") {
+                    viewModel.cancelPull()
+                }
+                .keyboardShortcut(.escape, modifiers: [])
+
+                Spacer()
+
+                Button("Pull") {
+                    Task { await viewModel.pullModel() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.pullModelName.isEmpty || viewModel.isPulling)
+                .keyboardShortcut(.return, modifiers: [])
+            }
+
+            if !viewModel.isPulling {
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    Text("Popular Models")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: Spacing.xs) {
+                        pullSuggestion("llama3.2:3b")
+                        pullSuggestion("qwen2.5:7b")
+                        pullSuggestion("deepseek-r1:8b")
+                        pullSuggestion("phi4:14b")
+                    }
+                }
+            }
+        }
+        .padding(Spacing.lg)
+        .frame(width: 400)
+    }
+
+    private func pullSuggestion(_ name: String) -> some View {
+        Button(name) {
+            viewModel.pullModelName = name
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .font(.caption)
     }
 }
