@@ -817,6 +817,20 @@ struct BenchmarkView: View {
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.secondary)
 
+                if let quant = viewModel.selectedModel?.quantization ?? viewModel.currentSession?.modelQuantization {
+                    Text("•").font(.caption2).foregroundStyle(.quaternary)
+                    Text(quant)
+                        .font(.caption2.monospaced().weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                if let format = viewModel.selectedModel?.modelFormat?.rawValue ?? viewModel.currentSession?.modelFormat {
+                    Text("•").font(.caption2).foregroundStyle(.quaternary)
+                    Text(format)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(format == "MLX" ? Color.purple : Color.green)
+                }
+
                 Text("•")
                     .font(.caption2)
                     .foregroundStyle(.quaternary)

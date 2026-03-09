@@ -464,6 +464,7 @@ struct ModelInspectorView: View {
                 InfoCell(title: "Size", value: model.formattedSize)
                 InfoCell(title: "Parameters", value: model.formattedParameters)
                 InfoCell(title: "Quantization", value: model.quantization ?? "—")
+                InfoCell(title: "Format", value: model.modelFormat?.displayName ?? "—")
                 InfoCell(title: "Family", value: model.family ?? "—")
                 InfoCell(title: "Context", value: model.contextLength.map { "\($0)" } ?? "—")
                 InfoCell(title: "Backend", value: model.backend.displayName)

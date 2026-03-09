@@ -276,6 +276,18 @@ struct SessionRow: View {
                             }
                     }
 
+                if let quant = session.modelQuantization {
+                    Text(quant)
+                        .font(.caption2.weight(.medium).monospaced())
+                        .foregroundStyle(.secondary)
+                }
+
+                if let format = session.modelFormat {
+                    Text(format)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(format == "MLX" ? Color.purple : Color.green)
+                }
+
                 if let tps = session.tokensPerSecond {
                     Text(Formatters.tokensPerSecond(tps))
                         .font(.mono(11, weight: .medium))
@@ -367,6 +379,12 @@ struct SessionDetailView: View {
 
             HStack(spacing: Spacing.md) {
                 Label(session.backend, systemImage: "point.3.connected.trianglepath.dotted")
+                if let quant = session.modelQuantization {
+                    Label(quant, systemImage: "slider.horizontal.3")
+                }
+                if let format = session.modelFormat {
+                    Label(format, systemImage: format == "MLX" ? "cpu" : "doc.zipper")
+                }
                 Label(Formatters.dateTime(session.startedAt), systemImage: "calendar")
                 if let duration = session.duration {
                     Label(Formatters.duration(duration), systemImage: "clock")

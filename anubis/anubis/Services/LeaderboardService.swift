@@ -20,6 +20,8 @@ struct LeaderboardSubmission: Codable {
     // Session
     let modelId: String
     let modelName: String
+    let modelQuantization: String?
+    let modelFormat: String?
     let backend: String
     let startedAt: String
     let endedAt: String?
@@ -74,6 +76,8 @@ struct LeaderboardSubmission: Codable {
         case appVersion = "app_version"
         case modelId = "model_id"
         case modelName = "model_name"
+        case modelQuantization = "model_quantization"
+        case modelFormat = "model_format"
         case backend
         case startedAt = "started_at"
         case endedAt = "ended_at"
@@ -123,6 +127,8 @@ struct LeaderboardEntry: Codable, Identifiable {
     let id: Int
     let displayName: String
     let modelName: String
+    let modelQuantization: String?
+    let modelFormat: String?
     let backend: String
     let tokensPerSecond: Double?
     let timeToFirstToken: Double?
@@ -143,6 +149,8 @@ struct LeaderboardEntry: Codable, Identifiable {
         case id
         case displayName = "display_name"
         case modelName = "model_name"
+        case modelQuantization = "model_quantization"
+        case modelFormat = "model_format"
         case backend
         case tokensPerSecond = "tokens_per_second"
         case timeToFirstToken = "time_to_first_token"
@@ -209,6 +217,8 @@ actor LeaderboardService {
             appVersion: Self.appVersion,
             modelId: benchmarkSession.modelId,
             modelName: benchmarkSession.modelName,
+            modelQuantization: benchmarkSession.modelQuantization,
+            modelFormat: benchmarkSession.modelFormat,
             backend: benchmarkSession.backend,
             startedAt: Self.iso8601.string(from: benchmarkSession.startedAt),
             endedAt: benchmarkSession.endedAt.map { Self.iso8601.string(from: $0) },

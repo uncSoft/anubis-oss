@@ -461,13 +461,15 @@ final class BenchmarkViewModel: ObservableObject {
         pendingDBSamples = []
         lastDBFlush = .distantPast
 
-        // Create session with connection name
+        // Create session with connection name and model metadata
         var session = BenchmarkSession(
             modelId: model.id,
             modelName: model.name,
             backend: selectedBackend,
             connectionName: connectionName,
-            prompt: promptText
+            prompt: promptText,
+            modelQuantization: model.quantization,
+            modelFormat: model.modelFormat?.rawValue
         )
 
         isRunning = true

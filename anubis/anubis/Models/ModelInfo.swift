@@ -34,6 +34,15 @@ enum InferenceBackendType: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Model file format
+enum ModelFormat: String, Codable, CaseIterable {
+    case gguf = "GGUF"
+    case mlx = "MLX"
+    case unknown = "Unknown"
+
+    var displayName: String { rawValue }
+}
+
 /// Information about a model available for inference
 struct ModelInfo: Identifiable, Hashable, Codable {
     /// Unique identifier for the model
@@ -50,6 +59,9 @@ struct ModelInfo: Identifiable, Hashable, Codable {
 
     /// Quantization type (e.g., "Q4_K_M", "Q5_K_S", "f16")
     let quantization: String?
+
+    /// Model file format (GGUF, MLX)
+    let modelFormat: ModelFormat?
 
     /// Model size on disk in bytes
     let sizeBytes: Int64?

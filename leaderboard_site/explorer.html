@@ -195,6 +195,8 @@
             const cleaned = entries.map(e => ({
                 "Name":             e.display_name || "Anonymous",
                 "Model":            e.model_name || "",
+                "Quantization":     e.model_quantization || "",
+                "Format":           e.model_format || "",
                 "Chip":             e.chip_name || "",
                 "Mac":              e.chip_mac_model || "",
                 "Memory (GB)":      num(e.chip_memory_gb),
@@ -239,7 +241,7 @@
                 plugin: "Datagrid",
                 theme: "Pro Dark",
                 columns: [
-                    "Name", "Model", "Chip", "Memory (GB)",
+                    "Name", "Model", "Quantization", "Format", "Chip", "Memory (GB)",
                     "Tokens/sec", "TTFT (ms)", "Watts/Token",
                     "Avg GPU Power (W)", "Peak Memory (GB)", "Backend"
                 ],

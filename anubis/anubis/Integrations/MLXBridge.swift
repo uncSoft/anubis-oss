@@ -199,12 +199,15 @@ actor MLXBridge: InferenceBackend {
 
         let modifiedAt = try? directory.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
 
+        let quantization = Self.detectMLXQuantization(directory.lastPathComponent)
+
         return ModelInfo(
             id: "mlx:\(directory.lastPathComponent)",
             name: directory.lastPathComponent,
             family: modelType,
             parameterCount: parameterCount,
-            quantization: "f16", // MLX typically uses fp16
+            quantization: quantization,
+            modelFormat: .mlx,
             sizeBytes: totalSize,
             contextLength: nil,
             backend: .mlx,
@@ -212,6 +215,18 @@ actor MLXBridge: InferenceBackend {
             path: directory.path,
             modifiedAt: modifiedAt
         )
+    }
+
+    /// Detect quantization from MLX model directory name
+    private static func detectMLXQuantization(_ name: String) -> String {
+        let lower = name.lowercased()
+        if lower.contains("mxfp4") { return "MXFP4" }
+        if lower.contains("4bit") || lower.contains("4-bit") { return "4-bit" }
+        if lower.contains("8bit") || lower.contains("8-bit") { return "8-bit" }
+        if lower.contains("3bit") || lower.contains("3-bit") { return "3-bit" }
+        if lower.contains("fp16") || lower.contains("f16") { return "FP16" }
+        if lower.contains("bf16") { return "BF16" }
+        return "FP16" // Default for MLX models without explicit quantization
     }
 
     private func streamGenerate(

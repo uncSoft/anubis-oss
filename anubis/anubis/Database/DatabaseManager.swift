@@ -205,6 +205,14 @@ final class DatabaseManager {
             }
         }
 
+        // Migration v5: Model quantization and format
+        migrator.registerMigration("v5") { db in
+            try db.alter(table: "benchmark_session") { t in
+                t.add(column: "model_quantization", .text)
+                t.add(column: "model_format", .text)
+            }
+        }
+
         try migrator.migrate(queue)
     }
 

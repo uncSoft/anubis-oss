@@ -104,6 +104,7 @@ actor OpenAICompatibleClient: InferenceBackend {
                 family: parsed.family,
                 parameterCount: parsed.parameterCount,
                 quantization: diskMatch?.quantization ?? parsed.quantization,
+                modelFormat: diskMatch?.modelFormat ?? parsed.modelFormat,
                 sizeBytes: diskMatch?.sizeBytes,
                 contextLength: nil,
                 backend: .openai,
@@ -247,6 +248,7 @@ extension OpenAICompatibleClient {
         let family: String?
         let parameterCount: Double?
         let quantization: String?
+        let modelFormat: ModelFormat?
     }
 
     /// Metadata found on disk for a model
@@ -255,6 +257,7 @@ extension OpenAICompatibleClient {
         let folderName: String       // Lowercased for matching
         let sizeBytes: Int64
         let quantization: String?
+        let modelFormat: ModelFormat?
         let modifiedAt: Date?
     }
 
@@ -302,7 +305,15 @@ extension OpenAICompatibleClient {
             }
         }
 
-        return ParsedModelId(family: family, parameterCount: parameterCount, quantization: quantization)
+        // Model format: detect from ID string
+        var modelFormat: ModelFormat?
+        if lowerId.contains("gguf") {
+            modelFormat = .gguf
+        } else if lowerId.contains("mlx") || lowerId.contains("safetensors") {
+            modelFormat = .mlx
+        }
+
+        return ParsedModelId(family: family, parameterCount: parameterCount, quantization: quantization, modelFormat: modelFormat)
     }
 
     /// Known directories where model files may be stored
@@ -358,12 +369,14 @@ extension OpenAICompatibleClient {
         let (size, modified) = directorySize(at: dirPath, fm: fm)
         guard size > 0 else { return nil }
         let quant = extractQuantization(from: folderName, dirPath: dirPath, fm: fm)
+        let format = detectModelFormat(from: folderName, dirPath: dirPath, fm: fm)
 
         return DiskModelEntry(
             path: dirPath,
             folderName: folderName.lowercased(),
             sizeBytes: size,
             quantization: quant,
+            modelFormat: format,
             modifiedAt: modified
         )
     }
@@ -418,6 +431,26 @@ extension OpenAICompatibleClient {
                     }
                 }
             }
+        }
+
+        return nil
+    }
+
+    /// Detect model format from folder name or contained files
+    private nonisolated static func detectModelFormat(from folderName: String, dirPath: String, fm: FileManager) -> ModelFormat? {
+        let lower = folderName.lowercased()
+
+        // Check folder name
+        if lower.contains("gguf") { return .gguf }
+        if lower.contains("mlx") { return .mlx }
+
+        // Check file extensions in directory
+        if let files = try? fm.contentsOfDirectory(atPath: dirPath) {
+            let hasGGUF = files.contains { $0.hasSuffix(".gguf") }
+            let hasSafetensors = files.contains { $0.hasSuffix(".safetensors") }
+
+            if hasGGUF { return .gguf }
+            if hasSafetensors { return .mlx }
         }
 
         return nil

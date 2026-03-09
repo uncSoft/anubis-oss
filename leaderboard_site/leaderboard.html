@@ -175,6 +175,30 @@
 
         .model-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
         .display-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+
+        .quant-badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            padding: 1px 6px;
+            border-radius: 4px;
+            background: #1a1a1a;
+            color: #999;
+            font-weight: 500;
+            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+        }
+
+        .format-badge {
+            display: inline-block;
+            font-size: 0.65rem;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }
+
+        .format-badge.gguf { background: #1a2a1a; color: #6a9; }
+        .format-badge.mlx { background: #2a1a2a; color: #a6a; }
+        .format-badge.unknown { background: #1a1a1a; color: #666; }
         .date { color: #555; font-size: 0.8rem; }
 
         /* Detail panel */
@@ -515,11 +539,13 @@
         <div class="hero">
             <h1><span class="accent">Anubis</span> Leaderboard</h1>
             <p class="subtitle">Community benchmark results from Anubis OSS</p>
-            <p class="desc">Real-world LLM performance on Apple Silicon - tokens/sec, power draw, TTFT, and more. Run a benchmark in Anubis and upload your results to see how your Mac stacks up.</p>
+            <p class="oss-note">Real-world LLM performance on Apple Silicon - tokens/sec, power draw, TTFT, and more. Run a benchmark in Anubis and upload your results to see how your Mac stacks up.</p>
+
             <div class="hero-links">
                 <a href="https://devpadapp.com/anubis-oss.html">&larr; Anubis OSS</a>
                 <a href="explorer.html">Data Explorer</a>
                 <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+                <a href="https://devpadapp.com/anubis-oss-readme.html">README</a>
             </div>
         </div>
 
@@ -535,6 +561,12 @@
             <select id="filter-model" onchange="applyFilters()">
                 <option value="">All Models</option>
             </select>
+            <select id="filter-quant" onchange="applyFilters()">
+                <option value="">All Quants</option>
+            </select>
+            <select id="filter-format" onchange="applyFilters()">
+                <option value="">All Formats</option>
+            </select>
             <button class="filter-clear" id="filter-clear" onclick="clearFilters()">Clear Filters</button>
             <span class="filter-tag" id="filter-tag"></span>
         </div>
@@ -546,7 +578,10 @@
             </div>
         </div>
     </div>
-
+    <br>
+    <div class="container">
+            <p class="oss-note"> Note: When this data is collected and submitted from Apple Computers, only systems submitting runs from an Ollama backend contain the full gamut of datapoints - LM Studio, MLX and others do not expose all performance metrics, such as prompt evaluation time. But the dataset is robust, even without Ollama as the runtime. Enjoy! -JT </p>
+            </div.
     <!-- Footer area -->
     <div class="footer-area">
         <hr class="footer-divider">
@@ -610,7 +645,7 @@
         let entries = [];
         let currentSort = { key: 'tokens_per_second', dir: 'desc' };
         let expandedIds = new Set();
-        let filters = { chip: '', model: '' };
+        let filters = { chip: '', model: '', quant: '', format: '' };
 
         async function fetchLeaderboard() {
             const content = document.getElementById('content');
@@ -641,16 +676,26 @@
         function populateFilters() {
             const chipSelect = document.getElementById('filter-chip');
             const modelSelect = document.getElementById('filter-model');
+            const quantSelect = document.getElementById('filter-quant');
+            const formatSelect = document.getElementById('filter-format');
 
             // Extract unique values, sorted alphabetically
             const chips = [...new Set(entries.map(e => e.chip_name).filter(Boolean))].sort();
             const models = [...new Set(entries.map(e => e.model_name).filter(Boolean))].sort();
+            const quants = [...new Set(entries.map(e => e.model_quantization).filter(Boolean))].sort();
+            const formats = [...new Set(entries.map(e => e.model_format).filter(Boolean))].sort();
 
             chipSelect.innerHTML = '<option value="">All Chips</option>' +
                 chips.map(c => `<option value="${esc(c)}"${filters.chip === c ? ' selected' : ''}>${esc(c)}</option>`).join('');
 
             modelSelect.innerHTML = '<option value="">All Models</option>' +
                 models.map(m => `<option value="${esc(m)}"${filters.model === m ? ' selected' : ''}>${esc(m)}</option>`).join('');
+
+            quantSelect.innerHTML = '<option value="">All Quants</option>' +
+                quants.map(q => `<option value="${esc(q)}"${filters.quant === q ? ' selected' : ''}>${esc(q)}</option>`).join('');
+
+            formatSelect.innerHTML = '<option value="">All Formats</option>' +
+                formats.map(f => `<option value="${esc(f)}"${filters.format === f ? ' selected' : ''}>${esc(f)}</option>`).join('');
 
             document.getElementById('filter-bar').style.display = 'flex';
         }
@@ -659,6 +704,8 @@
             return entries.filter(e => {
                 if (filters.chip && e.chip_name !== filters.chip) return false;
                 if (filters.model && e.model_name !== filters.model) return false;
+                if (filters.quant && e.model_quantization !== filters.quant) return false;
+                if (filters.format && e.model_format !== filters.format) return false;
                 return true;
             });
         }
@@ -666,21 +713,27 @@
         function applyFilters() {
             filters.chip = document.getElementById('filter-chip').value;
             filters.model = document.getElementById('filter-model').value;
+            filters.quant = document.getElementById('filter-quant').value;
+            filters.format = document.getElementById('filter-format').value;
             renderTable();
         }
 
         function clearFilters() {
             filters.chip = '';
             filters.model = '';
+            filters.quant = '';
+            filters.format = '';
             document.getElementById('filter-chip').value = '';
             document.getElementById('filter-model').value = '';
+            document.getElementById('filter-quant').value = '';
+            document.getElementById('filter-format').value = '';
             renderTable();
         }
 
         function renderTable() {
             const content = document.getElementById('content');
             const filtered = getFilteredEntries();
-            const hasFilters = filters.chip || filters.model;
+            const hasFilters = filters.chip || filters.model || filters.quant || filters.format;
 
             // Update count display
             const countEl = document.getElementById('count');
@@ -698,6 +751,8 @@
                 const parts = [];
                 if (filters.chip) parts.push(filters.chip);
                 if (filters.model) parts.push(filters.model);
+                if (filters.quant) parts.push(filters.quant);
+                if (filters.format) parts.push(filters.format);
                 filterTag.textContent = parts.join(' + ');
             } else {
                 clearBtn.classList.remove('visible');
@@ -725,6 +780,8 @@
                 { key: '_rank', label: '#', sortable: false },
                 { key: 'display_name', label: 'Name' },
                 { key: 'model_name', label: 'Model' },
+                { key: 'model_quantization', label: 'Quant' },
+                { key: 'model_format', label: 'Format' },
                 { key: 'chip_name', label: 'Chip' },
                 { key: 'tokens_per_second', label: 'tok/s' },
                 { key: 'time_to_first_token', label: 'TTFT' },
@@ -758,6 +815,8 @@
                 html += `<td class="rank${rankClass}"><span class="expand-chevron">&#9654;</span>${rank}</td>`;
                 html += `<td class="display-name" title="${esc(entry.display_name)}">${esc(entry.display_name)}</td>`;
                 html += `<td class="model-name" title="${esc(entry.model_name)}">${esc(entry.model_name)}</td>`;
+                html += `<td>${quantBadge(entry.model_quantization)}</td>`;
+                html += `<td>${formatBadge(entry.model_format)}</td>`;
                 html += `<td>${chipBadge(entry)}</td>`;
                 html += `<td class="metric metric-primary">${fmtNum(entry.tokens_per_second, 2)}</td>`;
                 html += `<td class="metric">${fmtTTFT(entry.time_to_first_token)}</td>`;
@@ -825,8 +884,13 @@
             h += cell('Memory Bandwidth', e.chip_bandwidth_gbs != null ? `${fmtNum(e.chip_bandwidth_gbs, 1)} GB/s` : null);
             h += cell('Model ID', e.chip_mac_model_id);
 
-            h += sec('Session');
+            h += sec('Model Info');
+            h += cell('Quantization', e.model_quantization);
+            h += cell('Format', e.model_format);
+            h += cell('Model ID', e.model_id);
             h += cell('Backend', e.backend);
+
+            h += sec('Session');
             h += cell('Process', e.backend_process_name);
             h += cell('App Version', e.app_version);
             h += cell('Submitted', fmtDateFull(e.submitted_at));
@@ -873,6 +937,17 @@
         function fmtBytes(v) { if (v == null) return null; if (v >= 1073741824) return (v / 1073741824).toFixed(2) + ' GB'; if (v >= 1048576) return (v / 1048576).toFixed(1) + ' MB'; return (v / 1024).toFixed(0) + ' KB'; }
         function fmtDate(v) { if (!v) return '-'; const d = new Date(v); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
         function fmtDateFull(v) { if (!v) return null; const d = new Date(v); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+
+        function quantBadge(quant) {
+            if (!quant) return '<span class="quant-badge" style="color:#444">-</span>';
+            return `<span class="quant-badge">${esc(quant)}</span>`;
+        }
+
+        function formatBadge(fmt) {
+            if (!fmt) return '<span class="format-badge unknown">-</span>';
+            const cls = fmt.toLowerCase() === 'gguf' ? 'gguf' : fmt.toLowerCase() === 'mlx' ? 'mlx' : 'unknown';
+            return `<span class="format-badge ${cls}">${esc(fmt)}</span>`;
+        }
 
         function chipBadge(entry) {
             const name = entry.chip_name || '-';

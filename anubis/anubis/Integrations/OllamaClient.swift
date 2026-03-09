@@ -77,6 +77,7 @@ actor OllamaClient: InferenceBackend {
                 family: model.details?.family,
                 parameterCount: parseParameterCount(model.details?.parameterSize),
                 quantization: model.details?.quantizationLevel,
+                modelFormat: .gguf,
                 sizeBytes: model.size,
                 contextLength: nil,
                 backend: .ollama,

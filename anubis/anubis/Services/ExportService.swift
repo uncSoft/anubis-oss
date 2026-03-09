@@ -15,7 +15,7 @@ enum ExportService {
 
     /// Export benchmark sessions to CSV
     static func exportSessionsToCSV(_ sessions: [BenchmarkSession]) -> String {
-        var csv = "id,model_id,model_name,backend,started_at,ended_at,status,"
+        var csv = "id,model_id,model_name,model_quantization,model_format,backend,started_at,ended_at,status,"
         csv += "tokens_per_second,total_tokens,prompt_tokens,completion_tokens,"
         csv += "time_to_first_token_sec,avg_token_latency_ms,load_duration_sec,"
         csv += "context_length,peak_memory_bytes,total_duration_sec,eval_duration_sec,"
@@ -32,6 +32,8 @@ enum ExportService {
             row.append(session.id.map { "\($0)" } ?? "")
             row.append(escapeCSV(session.modelId))
             row.append(escapeCSV(session.modelName))
+            row.append(escapeCSV(session.modelQuantization ?? ""))
+            row.append(escapeCSV(session.modelFormat ?? ""))
             row.append(escapeCSV(session.backend))
             row.append(dateFormatter.string(from: session.startedAt))
             row.append(session.endedAt.map { dateFormatter.string(from: $0) } ?? "")
@@ -117,6 +119,12 @@ enum ExportService {
         // Session summary
         report += "## Session Summary\n\n"
         report += "Model: \(session.modelName)\n"
+        if let quant = session.modelQuantization {
+            report += "Quantization: \(quant)\n"
+        }
+        if let format = session.modelFormat {
+            report += "Format: \(format)\n"
+        }
         report += "Backend: \(session.backend)\n"
         report += "Status: \(session.status.rawValue)\n"
         report += "Started: \(dateFormatter.string(from: session.startedAt))\n"

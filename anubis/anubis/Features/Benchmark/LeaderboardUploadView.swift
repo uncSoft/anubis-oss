@@ -64,9 +64,25 @@ struct LeaderboardUploadView: View {
 
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(session.modelName)
-                            .font(.system(size: 14, weight: .semibold))
-                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(session.modelName)
+                                .font(.system(size: 14, weight: .semibold))
+                                .lineLimit(1)
+
+                            if let quant = session.modelQuantization {
+                                Text(quant)
+                                    .font(.caption2.weight(.medium).monospaced())
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(Color.secondary.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                            }
+
+                            if let format = session.modelFormat {
+                                Text(format)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(format == "MLX" ? Color.purple : Color.green)
+                            }
+                        }
 
                         let chip = session.chipInfo ?? ChipInfo.current
                         Text(chip.name)

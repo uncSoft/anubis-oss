@@ -70,7 +70,8 @@ Upload your benchmark results to the [community leaderboard](https://devpadapp.c
 
 - **One-click upload** from the benchmark toolbar after a completed run
 - **Community rankings** sorted by tokens/sec with full drill-down into performance, power, and hardware details
-- **Filter by chip or model** to compare like-for-like (e.g. all M4 Max results, or all Llama 3.2 runs)
+- **Model quantization & format tracking** — every submission records the quantization level (Q4_K_M, FP16, 4-bit, etc.) and model format (GGUF vs MLX) so you can compare apples to apples
+- **Filter by chip, model, quantization, or format** to compare like-for-like
 - **[Data Explorer](https://devpadapp.com/explorer.html)** — interactive pivot table and charting powered by FINOS Perspective
 - **Privacy-first**: no accounts, no response text uploaded — just metrics and a display name
 - HMAC-signed submissions with server-side rate limiting
@@ -89,7 +90,7 @@ Unified model management across all backends.
 
 - Aggregated model list with search and backend filter chips
 - Running models section with live VRAM usage
-- Model inspector: size, parameters, quantization, family, context window, architecture details, file path
+- Model inspector: size, parameters, quantization, format (GGUF/MLX), family, context window, architecture details, file path
 - **Automatic metadata enrichment** for OpenAI-compatible models - parses model IDs for family and parameter count, scans `~/.lmstudio/models/` and `~/.cache/huggingface/hub/` for disk size, quantization, and path
 - Pull new models, delete existing ones, unload from memory
 - Popular model suggestions for quick setup

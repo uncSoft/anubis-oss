@@ -438,7 +438,9 @@ final class ArenaViewModel: ObservableObject {
             modelId: model.id,
             modelName: model.name,
             backend: backend,
-            prompt: prompt
+            prompt: prompt,
+            modelQuantization: model.quantization,
+            modelFormat: model.modelFormat?.rawValue
         )
 
         // Save session to get ID

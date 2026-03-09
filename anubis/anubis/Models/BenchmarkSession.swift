@@ -23,6 +23,8 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     var id: Int64?
     var modelId: String
     var modelName: String
+    var modelQuantization: String?
+    var modelFormat: String?
     var backend: String
     var startedAt: Date
     var endedAt: Date?
@@ -59,6 +61,8 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         case id
         case modelId = "model_id"
         case modelName = "model_name"
+        case modelQuantization = "model_quantization"
+        case modelFormat = "model_format"
         case backend
         case startedAt = "started_at"
         case endedAt = "ended_at"
@@ -94,11 +98,15 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         modelName: String,
         backend: InferenceBackendType,
         connectionName: String? = nil,
-        prompt: String
+        prompt: String,
+        modelQuantization: String? = nil,
+        modelFormat: String? = nil
     ) {
         self.id = nil
         self.modelId = modelId
         self.modelName = modelName
+        self.modelQuantization = modelQuantization
+        self.modelFormat = modelFormat
         self.backend = connectionName ?? backend.rawValue
         self.startedAt = Date()
         self.endedAt = nil
