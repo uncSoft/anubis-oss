@@ -100,12 +100,6 @@ struct DebugInspectorState {
                 model: model, prompt: prompt, systemPrompt: systemPrompt,
                 maxTokens: maxTokens, temperature: temperature, topP: topP
             )
-        case .mlx:
-            // MLX uses same format as OpenAI-compatible
-            return buildOpenAIJSON(
-                model: model, prompt: prompt, systemPrompt: systemPrompt,
-                maxTokens: maxTokens, temperature: temperature, topP: topP
-            )
         }
     }
 

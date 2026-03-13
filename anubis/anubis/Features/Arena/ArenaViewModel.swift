@@ -710,8 +710,6 @@ extension ArenaViewModel {
             return configManager.ollamaConfig?.baseURL ?? "http://localhost:11434"
         case .openai:
             return openAIConfig?.baseURL ?? "—"
-        case .mlx:
-            return configManager.configurations.first(where: { $0.type == .mlx })?.baseURL ?? "—"
         }
     }
 

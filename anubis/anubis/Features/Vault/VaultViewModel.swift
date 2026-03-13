@@ -234,8 +234,8 @@ class VaultViewModel: ObservableObject {
         models.filter { $0.backend == .ollama }.count
     }
 
-    var mlxModelCount: Int {
-        models.filter { $0.backend == .mlx }.count
+    var openAIModelCount: Int {
+        models.filter { $0.backend == .openai }.count
     }
 
     /// Get the backend URL for a given model
@@ -249,8 +249,6 @@ class VaultViewModel: ObservableObject {
                 return config.baseURL
             }
             return "—"
-        case .mlx:
-            return inferenceService.configManager.configurations.first(where: { $0.type == .mlx })?.baseURL ?? "—"
         }
     }
 }

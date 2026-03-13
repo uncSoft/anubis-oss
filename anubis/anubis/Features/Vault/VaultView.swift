@@ -139,10 +139,10 @@ struct VaultView: View {
                     filterBackend = .ollama
                 }
                 FilterChip(
-                    label: "MLX (\(viewModel.mlxModelCount))",
-                    isSelected: filterBackend == .mlx
+                    label: "OpenAI (\(viewModel.openAIModelCount))",
+                    isSelected: filterBackend == .openai
                 ) {
-                    filterBackend = .mlx
+                    filterBackend = .openai
                 }
                 Spacer()
             }

@@ -39,9 +39,6 @@ final class InferenceService: ObservableObject {
     /// Ollama client (exposed for model management)
     private(set) var ollamaClient: OllamaClient
 
-    /// MLX bridge
-    private let mlxBridge: MLXBridge
-
     /// OpenAI-compatible clients (keyed by configuration ID)
     private var openAIClients: [UUID: OpenAICompatibleClient] = [:]
 
@@ -62,8 +59,6 @@ final class InferenceService: ObservableObject {
         let ollamaConfig = configManager.ollamaConfig ?? .defaultOllama
         let ollamaURL = Constants.URLs.parse(ollamaConfig.baseURL, fallback: Constants.URLs.ollamaDefault)
         self.ollamaClient = OllamaClient(baseURL: ollamaURL)
-
-        self.mlxBridge = MLXBridge()
 
         // Initialize OpenAI clients
         for config in configManager.openAIConfigs {
@@ -115,6 +110,9 @@ final class InferenceService: ObservableObject {
     /// Switch to a different backend
     func setBackend(_ backend: InferenceBackendType) {
         currentBackend = backend
+        // Only clear OpenAI config when switching away from OpenAI —
+        // BenchmarkViewModel's selectedBackend didSet calls setBackend(.openai)
+        // as a sync echo, which must not wipe the config set by setOpenAIBackend
         if backend != .openai {
             currentOpenAIConfig = nil
         }
@@ -124,11 +122,11 @@ final class InferenceService: ObservableObject {
 
     /// Switch to a specific OpenAI-compatible backend
     func setOpenAIBackend(_ config: BackendConfiguration) {
-        currentBackend = .openai
+        // Set config before backend type — @Published on currentBackend
+        // fires objectWillChange immediately, so config must be ready first
         currentOpenAIConfig = config
+        currentBackend = .openai
         lastError = nil
-        // Ensure UI updates
-        objectWillChange.send()
     }
 
     /// Get the currently active backend
@@ -141,8 +139,6 @@ final class InferenceService: ObservableObject {
         switch currentBackend {
         case .ollama:
             return ollamaClient
-        case .mlx:
-            return mlxBridge
         case .openai:
             if let config = currentOpenAIConfig, let client = openAIClients[config.id] {
                 return client
@@ -161,19 +157,13 @@ final class InferenceService: ObservableObject {
         // In demo mode, report all backends as healthy
         if DemoMode.isEnabled {
             backendHealth[.ollama] = .healthy(version: "0.5.4 (Demo)", modelCount: DemoMode.mockModels.count)
-            backendHealth[.mlx] = .healthy(version: "Demo", modelCount: 0)
             return
         }
 
-        async let ollamaHealth = ollamaClient.checkHealth()
-        async let mlxHealth = mlxBridge.checkHealth()
-
-        let (ollama, mlx) = await (ollamaHealth, mlxHealth)
-
+        let ollama = await ollamaClient.checkHealth()
         backendHealth[.ollama] = ollama
-        backendHealth[.mlx] = mlx
 
-        // Check OpenAI backends
+        // Check OpenAI-compatible backends
         for (id, client) in openAIClients {
             let health = await client.checkHealth()
             openAIBackendHealth[id] = health
@@ -206,15 +196,6 @@ final class InferenceService: ObservableObject {
             backendHealth[.ollama] = .healthy()
         } catch {
             backendHealth[.ollama] = .unhealthy(error: error.localizedDescription)
-        }
-
-        // Fetch from MLX
-        do {
-            let mlxModels = try await mlxBridge.listModels()
-            models.append(contentsOf: mlxModels)
-            backendHealth[.mlx] = .healthy()
-        } catch {
-            // MLX scan failed - not necessarily an error
         }
 
         // Fetch from OpenAI-compatible backends

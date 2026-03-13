@@ -18,7 +18,6 @@ enum AnubisError: LocalizedError {
     case modelNotFound(modelId: String)
     case streamingError(reason: String)
     case databaseError(underlying: Error)
-    case mlxNotAvailable(reason: String)
     case invalidOperation(reason: String)
     case leaderboardError(reason: String)
 
@@ -42,8 +41,6 @@ enum AnubisError: LocalizedError {
             return "Streaming error: \(reason)"
         case .databaseError(let underlying):
             return "Database error: \(underlying.localizedDescription)"
-        case .mlxNotAvailable(let reason):
-            return "MLX not available: \(reason)"
         case .invalidOperation(let reason):
             return "Invalid operation: \(reason)"
         case .leaderboardError(let reason):
@@ -75,8 +72,6 @@ enum AnubisError: LocalizedError {
             return "Try the request again"
         case .databaseError:
             return "Try restarting the application"
-        case .mlxNotAvailable:
-            return "Ensure mlx-swift is properly installed"
         case .invalidOperation:
             return nil
         case .leaderboardError:

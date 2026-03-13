@@ -20,13 +20,11 @@ struct BackendConfiguration: Identifiable, Codable, Hashable {
     enum BackendType: String, Codable, CaseIterable {
         case ollama = "ollama"
         case openaiCompatible = "openai"
-        case mlx = "mlx"
 
         var displayName: String {
             switch self {
             case .ollama: return "Ollama"
             case .openaiCompatible: return "OpenAI Compatible"
-            case .mlx: return "MLX"
             }
         }
 
@@ -34,12 +32,20 @@ struct BackendConfiguration: Identifiable, Codable, Hashable {
             switch self {
             case .ollama: return "server.rack"
             case .openaiCompatible: return "globe"
-            case .mlx: return "apple.logo"
             }
         }
 
-        var supportsCustomURL: Bool {
-            return true
+        /// Decode with migration: old "mlx" type becomes openaiCompatible
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let rawValue = try container.decode(String.self)
+            if rawValue == "mlx" {
+                self = .openaiCompatible
+            } else if let value = BackendType(rawValue: rawValue) {
+                self = value
+            } else {
+                self = .openaiCompatible
+            }
         }
     }
 
@@ -52,12 +58,12 @@ struct BackendConfiguration: Identifiable, Codable, Hashable {
         isEnabled: true
     )
 
-    /// Default MLX configuration
+    /// Default MLX configuration (mlx-lm serve)
     static let defaultMLX = BackendConfiguration(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
         name: "MLX",
-        type: .mlx,
-        baseURL: "http://127.0.0.1:8080",
+        type: .openaiCompatible,
+        baseURL: "http://localhost:8080",
         isEnabled: true
     )
 

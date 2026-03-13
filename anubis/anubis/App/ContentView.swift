@@ -229,8 +229,6 @@ struct BackendStatusView: View {
             return configManager.ollamaConfig?.baseURL ?? "http://localhost:11434"
         case .openai:
             return inferenceService.currentOpenAIConfig?.baseURL ?? "—"
-        case .mlx:
-            return configManager.configurations.first(where: { $0.type == .mlx })?.baseURL ?? "—"
         }
     }
 
@@ -242,47 +240,32 @@ struct BackendStatusView: View {
         VStack(alignment: .leading, spacing: 8) {
             // Combined backend selector
             Menu {
-                // Local backends
-                Section("Local") {
-                    Button {
-                        inferenceService.setBackend(.ollama)
-                    } label: {
-                        HStack {
-                            Label("Ollama", systemImage: "server.rack")
-                            Spacer()
-                            if inferenceService.currentBackend == .ollama {
-                                Image(systemName: "checkmark")
-                            }
-                        }
-                    }
-
-                    Button {
-                        inferenceService.setBackend(.mlx)
-                    } label: {
-                        HStack {
-                            Label("MLX", systemImage: "apple.logo")
-                            Spacer()
-                            if inferenceService.currentBackend == .mlx {
-                                Image(systemName: "checkmark")
-                            }
+                // Ollama
+                Button {
+                    inferenceService.setBackend(.ollama)
+                } label: {
+                    HStack {
+                        Label("Ollama", systemImage: "server.rack")
+                        Spacer()
+                        if inferenceService.currentBackend == .ollama && inferenceService.currentOpenAIConfig == nil {
+                            Image(systemName: "checkmark")
                         }
                     }
                 }
 
-                // OpenAI-compatible servers section
+                // OpenAI-compatible servers (includes MLX, LM Studio, vLLM, etc.)
                 let openAIConfigs = configManager.openAIConfigs
                 if !openAIConfigs.isEmpty {
-                    Section("OpenAI-Compatible Servers") {
-                        ForEach(openAIConfigs) { config in
-                            Button {
-                                inferenceService.setOpenAIBackend(config)
-                            } label: {
-                                HStack {
-                                    Label(config.name, systemImage: "globe")
-                                    Spacer()
-                                    if inferenceService.currentOpenAIConfig?.id == config.id {
-                                        Image(systemName: "checkmark")
-                                    }
+                    Divider()
+                    ForEach(openAIConfigs) { config in
+                        Button {
+                            inferenceService.setOpenAIBackend(config)
+                        } label: {
+                            HStack {
+                                Label(config.name, systemImage: "globe")
+                                Spacer()
+                                if inferenceService.currentOpenAIConfig?.id == config.id {
+                                    Image(systemName: "checkmark")
                                 }
                             }
                         }
@@ -343,7 +326,6 @@ struct BackendStatusView: View {
     private var currentBackendIcon: String {
         switch inferenceService.currentBackend {
         case .ollama: return "server.rack"
-        case .mlx: return "apple.logo"
         case .openai: return "globe"
         }
     }
@@ -513,17 +495,6 @@ struct SettingsView: View {
                         config: ollamaConfig,
                         health: appState.inferenceService.backendHealth[.ollama],
                         onEdit: { editingConfig = ollamaConfig }
-                    )
-                }
-            }
-
-            // MLX Configuration
-            Section("MLX") {
-                if let mlxConfig = configurations.first(where: { $0.type == .mlx }) {
-                    BackendConfigRow(
-                        config: mlxConfig,
-                        health: appState.inferenceService.backendHealth[.mlx],
-                        onEdit: { editingConfig = mlxConfig }
                     )
                 }
             }

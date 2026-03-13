@@ -10,7 +10,6 @@ import Foundation
 /// Backend type for inference
 enum InferenceBackendType: String, Codable, CaseIterable, Identifiable {
     case ollama = "Ollama"
-    case mlx = "MLX"
     case openai = "OpenAI Compatible"
 
     var id: String { rawValue }
@@ -20,16 +19,7 @@ enum InferenceBackendType: String, Codable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .ollama: return "server.rack"
-        case .mlx: return "cpu"
         case .openai: return "globe"
-        }
-    }
-
-    /// Whether this backend type supports custom URLs
-    var supportsCustomURL: Bool {
-        switch self {
-        case .ollama, .openai: return true
-        case .mlx: return false
         }
     }
 }
@@ -75,7 +65,7 @@ struct ModelInfo: Identifiable, Hashable, Codable {
     /// For OpenAI-compatible backends, the config ID this model belongs to
     let openAIConfigId: UUID?
 
-    /// Path to the model file (for MLX models)
+    /// Path to the model file on disk
     let path: String?
 
     /// When the model was last modified
@@ -109,14 +99,4 @@ struct GGUFMetadata: Codable {
     let blockCount: Int
     let vocabSize: Int
     let quantizationType: String
-}
-
-/// Extended metadata for MLX/safetensors models
-struct MLXModelMetadata: Codable {
-    let modelType: String
-    let hiddenSize: Int
-    let numLayers: Int
-    let numAttentionHeads: Int
-    let vocabSize: Int
-    let maxPositionEmbeddings: Int?
 }
