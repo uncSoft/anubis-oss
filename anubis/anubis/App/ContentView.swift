@@ -242,7 +242,7 @@ struct BackendStatusView: View {
         VStack(alignment: .leading, spacing: 8) {
             // Combined backend selector
             Menu {
-                // Ollama backend
+                // Local backends
                 Section("Local") {
                     Button {
                         inferenceService.setBackend(.ollama)
@@ -251,6 +251,18 @@ struct BackendStatusView: View {
                             Label("Ollama", systemImage: "server.rack")
                             Spacer()
                             if inferenceService.currentBackend == .ollama {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+
+                    Button {
+                        inferenceService.setBackend(.mlx)
+                    } label: {
+                        HStack {
+                            Label("MLX", systemImage: "apple.logo")
+                            Spacer()
+                            if inferenceService.currentBackend == .mlx {
                                 Image(systemName: "checkmark")
                             }
                         }
@@ -505,21 +517,14 @@ struct SettingsView: View {
                 }
             }
 
-            // MLX Status
+            // MLX Configuration
             Section("MLX") {
-                HStack {
-                    Image(systemName: "cpu")
-                        .foregroundStyle(.secondary)
-                    Text("MLX (Local)")
-                    Spacer()
-                    let health = appState.inferenceService.backendHealth[.mlx]
-                    Circle()
-                        .fill(health?.isRunning == true ? Color.anubisSuccess : Color.anubisError)
-                        .frame(width: 8, height: 8)
-                        .shadow(color: (health?.isRunning == true ? Color.anubisSuccess : Color.anubisError).opacity(0.4), radius: 2)
-                    Text(health?.isRunning == true ? "Available" : "Not Available")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if let mlxConfig = configurations.first(where: { $0.type == .mlx }) {
+                    BackendConfigRow(
+                        config: mlxConfig,
+                        health: appState.inferenceService.backendHealth[.mlx],
+                        onEdit: { editingConfig = mlxConfig }
+                    )
                 }
             }
 
@@ -531,11 +536,12 @@ struct SettingsView: View {
                         .italic()
                 } else {
                     ForEach(openAIConfigs) { config in
+                        let isDefault = BackendConfiguration.defaultIDs.contains(config.id)
                         BackendConfigRow(
                             config: config,
                             health: appState.inferenceService.openAIBackendHealth[config.id],
                             onEdit: { editingConfig = config },
-                            onDelete: { configToDelete = config }
+                            onDelete: isDefault ? nil : { configToDelete = config }
                         )
                     }
                 }

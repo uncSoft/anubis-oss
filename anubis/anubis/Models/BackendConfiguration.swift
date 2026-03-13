@@ -39,10 +39,7 @@ struct BackendConfiguration: Identifiable, Codable, Hashable {
         }
 
         var supportsCustomURL: Bool {
-            switch self {
-            case .ollama, .openaiCompatible: return true
-            case .mlx: return false
-            }
+            return true
         }
     }
 
@@ -64,14 +61,31 @@ struct BackendConfiguration: Identifiable, Codable, Hashable {
         isEnabled: true
     )
 
-    /// Example LM Studio configuration
-    static let exampleLMStudio = BackendConfiguration(
-        id: UUID(),
+    /// Default LM Studio configuration
+    static let defaultLMStudio = BackendConfiguration(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000003")!,
         name: "LM Studio",
         type: .openaiCompatible,
         baseURL: "http://localhost:1234",
-        isEnabled: false
+        isEnabled: true
     )
+
+    /// Default vLLM configuration
+    static let defaultVLLM = BackendConfiguration(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
+        name: "vLLM",
+        type: .openaiCompatible,
+        baseURL: "http://localhost:8000",
+        isEnabled: true
+    )
+
+    /// IDs of built-in default configurations that cannot be deleted
+    static let defaultIDs: Set<UUID> = [
+        defaultOllama.id,
+        defaultMLX.id,
+        defaultLMStudio.id,
+        defaultVLLM.id
+    ]
 }
 
 /// Manages backend configurations
@@ -84,16 +98,26 @@ class BackendConfigurationManager: ObservableObject {
 
     private let userDefaultsKey = "backend_configurations"
 
+    private static let allDefaults: [BackendConfiguration] = [
+        .defaultOllama,
+        .defaultMLX,
+        .defaultLMStudio,
+        .defaultVLLM
+    ]
+
     init() {
         if let data = UserDefaults.standard.data(forKey: userDefaultsKey),
            let configs = try? JSONDecoder().decode([BackendConfiguration].self, from: data) {
-            self.configurations = configs
+            // Ensure all built-in defaults exist (migration for existing users)
+            var merged = configs
+            for defaultConfig in Self.allDefaults {
+                if !merged.contains(where: { $0.id == defaultConfig.id }) {
+                    merged.append(defaultConfig)
+                }
+            }
+            self.configurations = merged
         } else {
-            // Default configurations
-            self.configurations = [
-                .defaultOllama,
-                .defaultMLX
-            ]
+            self.configurations = Self.allDefaults
         }
     }
 
@@ -108,8 +132,8 @@ class BackendConfigurationManager: ObservableObject {
     }
 
     func removeConfiguration(_ config: BackendConfiguration) {
-        // Don't allow removing default backends
-        guard config.type == .openaiCompatible else { return }
+        // Don't allow removing built-in default backends
+        guard !BackendConfiguration.defaultIDs.contains(config.id) else { return }
         configurations.removeAll { $0.id == config.id }
     }
 

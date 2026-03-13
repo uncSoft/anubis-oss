@@ -91,28 +91,87 @@ actor OpenAICompatibleClient: InferenceBackend {
         let modelsResponse = try JSONDecoder().decode(OpenAIModelsResponse.self, from: data)
         let configId = configuration.id
 
+        // Try to fetch richer metadata from LM Studio-style endpoint
+        let richModels = await fetchLMStudioModels()
+
         // Scan known model directories once for disk enrichment
         let diskIndex = Self.indexModelDirectories()
 
         return modelsResponse.data.map { model in
             let parsed = Self.parseModelId(model.id)
             let diskMatch = Self.findDiskMatch(modelId: model.id, in: diskIndex)
+            let richMatch = richModels?[model.id]
 
             return ModelInfo(
                 id: model.id,
                 name: model.id,
                 family: parsed.family,
-                parameterCount: parsed.parameterCount,
-                quantization: diskMatch?.quantization ?? parsed.quantization,
-                modelFormat: diskMatch?.modelFormat ?? parsed.modelFormat,
-                sizeBytes: diskMatch?.sizeBytes,
-                contextLength: nil,
+                parameterCount: richMatch?.parameterCount ?? parsed.parameterCount,
+                quantization: richMatch?.quantization ?? diskMatch?.quantization ?? parsed.quantization,
+                modelFormat: richMatch?.modelFormat ?? diskMatch?.modelFormat ?? parsed.modelFormat,
+                sizeBytes: richMatch?.sizeBytes ?? diskMatch?.sizeBytes,
+                contextLength: richMatch?.contextLength,
                 backend: .openai,
                 openAIConfigId: configId,
                 path: diskMatch?.path,
                 modifiedAt: diskMatch?.modifiedAt
             )
         }
+    }
+
+    /// Attempt to fetch rich model metadata from LM Studio's extended endpoint.
+    /// Returns a dictionary keyed by model ID, or nil if the endpoint isn't available.
+    private func fetchLMStudioModels() async -> [String: LMStudioModelMeta]? {
+        let url = baseURL.appendingPathComponent("api/v1/models")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 5
+
+        if let apiKey = apiKey, !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        guard let (data, response) = try? await session.data(for: request),
+              let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            return nil
+        }
+
+        guard let lmResponse = try? JSONDecoder().decode(LMStudioModelsResponse.self, from: data) else {
+            return nil
+        }
+
+        var result: [String: LMStudioModelMeta] = [:]
+        for model in lmResponse.models {
+            let quantization = model.quantization?.name
+            let modelFormat: ModelFormat? = {
+                guard let fmt = model.format?.lowercased() else { return nil }
+                if fmt == "gguf" { return .gguf }
+                if fmt == "mlx" { return .mlx }
+                return nil
+            }()
+            let parameterCount: Double? = {
+                guard let ps = model.paramsString else { return nil }
+                let lower = ps.lowercased()
+                // Parse "9B", "1.2B", "70B", "200M" etc.
+                if lower.hasSuffix("b"), let val = Double(lower.dropLast()) {
+                    return val
+                }
+                if lower.hasSuffix("m"), let val = Double(lower.dropLast()) {
+                    return val / 1000.0
+                }
+                return nil
+            }()
+
+            result[model.key] = LMStudioModelMeta(
+                quantization: quantization,
+                modelFormat: modelFormat,
+                parameterCount: parameterCount,
+                sizeBytes: model.sizeBytes,
+                contextLength: model.maxContextLength
+            )
+        }
+        return result
     }
 
     func generate(request: InferenceRequest) -> AsyncThrowingStream<InferenceChunk, Error> {
@@ -554,4 +613,45 @@ private struct OpenAIStreamChoice: Codable {
 private struct OpenAIDelta: Codable {
     let role: String?
     let content: String?
+}
+
+// MARK: - LM Studio Extended API Types
+
+/// Rich metadata extracted from LM Studio's /api/v1/models/ endpoint
+private struct LMStudioModelMeta {
+    let quantization: String?
+    let modelFormat: ModelFormat?
+    let parameterCount: Double?
+    let sizeBytes: Int64?
+    let contextLength: Int?
+}
+
+private struct LMStudioModelsResponse: Codable {
+    let models: [LMStudioModel]
+}
+
+private struct LMStudioModel: Codable {
+    let key: String
+    let quantization: LMStudioQuantization?
+    let format: String?
+    let paramsString: String?
+    let sizeBytes: Int64?
+    let maxContextLength: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case key, quantization, format
+        case paramsString = "params_string"
+        case sizeBytes = "size_bytes"
+        case maxContextLength = "max_context_length"
+    }
+}
+
+private struct LMStudioQuantization: Codable {
+    let name: String
+    let bitsPerWeight: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case bitsPerWeight = "bits_per_weight"
+    }
 }
