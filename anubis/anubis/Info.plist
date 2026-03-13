@@ -6,5 +6,9 @@
 	<string>https://devpadapp.com/anubis/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>uXjeYxgRvTVd3fAkaTty9gPCe1GSbgmoGspZg8NCuuE=</string>
+	<key>SUAutomaticallyCheckForUpdates</key>
+	<true/>
+	<key>SUEnableAutomatedDownloads</key>
+	<false/>
 </dict>
 </plist>
