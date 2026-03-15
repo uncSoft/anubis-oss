@@ -107,6 +107,7 @@ struct BenchmarkView: View {
                     viewModel.openExpandedMetricsWindow()
                 } label: {
                     Label("Expand Results", systemImage: "arrow.up.left.and.arrow.down.right")
+                        .symbolEffect(.pulse, isActive: viewModel.isRunning)
                 }
                 .help("Expand metrics dashboard")
 
@@ -584,7 +585,7 @@ struct BenchmarkView: View {
                 icon: "bolt.fill",
                 color: .chartTokens,
                 subtitle: viewModel.peakTokensPerSecond > 0 ? "Peak: \(viewModel.formattedPeakTokensPerSecond)" : nil,
-                help: "Average tokens generated per second."
+                help: "Average: total tokens ÷ generation time. Peak: highest instantaneous rate between sample intervals."
             )
 
             CompactMetricsCard(
@@ -679,7 +680,8 @@ struct BenchmarkView: View {
                     perCoreSnapshot: viewModel.latestPerCoreSnapshot,
                     onExpandCores: { viewModel.openCoreDetailWindow() },
                     gpuUtilization: viewModel.latestGPUUtilization,
-                    onExpandGPU: { viewModel.openGPUDetailWindow() }
+                    onExpandGPU: { viewModel.openGPUDetailWindow() },
+                    averageTps: viewModel.effectiveAverageTps
                 )
             } else {
                 // Collapsed state - show placeholder
@@ -1203,20 +1205,125 @@ struct ExpandedMetricsView: View {
 
     private var chip: ChipInfo { ChipInfo.current }
     private let topColumns = [GridItem(.flexible()), GridItem(.flexible())]
+    private let threeColumns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
+
+    private var chartData: BenchmarkChartData { viewModel.chartStore.chartData }
+    private var tpsIsComplete: Bool { !viewModel.isRunning }
+    private var tpsDisplayValue: Double? { tpsIsComplete ? viewModel.effectiveAverageTps : nil }
+    private var tpsValueNote: String { tpsIsComplete ? "avg" : "live" }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: Spacing.md) {
-                // Top row: Hero header card | Metrics card
-                LazyVGrid(columns: topColumns, spacing: Spacing.md) {
-                    heroCard
-                    metricsCard
-                }
+        GeometryReader { geo in
+            let chartHeight = expandedChartHeight(availableHeight: geo.size.height)
+            // Total card height = chart area + title/header (~30px) + card padding (~24px)
+            let cardHeight = chartHeight + 54
+            ScrollView {
+                LazyVGrid(columns: threeColumns, spacing: Spacing.md) {
+                    // Row 1: Hero | Metrics | Tok/s chart
+                    heroCard.frame(height: cardHeight)
+                    metricsCard.frame(height: cardHeight)
+                    TimelineChart(
+                        title: "Tokens per Second",
+                        data: chartData.tokensPerSecond,
+                        color: .chartTokens,
+                        unit: "tok/s",
+                        valueNote: tpsValueNote,
+                        displayValue: tpsDisplayValue,
+                        chartHeight: chartHeight
+                    )
 
-                // Charts
-                chartsSection
+                    // Row 2: CPU Util | Memory | GPU Util
+                    TimelineChart(
+                        title: "CPU Utilization",
+                        data: chartData.cpuUtilization,
+                        color: .chartCPU,
+                        unit: "%",
+                        maxValue: 100,
+                        chartHeight: chartHeight
+                    )
+                    MemoryTimelineChart(
+                        title: "Total Memory",
+                        data: chartData.memoryUtilization,
+                        currentBytes: viewModel.effectiveBackendMemoryBytes,
+                        totalBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
+                        color: .chartMemory,
+                        chartHeight: chartHeight
+                    )
+                    if viewModel.hasHardwareMetrics {
+                        TimelineChart(
+                            title: "GPU Utilization",
+                            data: chartData.gpuUtilization,
+                            color: .chartGPU,
+                            unit: "%",
+                            maxValue: 100,
+                            chartHeight: chartHeight
+                        )
+                    }
+
+                    // Power rows (if available)
+                    if viewModel.hasPowerMetrics && chartData.hasPowerData {
+                        // Row 3: CPU Cores | GPU Cores | System Power
+                        if !viewModel.latestPerCoreSnapshot.isEmpty {
+                            CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
+                                viewModel.openCoreDetailWindow()
+                            }
+                        }
+                        GPUCoreGrid(gpuUtilization: viewModel.latestGPUUtilization) {
+                            viewModel.openGPUDetailWindow()
+                        }
+                        TimelineChart(
+                            title: "System Power",
+                            data: chartData.systemPower,
+                            color: .chartSystemPower,
+                            unit: "W",
+                            chartHeight: chartHeight
+                        )
+
+                        // Row 4: GPU Power | W/Token | GPU Frequency
+                        TimelineChart(
+                            title: "GPU Power",
+                            data: chartData.gpuPower,
+                            color: .chartGPUPower,
+                            unit: "W",
+                            chartHeight: chartHeight
+                        )
+                        TimelineChart(
+                            title: "Watts per Token",
+                            data: chartData.wattsPerToken,
+                            color: .chartEfficiency,
+                            unit: "W/tok",
+                            chartHeight: chartHeight
+                        )
+                        TimelineChart(
+                            title: "GPU Frequency",
+                            data: chartData.gpuFrequency,
+                            color: .chartFrequency,
+                            unit: "MHz",
+                            chartHeight: chartHeight
+                        )
+
+                        // Row 5: CPU Power
+                        TimelineChart(
+                            title: "CPU Power",
+                            data: chartData.cpuPower,
+                            color: .chartCPUPower,
+                            unit: "W",
+                            chartHeight: chartHeight
+                        )
+                    } else {
+                        // No power — just show core grids
+                        if !viewModel.latestPerCoreSnapshot.isEmpty {
+                            CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
+                                viewModel.openCoreDetailWindow()
+                            }
+                        }
+                        GPUCoreGrid(gpuUtilization: viewModel.latestGPUUtilization) {
+                            viewModel.openGPUDetailWindow()
+                        }
+                    }
+                }
+                .padding(Spacing.lg)
             }
-            .padding(Spacing.lg)
         }
         .overlay(alignment: .topTrailing) {
             HStack(spacing: Spacing.sm) {
@@ -1273,14 +1380,97 @@ struct ExpandedMetricsView: View {
         .help("Export benchmark results")
     }
 
-    /// The content rendered for export — same layout as the live view but with a watermark overlay.
+    /// The content rendered for export — 3-column layout matching the expanded view with fixed chart heights.
     private var exportableContent: some View {
-        VStack(spacing: Spacing.md) {
-            LazyVGrid(columns: topColumns, spacing: Spacing.md) {
-                heroCard
-                metricsCard
+        let exportHeight: CGFloat = 150
+        return LazyVGrid(columns: threeColumns, spacing: Spacing.md) {
+            heroCard
+            metricsCard
+            TimelineChart(
+                title: "Tokens per Second",
+                data: chartData.tokensPerSecond,
+                color: .chartTokens,
+                unit: "tok/s",
+                valueNote: tpsValueNote,
+                displayValue: tpsDisplayValue,
+                chartHeight: exportHeight
+            )
+
+            TimelineChart(
+                title: "CPU Utilization",
+                data: chartData.cpuUtilization,
+                color: .chartCPU,
+                unit: "%",
+                maxValue: 100,
+                chartHeight: exportHeight
+            )
+            MemoryTimelineChart(
+                title: "Total Memory",
+                data: chartData.memoryUtilization,
+                currentBytes: viewModel.effectiveBackendMemoryBytes,
+                totalBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
+                color: .chartMemory,
+                chartHeight: exportHeight
+            )
+            if viewModel.hasHardwareMetrics {
+                TimelineChart(
+                    title: "GPU Utilization",
+                    data: chartData.gpuUtilization,
+                    color: .chartGPU,
+                    unit: "%",
+                    maxValue: 100,
+                    chartHeight: exportHeight
+                )
             }
-            chartsSection
+
+            if viewModel.hasPowerMetrics && chartData.hasPowerData {
+                if !viewModel.latestPerCoreSnapshot.isEmpty {
+                    CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {}
+                }
+                GPUCoreGrid(gpuUtilization: viewModel.latestGPUUtilization) {}
+                TimelineChart(
+                    title: "System Power",
+                    data: chartData.systemPower,
+                    color: .chartSystemPower,
+                    unit: "W",
+                    chartHeight: exportHeight
+                )
+
+                TimelineChart(
+                    title: "GPU Power",
+                    data: chartData.gpuPower,
+                    color: .chartGPUPower,
+                    unit: "W",
+                    chartHeight: exportHeight
+                )
+                TimelineChart(
+                    title: "Watts per Token",
+                    data: chartData.wattsPerToken,
+                    color: .chartEfficiency,
+                    unit: "W/tok",
+                    chartHeight: exportHeight
+                )
+                TimelineChart(
+                    title: "GPU Frequency",
+                    data: chartData.gpuFrequency,
+                    color: .chartFrequency,
+                    unit: "MHz",
+                    chartHeight: exportHeight
+                )
+
+                TimelineChart(
+                    title: "CPU Power",
+                    data: chartData.cpuPower,
+                    color: .chartCPUPower,
+                    unit: "W",
+                    chartHeight: exportHeight
+                )
+            } else {
+                if !viewModel.latestPerCoreSnapshot.isEmpty {
+                    CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {}
+                }
+                GPUCoreGrid(gpuUtilization: viewModel.latestGPUUtilization) {}
+            }
         }
         .padding(Spacing.lg)
         .overlay(alignment: .bottomTrailing) {
@@ -1310,7 +1500,7 @@ struct ExpandedMetricsView: View {
     @MainActor
     private func renderImage() -> NSImage? {
         let content = exportableContent
-            .frame(width: 1100)
+            .frame(width: 1600)
             .environment(\.colorScheme, colorScheme)
             .environment(\.isExporting, true)
         let renderer = ImageRenderer(content: content)
@@ -1406,9 +1596,9 @@ struct ExpandedMetricsView: View {
                     Text(viewModel.formattedTokensPerSecond)
                         .font(.system(size: 36, weight: .bold, design: .monospaced))
                         .foregroundStyle(Color.chartTokens)
-                    Text("")
+                    Text("avg")
                         .font(.system(size: 15, weight: .medium, design: .monospaced))
-                        .foregroundStyle(Color.chartTokens.opacity(0.7))
+                        .foregroundStyle(Color.chartTokens.opacity(0.5))
                 }
 
                 HStack(spacing: Spacing.sm) {
@@ -1488,21 +1678,19 @@ struct ExpandedMetricsView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Charts Section
+    // MARK: - Chart Height
 
-    private var chartsSection: some View {
-        LiveChartsView(
-            chartStore: viewModel.chartStore,
-            isRunning: viewModel.isRunning,
-            hasHardwareMetrics: viewModel.hasHardwareMetrics,
-            hasPowerMetrics: viewModel.hasPowerMetrics,
-            currentMemoryBytes: viewModel.effectiveBackendMemoryBytes,
-            totalMemoryBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
-            perCoreSnapshot: viewModel.latestPerCoreSnapshot,
-            onExpandCores: { viewModel.openCoreDetailWindow() },
-            gpuUtilization: viewModel.latestGPUUtilization,
-            onExpandGPU: { viewModel.openGPUDetailWindow() }
-        )
+    /// Compute chart height so all rows fit without scrolling in the 3-column layout.
+    /// With power: 5 rows (header, CPU/Mem/GPU, cores/power, power/wpt/freq, cpuPower)
+    /// Without power: 3 rows (header, CPU/Mem/GPU, cores)
+    private func expandedChartHeight(availableHeight: CGFloat) -> CGFloat {
+        let totalRows: CGFloat = viewModel.hasPowerMetrics ? 5 : 3
+        let padding: CGFloat = 48  // lg padding top + bottom
+        let gridSpacing: CGFloat = Spacing.md * (totalRows - 1) // spacing between rows
+        let usableHeight = availableHeight - padding - gridSpacing
+        let perRow = usableHeight / totalRows
+        // Chart area is row height minus title/label overhead (~30px)
+        return max(80, perRow - 30)
     }
 }
 
@@ -1619,6 +1807,9 @@ struct ChartGrid: View {
     var onExpandCores: (() -> Void)? = nil
     var gpuUtilization: Double = 0
     var onExpandGPU: (() -> Void)? = nil
+    var averageTps: Double? = nil
+    var isComplete: Bool = false
+    var chartHeight: CGFloat = 150
 
     private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -1629,7 +1820,10 @@ struct ChartGrid: View {
                 title: "Tokens per Second",
                 data: data.tokensPerSecond,
                 color: .chartTokens,
-                unit: "tok/s"
+                unit: "tok/s",
+                valueNote: isComplete ? "avg" : "live",
+                displayValue: isComplete ? averageTps : nil,
+                chartHeight: chartHeight
             )
 
             if hasHardwareMetrics {
@@ -1638,7 +1832,8 @@ struct ChartGrid: View {
                     data: data.gpuUtilization,
                     color: .chartGPU,
                     unit: "%",
-                    maxValue: 100
+                    maxValue: 100,
+                    chartHeight: chartHeight
                 )
             } else {
                 TimelineChart(
@@ -1646,7 +1841,8 @@ struct ChartGrid: View {
                     data: data.cpuUtilization,
                     color: .chartCPU,
                     unit: "%",
-                    maxValue: 100
+                    maxValue: 100,
+                    chartHeight: chartHeight
                 )
             }
 
@@ -1657,7 +1853,8 @@ struct ChartGrid: View {
                     data: data.cpuUtilization,
                     color: .chartCPU,
                     unit: "%",
-                    maxValue: 100
+                    maxValue: 100,
+                    chartHeight: chartHeight
                 )
             }
 
@@ -1666,7 +1863,8 @@ struct ChartGrid: View {
                 data: data.memoryUtilization,
                 currentBytes: currentMemoryBytes,
                 totalBytes: totalMemoryBytes,
-                color: .chartMemory
+                color: .chartMemory,
+                chartHeight: chartHeight
             )
 
             // Row 3: CPU Cores | GPU Cores
@@ -1686,14 +1884,16 @@ struct ChartGrid: View {
                     title: "GPU Power",
                     data: data.gpuPower,
                     color: .chartGPUPower,
-                    unit: "W"
+                    unit: "W",
+                    chartHeight: chartHeight
                 )
 
                 TimelineChart(
                     title: "System Power",
                     data: data.systemPower,
                     color: .chartSystemPower,
-                    unit: "W"
+                    unit: "W",
+                    chartHeight: chartHeight
                 )
 
                 // Row 5: GPU Frequency | Watts/Token
@@ -1701,14 +1901,16 @@ struct ChartGrid: View {
                     title: "GPU Frequency",
                     data: data.gpuFrequency,
                     color: .chartFrequency,
-                    unit: "MHz"
+                    unit: "MHz",
+                    chartHeight: chartHeight
                 )
 
                 TimelineChart(
                     title: "Watts per Token",
                     data: data.wattsPerToken,
                     color: .chartEfficiency,
-                    unit: "W/tok"
+                    unit: "W/tok",
+                    chartHeight: chartHeight
                 )
 
                 // Row 6: CPU Power
@@ -1716,7 +1918,8 @@ struct ChartGrid: View {
                     title: "CPU Power",
                     data: data.cpuPower,
                     color: .chartCPUPower,
-                    unit: "W"
+                    unit: "W",
+                    chartHeight: chartHeight
                 )
             }
 
@@ -1749,6 +1952,8 @@ private struct LiveChartsView: View {
     var onExpandCores: (() -> Void)? = nil
     var gpuUtilization: Double = 0
     var onExpandGPU: (() -> Void)? = nil
+    var averageTps: Double = 0
+    var chartHeight: CGFloat = 150
 
     var body: some View {
         ChartGrid(
@@ -1760,7 +1965,10 @@ private struct LiveChartsView: View {
             perCoreSnapshot: perCoreSnapshot,
             onExpandCores: onExpandCores,
             gpuUtilization: gpuUtilization,
-            onExpandGPU: onExpandGPU
+            onExpandGPU: onExpandGPU,
+            averageTps: averageTps,
+            isComplete: !isRunning,
+            chartHeight: chartHeight
         )
     }
 }

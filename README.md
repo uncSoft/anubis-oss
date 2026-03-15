@@ -46,7 +46,7 @@ Real-time performance dashboard for single-model testing.
 - **7 live charts**: Tokens/sec, GPU utilization, CPU utilization, process memory, GPU/CPU/ANE/DRAM power, GPU frequency - all updating in real time
 - **Power telemetry**: Real-time GPU, CPU, ANE, and DRAM power consumption in watts via IOReport
 - **Process monitoring**: Auto-detects backend process by port (Ollama, LM Studio, mlx-lm, vLLM, etc.) with manual process picker
-- Detailed session stats: peak tokens/sec, average token latency, model load time, context length, eval duration, power averages
+- Detailed session stats: average tok/s (total tokens ÷ generation time), peak tok/s (highest instantaneous rate), TTFT, model load time, context length, eval duration, power averages
 - Configurable parameters: temperature, top-p, max tokens, system prompt
 - **Prompt presets** organized by category (Quick, Reasoning, Coding, Creative, Benchmarking)
 - **Session history** with full replay, CSV export, and Markdown reports

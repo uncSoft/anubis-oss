@@ -504,7 +504,9 @@ struct SessionDetailView: View {
             hasHardwareMetrics: !chartData.gpuUtilization.isEmpty,
             hasPowerMetrics: chartData.hasPowerData,
             currentMemoryBytes: samples.last?.memoryUsedBytes ?? 0,
-            totalMemoryBytes: samples.last?.memoryTotalBytes ?? 1
+            totalMemoryBytes: samples.last?.memoryTotalBytes ?? 1,
+            averageTps: session.tokensPerSecond,
+            isComplete: true
         )
     }
 

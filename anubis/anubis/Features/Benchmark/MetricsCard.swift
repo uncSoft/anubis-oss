@@ -228,7 +228,7 @@ struct PrimaryMetricsCard: View {
                 icon: "bolt.fill",
                 color: .chartTokens,
                 subtitle: "Peak: 58.2 tok/s",
-                help: "Average tokens generated per second during inference."
+                help: "Average: total tokens ÷ generation time. Peak: highest instantaneous rate between sample intervals."
             )
             MetricsCard(
                 title: "GPU",

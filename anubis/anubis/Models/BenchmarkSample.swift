@@ -181,7 +181,22 @@ extension BenchmarkSample {
 
         let gpuValues = samples.compactMap { $0.gpuUtilization }
         let cpuValues = samples.compactMap { $0.cpuUtilization }
-        let tpsValues = samples.compactMap { $0.cumulativeTokensPerSecond }
+        // Compute instantaneous tok/s from consecutive sample deltas
+        var instantTpsValues: [Double] = []
+        for i in 1..<samples.count {
+            if let curr = samples[i].tokensGenerated,
+               let prev = samples[i - 1].tokensGenerated,
+               curr > prev {
+                let dt = samples[i].timestamp.timeIntervalSince(samples[i - 1].timestamp)
+                if dt > 0 {
+                    instantTpsValues.append(Double(curr - prev) / dt)
+                }
+            }
+        }
+
+        // Average tok/s = total tokens / total generation time (from last cumulative sample)
+        let avgTps: Double? = samples.last?.cumulativeTokensPerSecond
+
         let gpuPowerValues = samples.compactMap { $0.gpuPowerWatts }
         let systemPowerValues = samples.compactMap { $0.systemPowerWatts }
         let freqValues = samples.compactMap { $0.gpuFrequencyMHz }
@@ -193,8 +208,8 @@ extension BenchmarkSample {
             maxGpuUtilization: gpuValues.max(),
             avgCpuUtilization: cpuValues.isEmpty ? nil : cpuValues.reduce(0, +) / Double(cpuValues.count),
             maxCpuUtilization: cpuValues.max(),
-            avgTokensPerSecond: tpsValues.isEmpty ? nil : tpsValues.reduce(0, +) / Double(tpsValues.count),
-            peakTokensPerSecond: tpsValues.max(),
+            avgTokensPerSecond: avgTps,
+            peakTokensPerSecond: instantTpsValues.max(),
             avgGpuPowerWatts: gpuPowerValues.isEmpty ? nil : gpuPowerValues.reduce(0, +) / Double(gpuPowerValues.count),
             peakGpuPowerWatts: gpuPowerValues.max(),
             avgSystemPowerWatts: systemPowerValues.isEmpty ? nil : systemPowerValues.reduce(0, +) / Double(systemPowerValues.count),
@@ -273,7 +288,7 @@ extension BenchmarkSample {
         var wptPoints: [(Date, Double)] = []
         var backendCPUPoints: [(Date, Double)] = []
 
-        for sample in samples {
+        for (i, sample) in samples.enumerated() {
             if let gpu = sample.gpuUtilization {
                 gpuPoints.append((sample.timestamp, gpu * 100))
             }
@@ -284,8 +299,16 @@ extension BenchmarkSample {
                 let memGB = Double(memUsed) / 1_000_000_000.0
                 memoryPoints.append((sample.timestamp, memGB))
             }
-            if let tps = sample.cumulativeTokensPerSecond {
-                tpsPoints.append((sample.timestamp, tps))
+            // Compute instantaneous tok/s from consecutive sample deltas
+            if i > 0,
+               let currTokens = sample.tokensGenerated,
+               let prevTokens = samples[i - 1].tokensGenerated,
+               currTokens > prevTokens {
+                let dt = sample.timestamp.timeIntervalSince(samples[i - 1].timestamp)
+                if dt > 0 {
+                    let instantTps = Double(currTokens - prevTokens) / dt
+                    tpsPoints.append((sample.timestamp, instantTps))
+                }
             }
             if let gp = sample.gpuPowerWatts, gp > 0 {
                 gpuPowerPoints.append((sample.timestamp, gp))

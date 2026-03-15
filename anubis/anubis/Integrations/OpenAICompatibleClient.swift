@@ -22,7 +22,17 @@ actor OpenAICompatibleClient: InferenceBackend {
 
     init(configuration: BackendConfiguration) {
         self.configuration = configuration
-        self.baseURL = Constants.URLs.parse(configuration.baseURL, fallback: Constants.URLs.openAIDefault)
+        // Strip trailing /v1 or /v1/ — Anubis appends the versioned path automatically
+        var url = Constants.URLs.parse(configuration.baseURL, fallback: Constants.URLs.openAIDefault)
+        let pathSuffixes = ["/v1/", "/v1"]
+        for suffix in pathSuffixes {
+            if url.path.hasSuffix(suffix) {
+                let trimmed = String(url.absoluteString.dropLast(suffix.count))
+                if let fixed = URL(string: trimmed) { url = fixed }
+                break
+            }
+        }
+        self.baseURL = url
         self.apiKey = configuration.apiKey
 
         let config = URLSessionConfiguration.default

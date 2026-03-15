@@ -471,7 +471,6 @@ struct SettingsView: View {
     @EnvironmentObject var updaterService: UpdaterService
     @State private var showAddBackend = false
     @State private var showAbout = false
-    @State private var showHelp = false
     @State private var showContact = false
     @State private var editingConfig: BackendConfiguration?
     @State private var configToDelete: BackendConfiguration?
@@ -561,7 +560,7 @@ struct SettingsView: View {
                 }
 
                 Button {
-                    showHelp = true
+                    NSWorkspace.shared.open(URL(string: "https://github.com/uncSoft/anubis-oss")!)
                 } label: {
                     Label("Help", systemImage: "questionmark.circle")
                 }
@@ -612,9 +611,6 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showAbout) {
             KeygenAboutView(onClose: { showAbout = false })
-        }
-        .sheet(isPresented: $showHelp) {
-            HelpView(onClose: { showHelp = false })
         }
         .sheet(isPresented: $showContact) {
             ContactFormView(onClose: { showContact = false })
@@ -718,6 +714,9 @@ struct BackendConfigEditor: View {
 
                     TextField("Base URL", text: $config.baseURL)
                         .textFieldStyle(.plain)
+                    Text("Do not include /v1 — it is added automatically")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     if config.type == .openaiCompatible {
                         SecureField("API Key (optional)", text: Binding(

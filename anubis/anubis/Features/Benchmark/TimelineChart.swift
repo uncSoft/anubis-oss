@@ -15,6 +15,9 @@ struct TimelineChart: View {
     let color: Color
     let unit: String
     var maxValue: Double? = nil
+    var valueNote: String? = nil
+    var displayValue: Double? = nil
+    var chartHeight: CGFloat = 150
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -22,10 +25,17 @@ struct TimelineChart: View {
                 Text(title)
                     .font(.headline)
                 Spacer()
-                if let last = data.last {
-                    Text(formatValue(last.1))
-                        .font(.mono(14, weight: .medium))
-                        .foregroundStyle(color)
+                if let value = displayValue ?? data.last?.1 {
+                    HStack(spacing: 4) {
+                        Text(formatValue(value))
+                            .font(.mono(14, weight: .medium))
+                            .foregroundStyle(color)
+                        if let note = valueNote {
+                            Text(note)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(color.opacity(0.5))
+                        }
+                    }
                 }
             }
 
@@ -55,7 +65,7 @@ struct TimelineChart: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(height: 150)
+        .frame(height: chartHeight)
     }
 
     private var chart: some View {
@@ -100,7 +110,7 @@ struct TimelineChart: View {
             }
         }
         .chartYScale(domain: yDomain)
-        .frame(height: 150)
+        .frame(height: chartHeight)
         .clipped()
     }
 
@@ -150,6 +160,7 @@ struct MemoryTimelineChart: View {
     let currentBytes: Int64     // Current memory in bytes for header display
     let totalBytes: Int64       // Total system memory for percentage calc
     let color: Color
+    var chartHeight: CGFloat = 150
 
     private var currentPercent: Double {
         guard totalBytes > 0 else { return 0 }
@@ -205,7 +216,7 @@ struct MemoryTimelineChart: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(height: 150)
+        .frame(height: chartHeight)
     }
 
     private var chart: some View {
@@ -250,7 +261,7 @@ struct MemoryTimelineChart: View {
             }
         }
         .chartYScale(domain: yDomain)
-        .frame(height: 150)
+        .frame(height: chartHeight)
         .clipped()
     }
 

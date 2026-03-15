@@ -923,11 +923,10 @@ final class BenchmarkViewModel: ObservableObject {
             return
         }
 
-        // Size the view to fill available space
+        // Size the view to fill the screen by default
         let screenFrame = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1200, height: 800)
-        let width = max(900, screenFrame.width * 0.8)
-        let height = max(700, screenFrame.height * 0.8)
-        let contentSize = NSSize(width: width, height: height)
+        let width = max(900, screenFrame.width)
+        let height = max(700, screenFrame.height)
 
         let view = ExpandedMetricsView(viewModel: self)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1406,13 +1405,17 @@ extension BenchmarkViewModel {
         Formatters.duration(elapsedTime)
     }
 
+    /// Average tokens per second — uses backend-reported value when complete, live value during run
+    var effectiveAverageTps: Double {
+        if let session = currentSession, session.status == .completed, let tps = session.tokensPerSecond {
+            return tps
+        }
+        return currentTokensPerSecond
+    }
+
     /// Formatted tokens per second (average)
     var formattedTokensPerSecond: String {
-        // Use final stats if completed, otherwise use real-time
-        if let session = currentSession, session.status == .completed, let tps = session.tokensPerSecond {
-            return Formatters.tokensPerSecond(tps)
-        }
-        return Formatters.tokensPerSecond(currentTokensPerSecond)
+        Formatters.tokensPerSecond(effectiveAverageTps)
     }
 
     /// Formatted peak tokens per second

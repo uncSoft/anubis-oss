@@ -12,7 +12,6 @@ struct AnubisApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var updaterService = UpdaterService()
     @State private var showAbout = false
-    @State private var showHelp = false
 
     var body: some Scene {
         WindowGroup {
@@ -24,9 +23,6 @@ struct AnubisApp: App {
                 }
                 .sheet(isPresented: $showAbout) {
                     KeygenAboutView(onClose: { showAbout = false })
-                }
-                .sheet(isPresented: $showHelp) {
-                    HelpView(onClose: { showHelp = false })
                 }
         }
         .windowStyle(.automatic)
@@ -45,9 +41,13 @@ struct AnubisApp: App {
             }
             CommandGroup(replacing: .help) {
                 Button("Anubis Help") {
-                    showHelp = true
+                    NSWorkspace.shared.open(URL(string: "https://github.com/uncSoft/anubis-oss")!)
                 }
                 .keyboardShortcut("?", modifiers: .command)
+
+                Button("Report an Issue") {
+                    NSWorkspace.shared.open(URL(string: "https://github.com/uncSoft/anubis-oss/issues")!)
+                }
             }
         }
 
