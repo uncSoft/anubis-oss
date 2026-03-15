@@ -14,6 +14,8 @@ import Charts
 /// P-cores and E-cores are color-coded. Fits in the ChartGrid alongside other charts.
 struct CoreUtilizationGrid: View {
     let snapshot: [CoreUtilization]
+    var showExpandButton: Bool = true
+    var chartHeight: CGFloat = 150
     let onExpand: () -> Void
 
     private var eCores: [CoreUtilization] {
@@ -42,15 +44,17 @@ struct CoreUtilizationGrid: View {
                 Text(chipSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Button {
-                    onExpand()
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if showExpandButton {
+                    Button {
+                        onExpand()
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open core detail window")
                 }
-                .buttonStyle(.plain)
-                .help("Open core detail window")
             }
 
             if snapshot.isEmpty {
@@ -79,7 +83,7 @@ struct CoreUtilizationGrid: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(height: 150)
+        .frame(height: chartHeight)
     }
 
     private var coreBarGrid: some View {
@@ -115,7 +119,7 @@ struct CoreUtilizationGrid: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
         }
-        .frame(height: 150)
+        .frame(height: chartHeight)
     }
 
     private func coreBar(core: CoreUtilization, width: CGFloat, height: CGFloat, labelHeight: CGFloat) -> some View {

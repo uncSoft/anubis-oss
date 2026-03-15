@@ -247,6 +247,8 @@ actor OpenAICompatibleClient: InferenceBackend {
 
         var totalTokens = 0
         let startTime = Date()
+        var firstTokenTime: Date?
+        var lastUsage: OpenAIUsage?
 
         for try await line in bytes.lines {
             // SSE format: "data: {...}" or "data: [DONE]"
@@ -254,16 +256,22 @@ actor OpenAICompatibleClient: InferenceBackend {
             let jsonString = String(line.dropFirst(6))
 
             if jsonString == "[DONE]" {
-                let duration = Date().timeIntervalSince(startTime)
+                let now = Date()
+                let totalDuration = now.timeIntervalSince(startTime)
+                let promptEval = firstTokenTime.map { $0.timeIntervalSince(startTime) } ?? 0
+                let evalDuration = firstTokenTime.map { now.timeIntervalSince($0) } ?? totalDuration
+                // Use backend-reported token counts when available, fall back to our approximation
+                let promptToks = lastUsage?.promptTokens ?? 0
+                let completionToks = lastUsage?.completionTokens ?? totalTokens
                 let stats = InferenceStats(
-                    totalTokens: totalTokens,
-                    promptTokens: 0,  // Not provided in streaming
-                    completionTokens: totalTokens,
-                    totalDuration: duration,
-                    promptEvalDuration: 0,
-                    evalDuration: duration,
+                    totalTokens: promptToks + completionToks,
+                    promptTokens: promptToks,
+                    completionTokens: completionToks,
+                    totalDuration: totalDuration,
+                    promptEvalDuration: promptEval,
+                    evalDuration: evalDuration,
                     loadDuration: 0,
-                    contextLength: 0
+                    contextLength: promptToks > 0 ? promptToks + completionToks : 0
                 )
                 continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
                 continuation.finish()
@@ -276,24 +284,37 @@ actor OpenAICompatibleClient: InferenceBackend {
                 let chunk = try JSONDecoder().decode(OpenAIChatStreamResponse.self, from: data)
                 let content = chunk.choices.first?.delta.content
 
+                // Capture usage if provided (typically on the final chunk)
+                if let usage = chunk.usage {
+                    lastUsage = usage
+                }
+
                 if let content = content, !content.isEmpty {
-                    totalTokens += 1  // Approximate token count
+                    totalTokens += 1  // Approximate token count (used as fallback)
+                    if firstTokenTime == nil {
+                        firstTokenTime = Date()
+                    }
                     continuation.yield(InferenceChunk(text: content, done: false, stats: nil))
                 }
 
                 // Check finish_reason - generation complete before [DONE]
                 if let finishReason = chunk.choices.first?.finishReason,
                    finishReason == "stop" || finishReason == "length" {
-                    let duration = Date().timeIntervalSince(startTime)
+                    let now = Date()
+                    let totalDuration = now.timeIntervalSince(startTime)
+                    let promptEval = firstTokenTime.map { $0.timeIntervalSince(startTime) } ?? 0
+                    let evalDuration = firstTokenTime.map { now.timeIntervalSince($0) } ?? totalDuration
+                    let promptToks = lastUsage?.promptTokens ?? 0
+                    let completionToks = lastUsage?.completionTokens ?? totalTokens
                     let stats = InferenceStats(
-                        totalTokens: totalTokens,
-                        promptTokens: 0,
-                        completionTokens: totalTokens,
-                        totalDuration: duration,
-                        promptEvalDuration: 0,
-                        evalDuration: duration,
+                        totalTokens: promptToks + completionToks,
+                        promptTokens: promptToks,
+                        completionTokens: completionToks,
+                        totalDuration: totalDuration,
+                        promptEvalDuration: promptEval,
+                        evalDuration: evalDuration,
                         loadDuration: 0,
-                        contextLength: 0
+                        contextLength: promptToks > 0 ? promptToks + completionToks : 0
                     )
                     continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
                     continuation.finish()
@@ -607,6 +628,19 @@ private struct OpenAIChatStreamResponse: Codable {
     let created: Int?
     let model: String?
     let choices: [OpenAIStreamChoice]
+    let usage: OpenAIUsage?
+}
+
+private struct OpenAIUsage: Codable {
+    let promptTokens: Int?
+    let completionTokens: Int?
+    let totalTokens: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case promptTokens = "prompt_tokens"
+        case completionTokens = "completion_tokens"
+        case totalTokens = "total_tokens"
+    }
 }
 
 private struct OpenAIStreamChoice: Codable {

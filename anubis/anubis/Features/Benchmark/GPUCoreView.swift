@@ -15,6 +15,8 @@ import Charts
 /// Scales from 8 cores (M1) to 76+ (M4 Ultra) with adaptive layout.
 struct GPUCoreGrid: View {
     let gpuUtilization: Double  // 0.0–1.0
+    var showExpandButton: Bool = true
+    var chartHeight: CGFloat = 150
     let onExpand: () -> Void
 
     private var gpuCoreCount: Int { ChipInfo.current.gpuCores }
@@ -33,15 +35,17 @@ struct GPUCoreGrid: View {
                 Text(coreSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Button {
-                    onExpand()
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if showExpandButton {
+                    Button {
+                        onExpand()
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Open GPU detail window")
                 }
-                .buttonStyle(.plain)
-                .help("Open GPU detail window")
             }
 
             if gpuCoreCount == 0 {
@@ -70,7 +74,7 @@ struct GPUCoreGrid: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(height: 150)
+        .frame(height: chartHeight)
     }
 
     private var coreBarGrid: some View {
@@ -111,7 +115,7 @@ struct GPUCoreGrid: View {
                 }
             }
         }
-        .frame(height: 150)
+        .frame(height: chartHeight)
     }
 
     private func gpuCoreBar(index: Int, width: CGFloat, height: CGFloat, labelHeight: CGFloat, showLabel: Bool) -> some View {

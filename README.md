@@ -6,8 +6,6 @@
 [![GitHub Release](https://img.shields.io/github/v/release/uncSoft/anubis-oss?label=Download&color=brightgreen)](https://github.com/uncSoft/anubis-oss/releases/latest)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Tip%20Jar-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/jtatuncsoft/tip)
 
-> **Update Notice:** If you are on a version under 2.5, please [download the latest release  manually](https://github.com/uncSoft/anubis-oss/releases/latest) — a packaging fix in this release repairs auto-updates for all future versions. v2.5 also adds **model quantization and GGUF/MLX format tracking** to leaderboard submissions, so your benchmarks now include the data needed for apples-to-apples comparisons.
-
 **Local LLM Testing & Benchmarking for Apple Silicon** | [Community Leaderboard](https://devpadapp.com/leaderboard.html)
 
 Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any OpenAI-compatible endpoint - Ollama, MLX, LM Studio Server, OpenWebUI, Docker Models, etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance - something no CLI tool or chat wrapper offers. Export benchmarks directly without having to screenshot, and export the raw data as .MD or .CSV from the history. You can even `OLLAMA PULL` models directly within the app.
@@ -27,7 +25,7 @@ The local LLM ecosystem on macOS is fragmented:
 - **Evaluation frameworks** (promptfoo) require YAML configs and terminal expertise
 - **No tool** correlates hardware metrics (GPU / CPU / ANE / power / memory) with inference speed in real time
 
-Anubis fills that gap with three integrated modules - all in a native macOS app.
+Anubis fills that gap with four integrated modules - all in a native macOS app.
 
 ---
 
@@ -46,12 +44,13 @@ Real-time performance dashboard for single-model testing.
 - **7 live charts**: Tokens/sec, GPU utilization, CPU utilization, process memory, GPU/CPU/ANE/DRAM power, GPU frequency - all updating in real time
 - **Power telemetry**: Real-time GPU, CPU, ANE, and DRAM power consumption in watts via IOReport
 - **Process monitoring**: Auto-detects backend process by port (Ollama, LM Studio, mlx-lm, vLLM, etc.) with manual process picker
-- Detailed session stats: average tok/s (total tokens ÷ generation time), peak tok/s (highest instantaneous rate), TTFT, model load time, context length, eval duration, power averages
+- Detailed session stats: average tok/s (total tokens ÷ decode time), peak tok/s (highest instantaneous rate), TTFT, model load time, context length, eval duration, power averages
 - Configurable parameters: temperature, top-p, max tokens, system prompt
 - **Prompt presets** organized by category (Quick, Reasoning, Coding, Creative, Benchmarking)
 - **Session history** with full replay, CSV export, and Markdown reports
-- Expanded full-screen metrics dashboard
+- **3-column expanded dashboard**: Full-screen metrics view showing all charts without scrolling — system info, utilization, cores, power, and frequency at a glance
 - **Image export**: Copy to clipboard, save as PNG, or share - 2x retina rendering with watermark, respects light/dark mode
+- **Smart URL handling**: Auto-strips `/v1` suffix from backend URLs to prevent double-pathing errors
 
 ### Arena
 
@@ -77,6 +76,24 @@ Upload your benchmark results to the [community leaderboard](https://devpadapp.c
 - **[Data Explorer](https://devpadapp.com/explorer.html)** — interactive pivot table and charting powered by FINOS Perspective
 - **Privacy-first**: no accounts, no response text uploaded — just metrics and a display name
 - HMAC-signed submissions with server-side rate limiting
+
+### System Monitor *(New in 2.8)*
+
+Standalone real-time hardware monitoring dashboard — no benchmark required.
+
+- **One-click start**: Hit Start from the sidebar to begin recording CPU, GPU, memory, power, and thermal metrics
+- **3-column live dashboard**: All charts visible at once — CPU/GPU utilization, memory, per-core grids, power breakdown, GPU frequency
+- **Accumulating charts**: Data builds up as long as the monitor runs, with automatic downsampling to keep rendering fast over long sessions
+- **System info card**: Live readouts for CPU %, GPU %, memory, power draw, and thermal state
+- **No persistence**: Data lives in memory only — nothing is saved when the monitor is closed
+- **Reuses hardware telemetry**: Same IOReport metrics pipeline as Benchmark mode
+
+### Tok/s Accuracy Fix *(2.7–2.8)*
+
+- **OpenAI-compatible backends** (LM Studio, vLLM, etc.): eval duration now measures decode time only (first token → completion), excluding model load and prompt prefill. Previously, the average tok/s was deflated by including load time — especially visible with cold starts
+- **Usage parsing**: Prompt tokens, completion tokens, and context length are now parsed from the OpenAI `usage` object when the backend provides it, instead of approximating by counting chunks
+- **Instantaneous charting**: Tok/s chart shows per-interval throughput instead of a converging cumulative average
+- **Correct peak**: Peak tok/s is the highest instantaneous rate observed, not the max of running averages
 
 ### Auto-Update *(New in 2.3)*
 
@@ -245,7 +262,7 @@ Anubis follows MVVM with a layered service architecture:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                       │
-│   BenchmarkView    ArenaView    VaultView    SettingsView   │
+│  BenchmarkView  ArenaView  MonitorView  VaultView  Settings│
 ├─────────────────────────────────────────────────────────────┤
 │                      SERVICE LAYER                          │
 │   MetricsService   InferenceService   ModelService   Export │
@@ -268,6 +285,7 @@ anubis/
 ├── Features/
 │   ├── Benchmark/          # Performance dashboard
 │   ├── Arena/              # A/B model comparison
+│   ├── Monitor/            # Standalone system monitor
 │   ├── Vault/              # Model management
 │   └── Settings/           # Backend config, about, help, contact
 ├── Services/               # MetricsService, InferenceService, ExportService

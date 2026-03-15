@@ -14,6 +14,7 @@ import os
 enum NavigationDestination: String, CaseIterable, Identifiable {
     case benchmark = "Benchmark"
     case arena = "Arena"
+    case monitor = "Monitor"
     case vault = "Vault"
     case settings = "Settings"
 
@@ -23,6 +24,7 @@ enum NavigationDestination: String, CaseIterable, Identifiable {
         switch self {
         case .benchmark: return "gauge.with.dots.needle.67percent"
         case .arena: return "square.split.2x1"
+        case .monitor: return "waveform.path.ecg"
         case .vault: return "archivebox"
         case .settings: return "gearshape"
         }
@@ -32,6 +34,7 @@ enum NavigationDestination: String, CaseIterable, Identifiable {
         switch self {
         case .benchmark: return "Performance testing and hardware metrics"
         case .arena: return "Side-by-side model comparison"
+        case .monitor: return "Live system metrics dashboard"
         case .vault: return "Model management and inspection"
         case .settings: return "App configuration"
         }

@@ -354,6 +354,9 @@ struct DetailView: View {
                     databaseManager: appState.databaseManager
                 )
                 .navigationTitle("Arena")
+            case .monitor:
+                MonitorView(metricsService: appState.metricsService)
+                    .navigationTitle("Monitor")
             case .vault:
                 VaultView(inferenceService: appState.inferenceService)
                     .navigationTitle("Vault")
