@@ -6,7 +6,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/uncSoft/anubis-oss?label=Download&color=brightgreen)](https://github.com/uncSoft/anubis-oss/releases/latest)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Tip%20Jar-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/jtatuncsoft/tip)
 
-> **Update Notice:** Please [download v2.5 manually](https://github.com/uncSoft/anubis-oss/releases/latest) — a packaging fix in this release repairs auto-updates for all future versions. v2.5 also adds **model quantization and GGUF/MLX format tracking** to leaderboard submissions, so your benchmarks now include the data needed for apples-to-apples comparisons.
+> **Update Notice:** If you are on a version under 2.5, please [download the latest release  manually](https://github.com/uncSoft/anubis-oss/releases/latest) — a packaging fix in this release repairs auto-updates for all future versions. v2.5 also adds **model quantization and GGUF/MLX format tracking** to leaderboard submissions, so your benchmarks now include the data needed for apples-to-apples comparisons.
 
 **Local LLM Testing & Benchmarking for Apple Silicon** | [Community Leaderboard](https://devpadapp.com/leaderboard.html)
 
