@@ -30,7 +30,7 @@ Anubis fills that gap with four integrated modules - all in a native macOS app.
 ---
 
 ## Leaderboard Submissions Now Available! Submit directly through the app
-### The dataset is robut and open source - [check it out here](https://devpadapp.com/explorer.html), please contribute! 
+### The dataset is robust and open source - [check it out here](https://devpadapp.com/explorer.html), please contribute! 
 
 ## Features
 
