@@ -31,11 +31,14 @@ struct SystemMetrics: Sendable, Codable {
     /// CPU utilization (0.0 - 1.0)
     let cpuUtilization: Double
 
-    /// Memory currently used in bytes
+    /// Memory currently used in bytes (backend process memory for benchmarks)
     let memoryUsedBytes: Int64
 
     /// Total system memory in bytes
     let memoryTotalBytes: Int64
+
+    /// Actual system-wide memory in use (active + wired + compressed pages)
+    let systemMemoryUsedBytes: Int64?
 
     /// Current thermal state
     let thermalState: ThermalState
@@ -94,6 +97,7 @@ struct SystemMetrics: Sendable, Codable {
         self.cpuUtilization = cpuUtilization
         self.memoryUsedBytes = memoryUsedBytes
         self.memoryTotalBytes = memoryTotalBytes
+        self.systemMemoryUsedBytes = nil
         self.thermalState = thermalState
         self.gpuPowerWatts = nil
         self.cpuPowerWatts = nil
@@ -127,13 +131,15 @@ struct SystemMetrics: Sendable, Codable {
         backendProcessCPUPercent: Double?,
         backendProcessName: String?,
         perCoreUtilization: [CoreUtilization]? = nil,
-        gpuPStateDistribution: [GPUPStateResidency]? = nil
+        gpuPStateDistribution: [GPUPStateResidency]? = nil,
+        systemMemoryUsedBytes: Int64? = nil
     ) {
         self.timestamp = timestamp
         self.gpuUtilization = gpuUtilization
         self.cpuUtilization = cpuUtilization
         self.memoryUsedBytes = memoryUsedBytes
         self.memoryTotalBytes = memoryTotalBytes
+        self.systemMemoryUsedBytes = systemMemoryUsedBytes
         self.thermalState = thermalState
         self.gpuPowerWatts = gpuPowerWatts
         self.cpuPowerWatts = cpuPowerWatts
@@ -253,14 +259,26 @@ struct ChipInfo: Sendable, Codable {
 
     /// Mac model marketing name (e.g. "MacBook Pro (14-inch, Nov 2024)")
     /// Uses hw.model identifier → TelemetryDeck/AppleModelNames lookup for specific names.
-    /// Falls back to IORegistry product-name (generic, e.g. "MacBook Pro") then hw.model raw.
+    /// Falls back to remote TelemetryDeck lookup (cached), IORegistry product-name, then hw.model raw.
     static var macModelName: String {
-        // Primary: hw.model → lookup table for specific model name
-        if let modelId = sysctlString("hw.model"),
-           let readable = macModelNameTable[modelId] {
+        guard let modelId = sysctlString("hw.model") else { return "Mac" }
+
+        // 1. Local hardcoded table
+        if let readable = macModelNameTable[modelId] {
             return readable
         }
-        // Secondary: IORegistry product-name (generic marketing name)
+
+        // 2. Cached remote lookup (disk cache from prior fetch)
+        if let cached = RemoteModelNameCache.shared.lookup(modelId) {
+            return cached
+        }
+
+        // 3. Synchronous remote fetch (one-shot, best-effort on first launch)
+        if let fetched = RemoteModelNameCache.shared.fetchAndCache(modelId) {
+            return fetched
+        }
+
+        // 4. IORegistry product-name (generic marketing name)
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
         if service != 0 {
             defer { IOObjectRelease(service) }
@@ -270,7 +288,7 @@ struct ChipInfo: Sendable, Codable {
                 return name
             }
         }
-        return sysctlString("hw.model") ?? "Mac"
+        return modelId
     }
 
     /// hw.model identifier (e.g. "Mac16,1") — exposed for reports/data export
@@ -322,6 +340,13 @@ struct ChipInfo: Sendable, Codable {
         "Mac16,12": "MacBook Air (13-inch, M4, 2025)",
         "Mac16,13": "MacBook Air (15-inch, M4, 2025)",
         "Mac17,2": "MacBook Pro (14-inch, M5, 2025)",
+        "Mac17,3": "MacBook Air (13-inch, M5, 2026)",
+        "Mac17,4": "MacBook Air (15-inch, M5, 2026)",
+        "Mac17,5": "MacBook Neo (13-inch, A18 Pro, 2026)",
+        "Mac17,6": "MacBook Pro (16-inch, M5 Pro/Max, 2026)",
+        "Mac17,7": "MacBook Pro (14-inch, M5 Pro/Max, 2026)",
+        "Mac17,8": "MacBook Pro (16-inch, M5 Pro/Max, 2026)",
+        "Mac17,9": "MacBook Pro (14-inch, M5 Pro/Max, 2026)",
         // Apple Silicon — legacy identifier format
         "MacBookAir10,1": "MacBook Air (M1, 2020)",
         "MacBookPro17,1": "MacBook Pro (13-inch, M1, 2020)",
@@ -443,5 +468,93 @@ struct ChipInfo: Sendable, Codable {
         // Fallback
         return (16, 100)
     }
+}
+
+// MARK: - Remote Model Name Cache
+
+/// Fetches model names from TelemetryDeck/AppleModelNames when not found in the local table.
+/// Caches the full JSON to disk so subsequent lookups are instant and work offline.
+/// Cache expires after 7 days to pick up new models.
+final class RemoteModelNameCache: @unchecked Sendable {
+    static let shared = RemoteModelNameCache()
+
+    private let cacheURL: URL = {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let dir = appSupport.appendingPathComponent("com.uncsoft.anubisoss", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir.appendingPathComponent("mac_models_cache.json")
+    }()
+
+    private static let sourceURL = URL(string: "https://raw.githubusercontent.com/TelemetryDeck/AppleModelNames/main/dataset/macs.json")!
+    private static let cacheMaxAge: TimeInterval = 7 * 24 * 3600 // 7 days
+
+    private var cache: [String: String]? // modelId → readableName
+
+    private init() {
+        cache = loadDiskCache()
+    }
+
+    /// Look up a model ID from the disk cache.
+    func lookup(_ modelId: String) -> String? {
+        return cache?[modelId]
+    }
+
+    /// Fetch the full model list from GitHub, cache to disk, and return the name for the given ID.
+    /// Runs synchronously with a short timeout — acceptable at app launch since it only fires for unknown models.
+    func fetchAndCache(_ modelId: String) -> String? {
+        var request = URLRequest(url: Self.sourceURL)
+        request.timeoutInterval = 5
+
+        var result: String?
+        let semaphore = DispatchSemaphore(value: 0)
+
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, _, _ in
+            defer { semaphore.signal() }
+            guard let data = data,
+                  let json = try? JSONDecoder().decode([String: MacModelEntry].self, from: data) else { return }
+
+            // Build flat lookup: modelId → readableName
+            var lookup = [String: String]()
+            for (key, entry) in json {
+                lookup[key] = entry.readableName
+            }
+
+            self?.cache = lookup
+            self?.writeDiskCache(lookup)
+            result = lookup[modelId]
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + 5)
+
+        return result
+    }
+
+    // MARK: - Disk persistence
+
+    private func loadDiskCache() -> [String: String]? {
+        guard FileManager.default.fileExists(atPath: cacheURL.path) else { return nil }
+
+        // Check age
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: cacheURL.path),
+           let modified = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(modified) > Self.cacheMaxAge {
+            return nil // expired
+        }
+
+        guard let data = try? Data(contentsOf: cacheURL),
+              let lookup = try? JSONDecoder().decode([String: String].self, from: data) else { return nil }
+        return lookup
+    }
+
+    private func writeDiskCache(_ lookup: [String: String]) {
+        if let data = try? JSONEncoder().encode(lookup) {
+            try? data.write(to: cacheURL, options: .atomic)
+        }
+    }
+}
+
+/// Minimal model for decoding TelemetryDeck's macs.json entries.
+private struct MacModelEntry: Decodable {
+    let readableName: String
 }
 

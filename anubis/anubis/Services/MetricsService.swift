@@ -40,6 +40,9 @@ private actor MetricsCollector {
         let backendCPU = backendInfo?.cpuPercent ?? 0
         let backendName = backendInfo?.name
 
+        // System-wide memory via host_statistics64 (active + wired + compressed)
+        let systemMemoryUsed = Self.getSystemMemoryUsed()
+
         // IOKit GPU + IOReport power/frequency read
         let hardwareMetrics = bridge.sample()
 
@@ -67,7 +70,8 @@ private actor MetricsCollector {
             backendProcessCPUPercent: backendCPU > 0 ? backendCPU : nil,
             backendProcessName: backendName,
             perCoreUtilization: perCoreUtilization,
-            gpuPStateDistribution: pStateDist
+            gpuPStateDistribution: pStateDist,
+            systemMemoryUsedBytes: systemMemoryUsed
         )
     }
 
@@ -92,6 +96,21 @@ private actor MetricsCollector {
     }
 
     // MARK: - Private
+
+    /// System-wide memory in use: active + wired + compressed pages (matches Activity Monitor).
+    private static func getSystemMemoryUsed() -> Int64? {
+        var stats = vm_statistics64_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride)
+        let result = withUnsafeMutablePointer(to: &stats) { ptr in
+            ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, intPtr, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return nil }
+        let pageSize = Int64(vm_kernel_page_size)
+        let used = Int64(stats.active_count) + Int64(stats.wire_count) + Int64(stats.compressor_page_count)
+        return used * pageSize
+    }
 
     /// Returns (aggregate CPU utilization, per-core breakdown).
     /// On Apple Silicon: cores 0..<eCores are E-cores, eCores..<total are P-cores.

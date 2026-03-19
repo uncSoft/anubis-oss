@@ -161,6 +161,9 @@ struct MemoryTimelineChart: View {
     let totalBytes: Int64       // Total system memory for percentage calc
     let color: Color
     var chartHeight: CGFloat = 150
+    var secondaryData: [(Date, Double)] = []  // Backend memory in GB (optional overlay)
+    var secondaryLabel: String = "Backend"
+    var secondaryBytes: Int64?
 
     private var currentPercent: Double {
         guard totalBytes > 0 else { return 0 }
@@ -186,6 +189,15 @@ struct MemoryTimelineChart: View {
                         Text("(\(String(format: "%.0f%%", currentPercent)) of RAM)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        // Backend process memory (if available)
+                        if let backendBytes = secondaryBytes, backendBytes > 0 {
+                            Text("·")
+                                .foregroundStyle(.tertiary)
+                            Text("\(secondaryLabel): \(Formatters.bytes(backendBytes))")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
                     }
                 }
             }
