@@ -15,6 +15,7 @@ enum NavigationDestination: String, CaseIterable, Identifiable {
     case benchmark = "Benchmark"
     case arena = "Arena"
     case monitor = "Monitor"
+    case reports = "Reports"
     case vault = "Vault"
     case settings = "Settings"
 
@@ -25,6 +26,7 @@ enum NavigationDestination: String, CaseIterable, Identifiable {
         case .benchmark: return "gauge.with.dots.needle.67percent"
         case .arena: return "square.split.2x1"
         case .monitor: return "waveform.path.ecg"
+        case .reports: return "chart.bar.doc.horizontal"
         case .vault: return "archivebox"
         case .settings: return "gearshape"
         }
@@ -35,6 +37,7 @@ enum NavigationDestination: String, CaseIterable, Identifiable {
         case .benchmark: return "Performance testing and hardware metrics"
         case .arena: return "Side-by-side model comparison"
         case .monitor: return "Live system metrics dashboard"
+        case .reports: return "Compare model performance across all runs"
         case .vault: return "Model management and inspection"
         case .settings: return "App configuration"
         }
@@ -65,6 +68,9 @@ final class AppState: ObservableObject {
 
     /// Database manager for persistence
     let databaseManager: DatabaseManager
+
+    /// Floating monitor HUD controller
+    let floatingHUD = FloatingMonitorWindowController()
 
     // MARK: - App State
 

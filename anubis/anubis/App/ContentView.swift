@@ -93,6 +93,11 @@ struct SidebarView: View {
                             } label: {
                                 Label("Refresh Models", systemImage: "arrow.clockwise")
                             }
+                            Button {
+                                appState.floatingHUD.show(metricsService: appState.metricsService)
+                            } label: {
+                                Label("Floating Monitor", systemImage: "pip.fill")
+                            }
                         }
 
                         Section("Backend") {
@@ -357,6 +362,9 @@ struct DetailView: View {
             case .monitor:
                 MonitorView(metricsService: appState.metricsService)
                     .navigationTitle("Monitor")
+            case .reports:
+                ModelReportView(databaseManager: appState.databaseManager)
+                    .navigationTitle("Reports")
             case .vault:
                 VaultView(inferenceService: appState.inferenceService)
                     .navigationTitle("Vault")

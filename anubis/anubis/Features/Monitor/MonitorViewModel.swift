@@ -13,6 +13,7 @@ struct MonitorChartData {
     var cpuUtilization: [(Date, Double)] = []
     var gpuUtilization: [(Date, Double)] = []
     var memoryGB: [(Date, Double)] = []
+    var backendMemoryGB: [(Date, Double)] = []
     var systemPower: [(Date, Double)] = []
     var gpuPower: [(Date, Double)] = []
     var cpuPower: [(Date, Double)] = []
@@ -50,6 +51,8 @@ final class MonitorViewModel: ObservableObject {
     }
 
     var sampleCount: Int { chartData.cpuUtilization.count }
+
+    let stressManager = StressTestManager()
 
     // MARK: - Private
 
@@ -139,12 +142,20 @@ final class MonitorViewModel: ObservableObject {
 
         rawSamples.cpuUtilization.append((now, metrics.cpuUtilization * 100))
         rawSamples.gpuUtilization.append((now, metrics.gpuUtilization * 100))
-        rawSamples.memoryGB.append((now, Double(metrics.memoryUsedBytes) / 1e9))
+        // System-wide memory (active + wired + compressed), falling back to backend memory for older data
+        let systemMem = metrics.systemMemoryUsedBytes ?? metrics.memoryUsedBytes
+        rawSamples.memoryGB.append((now, Double(systemMem) / 1e9))
+        if let backendMem = metrics.backendProcessMemoryBytes, backendMem > 0 {
+            rawSamples.backendMemoryGB.append((now, Double(backendMem) / 1e9))
+        }
 
         if let v = metrics.systemPowerWatts { rawSamples.systemPower.append((now, v)) }
         if let v = metrics.gpuPowerWatts { rawSamples.gpuPower.append((now, v)) }
         if let v = metrics.cpuPowerWatts { rawSamples.cpuPower.append((now, v)) }
         if let v = metrics.gpuFrequencyMHz { rawSamples.gpuFrequency.append((now, v)) }
+
+        // Thermal watchdog for stress tests
+        stressManager.checkThermalState(metrics.thermalState)
 
         // Decimate for rendering if needed
         chartData = decimated(rawSamples)
@@ -157,6 +168,7 @@ final class MonitorViewModel: ObservableObject {
         out.cpuUtilization = downsample(raw.cpuUtilization)
         out.gpuUtilization = downsample(raw.gpuUtilization)
         out.memoryGB = downsample(raw.memoryGB)
+        out.backendMemoryGB = downsample(raw.backendMemoryGB)
         out.systemPower = downsample(raw.systemPower)
         out.gpuPower = downsample(raw.gpuPower)
         out.cpuPower = downsample(raw.cpuPower)

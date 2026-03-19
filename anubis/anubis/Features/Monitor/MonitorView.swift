@@ -12,6 +12,7 @@ import Charts
 /// Data is in-memory only; nothing is persisted after the monitor is closed.
 struct MonitorView: View {
     @StateObject private var viewModel: MonitorViewModel
+    @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
 
     private var chip: ChipInfo { ChipInfo.current }
@@ -27,6 +28,26 @@ struct MonitorView: View {
             toolbar
                 .padding(.horizontal, Spacing.lg)
                 .padding(.vertical, Spacing.sm)
+
+            // Stress test toolbar (only when monitoring)
+            if viewModel.isMonitoring || viewModel.stressManager.anyActive {
+                Divider()
+                StressTestToolbar(manager: viewModel.stressManager)
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.xs)
+
+                if let warning = viewModel.stressManager.thermalWarning {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text(warning)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.bottom, Spacing.xs)
+                }
+            }
 
             Divider()
 
@@ -61,10 +82,13 @@ struct MonitorView: View {
                             MemoryTimelineChart(
                                 title: "System Memory",
                                 data: viewModel.chartData.memoryGB,
-                                currentBytes: viewModel.currentMetrics?.memoryUsedBytes ?? 0,
+                                currentBytes: viewModel.currentMetrics?.systemMemoryUsedBytes ?? viewModel.currentMetrics?.memoryUsedBytes ?? 0,
                                 totalBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
                                 color: .chartMemory,
-                                chartHeight: chartHeight
+                                chartHeight: chartHeight,
+                                secondaryData: viewModel.chartData.backendMemoryGB,
+                                secondaryLabel: "Backend",
+                                secondaryBytes: viewModel.currentMetrics?.backendProcessMemoryBytes
                             )
                             CoreUtilizationGrid(
                                 snapshot: viewModel.latestPerCoreSnapshot,
@@ -118,6 +142,7 @@ struct MonitorView: View {
             }
         }
         .onDisappear {
+            viewModel.stressManager.cleanup()
             viewModel.stopMonitoring()
         }
     }
@@ -181,6 +206,15 @@ struct MonitorView: View {
                 } label: {
                     Label("Reset", systemImage: "arrow.counterclockwise")
                 }
+            }
+
+            if viewModel.isMonitoring {
+                Button {
+                    appState.floatingHUD.show(metricsService: appState.metricsService, miniaturizeMainWindow: true)
+                } label: {
+                    Label("Float", systemImage: "pip.fill")
+                }
+                .help("Detach as floating HUD overlay")
             }
 
             Spacer()
@@ -253,7 +287,7 @@ struct MonitorView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     monitorStat(label: "CPU", value: String(format: "%.0f%%", metrics.cpuUtilization * 100), color: .chartCPU)
                     monitorStat(label: "GPU", value: String(format: "%.0f%%", metrics.gpuUtilization * 100), color: .chartGPU)
-                    monitorStat(label: "Memory", value: Formatters.bytes(metrics.memoryUsedBytes), color: .chartMemory)
+                    monitorStat(label: "Memory", value: Formatters.bytes(metrics.systemMemoryUsedBytes ?? metrics.memoryUsedBytes), color: .chartMemory)
                     if let power = metrics.systemPowerWatts {
                         monitorStat(label: "Power", value: String(format: "%.1f W", power), color: .chartSystemPower)
                     }

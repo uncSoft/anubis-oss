@@ -117,6 +117,67 @@ extension BenchmarkPrompt {
             expectedLength: .medium
         ),
 
+        // Reasoning (additional)
+        BenchmarkPrompt(
+            name: "Causal Reasoning",
+            category: .reasoning,
+            prompt: """
+            A city noticed that neighborhoods with more ice cream trucks also have higher crime rates. The mayor proposes banning ice cream trucks to reduce crime. Write a detailed analysis of why this reasoning is flawed, identify the likely confounding variable, and explain the difference between correlation and causation using this example and two others.
+            """,
+            expectedLength: .long
+        ),
+
+        // Coding (additional)
+        BenchmarkPrompt(
+            name: "System Design",
+            category: .coding,
+            prompt: """
+            Design a rate limiter for an API that supports:
+            1. Per-user limits (100 requests/minute)
+            2. Global limits (10,000 requests/minute)
+            3. Burst allowance (up to 20 requests in 1 second, borrowed from the minute quota)
+
+            Write the implementation in Python using a sliding window approach. Include the data structures, the core check-and-update logic, and explain how it handles edge cases like clock skew and distributed deployments.
+            """,
+            expectedLength: .long
+        ),
+
+        // Creative (additional)
+        BenchmarkPrompt(
+            name: "Dialogue Scene",
+            category: .creative,
+            prompt: """
+            Write a tense dialogue scene between two chess grandmasters during a world championship match. One suspects the other of using engine assistance. The conversation happens during a bathroom break, away from cameras. Convey the accusation, denial, and power dynamics entirely through dialogue and brief action beats — no internal monologue. About 400 words.
+            """,
+            expectedLength: .long
+        ),
+
+        // Knowledge (additional)
+        BenchmarkPrompt(
+            name: "Historical Analysis",
+            category: .knowledge,
+            prompt: """
+            Explain the economic and technological factors that led to the decline of the Roman Empire's western half while the eastern half (Byzantine Empire) survived for another millennium. Discuss at least four specific factors and how they interacted with each other.
+            """,
+            expectedLength: .long
+        ),
+
+        // Instruction Following (additional)
+        BenchmarkPrompt(
+            name: "Constrained Writing",
+            category: .instruction,
+            prompt: """
+            Write exactly 6 sentences about the ocean. Each sentence must:
+            1. Be exactly 10 words long
+            2. Start with a different letter of the alphabet
+            3. Not repeat any noun across sentences
+            4. Include at least one color word per sentence
+
+            After the sentences, verify each constraint is met with a brief checklist.
+            """,
+            expectedLength: .medium
+        ),
+
         // Instruction Following
         BenchmarkPrompt(
             name: "Structured Output",
