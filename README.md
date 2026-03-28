@@ -8,6 +8,10 @@
 
 **Local LLM Testing & Benchmarking for Apple Silicon** | [Community Leaderboard](https://devpadapp.com/leaderboard.html)
 
+> 🚨 Benchmark analysis is live! Check out the results here, over 160 community submitted runs analyzed [Benchmark Report](https://devpadapp.com/anubis_bench_analysis.html)
+
+![20260328_082845](https://github.com/user-attachments/assets/02ff3976-21ed-446b-974b-1f573c5cf69b)
+
 Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any OpenAI-compatible endpoint — Ollama, MLX, LM Studio Server, OpenWebUI, Docker Models, etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance — something no CLI tool or chat wrapper offers. Export benchmarks directly without having to screenshot, and export the raw data as .MD or .CSV from the history. You can even `OLLAMA PULL` models directly within the app.
 
 <img width="780" height="1100" alt="image" src="https://github.com/user-attachments/assets/c4b81dca-1a81-4b1e-8bbb-109a99a7e7bb" />
