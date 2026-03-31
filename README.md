@@ -12,7 +12,7 @@
 
 ![20260328_082845](https://github.com/user-attachments/assets/02ff3976-21ed-446b-974b-1f573c5cf69b)
 
-Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any OpenAI-compatible endpoint — Ollama, MLX, LM Studio Server, OpenWebUI, Docker Models, etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance — something no CLI tool or chat wrapper offers. Export benchmarks directly without having to screenshot, and export the raw data as .MD or .CSV from the history. You can even `OLLAMA PULL` models directly within the app.
+Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any OpenAI-compatible endpoint - Ollama, MLX, oMLX, LM Studio Server, OpenWebUI, Docker Models, etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance - something no CLI tool or chat wrapper offers. Export benchmarks directly without having to screenshot, and export the raw data as .MD or .CSV from the history. You can even `OLLAMA PULL` models directly within the app.
 
 <img width="780" height="1100" alt="image" src="https://github.com/user-attachments/assets/c4b81dca-1a81-4b1e-8bbb-109a99a7e7bb" />
 
@@ -24,16 +24,16 @@ Anubis is a native macOS app for benchmarking, comparing, and managing local lar
 
 ### Hardware Stress Testing *(New in 2.9)*
 
-Push your Apple Silicon to its limits and observe power draw, thermal throttling, and frequency scaling under controlled load — all from within the Monitor.
+Push your Apple Silicon to its limits and observe power draw, thermal throttling, and frequency scaling under controlled load - all from within the Monitor.
 
-- **CPU stress** — spawns `yes` processes per core. Choose All Cores, P-Cores only, E-Cores only, or Single Core
-- **GPU stress** — Metal compute shader renders a Mandelbrot fractal zoom in a separate window. Randomized zoom targets and color palettes on each run. Four intensity levels (Low / Medium / High / Extreme) control iterations, supersampling, and passes per frame
-- **Memory bandwidth stress** — allocates memory then continuously streams through it with `memcpy` to saturate the memory bus. Reports measured bandwidth in GB/s, directly comparable to your chip's theoretical max. Three pressure levels (Light 25% / Moderate 50% / Heavy 75% of free memory)
-- **Safety mechanisms** — 5-minute auto-timeout, thermal watchdog (auto-stop at critical), GPU auto-downgrade if FPS drops below 5, cleanup on view disappear and app quit
+- **CPU stress** - spawns `yes` processes per core. Choose All Cores, P-Cores only, E-Cores only, or Single Core
+- **GPU stress** - Metal compute shader renders a Mandelbrot fractal zoom in a separate window. Randomized zoom targets and color palettes on each run. Four intensity levels (Low / Medium / High / Extreme) control iterations, supersampling, and passes per frame
+- **Memory bandwidth stress** - allocates memory then continuously streams through it with `memcpy` to saturate the memory bus. Reports measured bandwidth in GB/s, directly comparable to your chip's theoretical max. Three pressure levels (Light 25% / Moderate 50% / Heavy 75% of free memory)
+- **Safety mechanisms** - 5-minute auto-timeout, thermal watchdog (auto-stop at critical), GPU auto-downgrade if FPS drops below 5, cleanup on view disappear and app quit
 
 ### Floating Monitor HUD *(New in 2.9)*
 
-A compact, frameless, always-on-top overlay showing live system metrics — launchable from any tab via the sidebar or from the Monitor's Float button.
+A compact, frameless, always-on-top overlay showing live system metrics - launchable from any tab via the sidebar or from the Monitor's Float button.
 
 - Dark glass material, draggable, visible on all Spaces
 - Live CPU %, GPU %, memory, power, GPU frequency, and thermal state
@@ -41,7 +41,7 @@ A compact, frameless, always-on-top overlay showing live system metrics — laun
 
 ### 15 Benchmark Prompts *(New in 2.9)*
 
-Five new built-in prompts covering causal reasoning, system design, dialogue writing, historical analysis, and constrained writing — bringing the total to 15 across five categories.
+Five new built-in prompts covering causal reasoning, system design, dialogue writing, historical analysis, and constrained writing - bringing the total to 15 across five categories.
 
 ---
 
@@ -54,12 +54,12 @@ The local LLM ecosystem on macOS is fragmented:
 - **Evaluation frameworks** (promptfoo) require YAML configs and terminal expertise
 - **No tool** correlates hardware metrics (GPU / CPU / ANE / power / memory) with inference speed in real time
 
-Anubis fills that gap — all in a native macOS app.
+Anubis fills that gap - all in a native macOS app.
 
 ---
 
 ## Leaderboard Submissions Now Available! Submit directly through the app
-### The dataset is robust and open source — [check it out here](https://devpadapp.com/explorer.html), please contribute!
+### The dataset is robust and open source - [check it out here](https://devpadapp.com/explorer.html), please contribute!
 
 ## Features
 
@@ -70,15 +70,15 @@ Real-time performance dashboard for single-model testing.
 - Select any model from any configured backend
 - Stream responses with live metrics overlay
 - **8 metric cards**: Tokens/sec, GPU %, CPU %, Time to First Token, Process Memory, Model Memory, Thermal State, GPU Frequency
-- **7 live charts**: Tokens/sec, GPU utilization, CPU utilization, process memory, GPU/CPU/ANE/DRAM power, GPU frequency — all updating in real time
+- **7 live charts**: Tokens/sec, GPU utilization, CPU utilization, process memory, GPU/CPU/ANE/DRAM power, GPU frequency - all updating in real time
 - **Power telemetry**: Real-time GPU, CPU, ANE, and DRAM power consumption in watts via IOReport
 - **Process monitoring**: Auto-detects backend process by port (Ollama, LM Studio, mlx-lm, vLLM, etc.) with manual process picker
 - Detailed session stats: average tok/s (total tokens / decode time), peak tok/s (highest instantaneous rate), TTFT, model load time, context length, eval duration, power averages
 - Configurable parameters: temperature, top-p, max tokens, system prompt
 - **15 prompt presets** organized by category (Reasoning, Coding, Creative, Knowledge, Instruction)
 - **Session history** with full replay, CSV export, and Markdown reports
-- **3-column expanded dashboard**: Full-screen metrics view showing all charts without scrolling — system info, utilization, cores, power, and frequency at a glance
-- **Image export**: Copy to clipboard, save as PNG, or share — 2x retina rendering with watermark, respects light/dark mode
+- **3-column expanded dashboard**: Full-screen metrics view showing all charts without scrolling - system info, utilization, cores, power, and frequency at a glance
+- **Image export**: Copy to clipboard, save as PNG, or share - 2x retina rendering with watermark, respects light/dark mode
 - **Smart URL handling**: Auto-strips `/v1` suffix from backend URLs to prevent double-pathing errors
 
 ### Arena
@@ -89,22 +89,22 @@ Side-by-side A/B model comparison with the same prompt.
 - **Sequential** mode (memory-safe, one at a time) or **Parallel** mode (both simultaneously)
 - Shared prompt, system prompt, and generation parameters
 - Real-time streaming in both panels
-- **Voting system**: pick Model A, Model B, or Tie — votes are persisted
+- **Voting system**: pick Model A, Model B, or Tie - votes are persisted
 - Per-panel stats grid (9 metrics each)
 - Model manager: view loaded models and unload to free memory
 - Comparison history with voting records
 
 ### System Monitor
 
-Standalone real-time hardware monitoring dashboard — no benchmark required.
+Standalone real-time hardware monitoring dashboard - no benchmark required.
 
 - **One-click start**: Begin recording CPU, GPU, memory, power, and thermal metrics
-- **3-column live dashboard**: All charts visible at once — CPU/GPU utilization, memory, per-core grids, power breakdown, GPU frequency
+- **3-column live dashboard**: All charts visible at once - CPU/GPU utilization, memory, per-core grids, power breakdown, GPU frequency
 - **Stress testing**: CPU, GPU (Mandelbrot), and memory bandwidth stress tests with adjustable intensity
 - **Floating HUD**: Detach a compact always-on-top metrics overlay while you work
 - **Accumulating charts**: Data builds up over time with automatic downsampling for long sessions
 - **System info card**: Live readouts for CPU %, GPU %, memory, power draw, and thermal state
-- **No persistence**: Data lives in memory only — nothing is saved when the monitor is closed
+- **No persistence**: Data lives in memory only - nothing is saved when the monitor is closed
 
 ### Leaderboard
 
@@ -112,10 +112,10 @@ Upload your benchmark results to the [community leaderboard](https://devpadapp.c
 
 - **One-click upload** from the benchmark toolbar after a completed run
 - **Community rankings** sorted by tokens/sec with full drill-down into performance, power, and hardware details
-- **Model quantization & format tracking** — every submission records the quantization level (Q4_K_M, FP16, 4-bit, etc.) and model format (GGUF vs MLX) so you can compare apples to apples
+- **Model quantization & format tracking** - every submission records the quantization level (Q4_K_M, FP16, 4-bit, etc.) and model format (GGUF vs MLX) so you can compare apples to apples
 - **Filter by chip, model, quantization, or format** to compare like-for-like
-- **[Data Explorer](https://devpadapp.com/explorer.html)** — interactive pivot table and charting powered by FINOS Perspective
-- **Privacy-first**: no accounts, no response text uploaded — just metrics and a display name
+- **[Data Explorer](https://devpadapp.com/explorer.html)** - interactive pivot table and charting powered by FINOS Perspective
+- **Privacy-first**: no accounts, no response text uploaded - just metrics and a display name
 - HMAC-signed submissions with server-side rate limiting
 
 ### Vault
@@ -125,7 +125,7 @@ Unified model management across all backends.
 - Aggregated model list with search and backend filter chips
 - Running models section with live VRAM usage
 - Model inspector: size, parameters, quantization, format (GGUF/MLX), family, context window, architecture details, file path
-- **Automatic metadata enrichment** for OpenAI-compatible models — parses model IDs for family and parameter count, scans `~/.lmstudio/models/` and `~/.cache/huggingface/hub/` for disk size, quantization, and path
+- **Automatic metadata enrichment** for OpenAI-compatible models - parses model IDs for family and parameter count, scans `~/.lmstudio/models/` and `~/.cache/huggingface/hub/` for disk size, quantization, and path
 - Pull new models, delete existing ones, unload from memory
 - Popular model suggestions for quick setup
 - Total disk usage display
@@ -151,7 +151,7 @@ Arena Mode
 Settings (add connections with quick presets)
 <img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 24 00 PM" src="https://github.com/user-attachments/assets/ff9bb9fa-aa6e-472a-a787-5583a3883105" />
 
-Vault — View model details, unload, and Pull models directly for Ollama
+Vault - View model details, unload, and Pull models directly for Ollama
 <img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 14 57 PM" src="https://github.com/user-attachments/assets/795157b5-efe8-4895-b499-beef25de9683" />
 
 ---
@@ -160,7 +160,7 @@ Vault — View model details, unload, and Pull models directly for Ollama
 
 | Backend | Type | Default Port | Setup |
 |---------|------|--------------|-------|
-| **Ollama** | Native support | 11434 | Install from [ollama.com](https://ollama.com) — auto-detected on launch |
+| **Ollama** | Native support | 11434 | Install from [ollama.com](https://ollama.com) - auto-detected on launch |
 | **LM Studio** | OpenAI-compatible | 1234 | Enable local server in LM Studio settings |
 | **mlx-lm** | OpenAI-compatible | 8080 | `pip install mlx-lm && mlx_lm.server --model <model>` |
 | **vLLM** | OpenAI-compatible | 8000 | Add in Settings |
@@ -193,18 +193,18 @@ Anubis automatically detects which process is serving your model:
 
 - **Port-based detection**: Uses `lsof` to find the PID listening on the inference port (called once per benchmark start)
 - **Backend identification**: Matches process path and command-line args to identify Ollama, LM Studio, mlx-lm, vLLM, LocalAI, llama.cpp
-- **Memory accounting**: Uses `phys_footprint` (same as Activity Monitor) which includes Metal/GPU buffer allocations — critical for MLX and other GPU-accelerated backends
+- **Memory accounting**: Uses `phys_footprint` (same as Activity Monitor) which includes Metal/GPU buffer allocations - critical for MLX and other GPU-accelerated backends
 - **LM Studio support**: Walks Electron app bundle descendants to find the model-serving process
 - **Manual override**: Process picker lets you select any process by name, sorted by memory usage
 
-Metrics degrade gracefully — if IOReport access is unavailable (e.g., in a VM), Anubis still shows inference-derived metrics.
+Metrics degrade gracefully - if IOReport access is unavailable (e.g., in a VM), Anubis still shows inference-derived metrics.
 
 ---
 
 ## Requirements
 
 - **macOS 15.0** (Sequoia) or later
-- **Apple Silicon** (M1 / M2 / M3 / M4 / M5 +) — Intel is not supported
+- **Apple Silicon** (M1 / M2 / M3 / M4 / M5 +) - Intel is not supported
 - **8 GB** unified memory minimum (16 GB+ recommended for larger models)
 - At least one inference backend installed (Ollama recommended)
 
@@ -215,7 +215,7 @@ Metrics degrade gracefully — if IOReport access is unavailable (e.g., in a VM)
 ### 1. Install Ollama (or another backend)
 
 ```bash
-# macOS — install Ollama
+# macOS - install Ollama
 brew install ollama
 
 # Start the server
@@ -248,7 +248,7 @@ Anubis will auto-detect Ollama on launch. Other backends can be added in Setting
 
 ### 4. Submit to the Leaderboard
 
-After a benchmark completes, click the **Upload** button in the benchmark toolbar to submit your results to the [community leaderboard](https://devpadapp.com/leaderboard.html). Enter a display name and your run will appear in the rankings — no account required. Only performance metrics and hardware info are submitted; response text is never uploaded.
+After a benchmark completes, click the **Upload** button in the benchmark toolbar to submit your results to the [community leaderboard](https://devpadapp.com/leaderboard.html). Enter a display name and your run will appear in the rankings - no account required. Only performance metrics and hardware info are submitted; response text is never uploaded.
 
 ---
 
@@ -343,7 +343,7 @@ protocol InferenceBackend {
 
 ## Data Storage
 
-All data is stored locally — nothing leaves your machine.
+All data is stored locally - nothing leaves your machine.
 
 | Data | Location |
 |------|----------|
@@ -385,18 +385,18 @@ curl http://localhost:11434/api/tags
 
 Contributions are welcome. A few guidelines:
 
-1. **Follow the existing patterns** — MVVM, async/await, guard-let over force-unwrap
-2. **Keep files under 300 lines** — split if larger
-3. **One feature per PR** — small, focused changes are easier to review
-4. **Test services and integrations** — views are harder to unit test, but services should have coverage
-5. **Handle errors gracefully** — always provide `errorDescription` and `recoverySuggestion`
+1. **Follow the existing patterns** - MVVM, async/await, guard-let over force-unwrap
+2. **Keep files under 300 lines** - split if larger
+3. **One feature per PR** - small, focused changes are easier to review
+4. **Test services and integrations** - views are harder to unit test, but services should have coverage
+5. **Handle errors gracefully** - always provide `errorDescription` and `recoverySuggestion`
 
 ### Adding a New Backend
 
 1. Create a new file in `Integrations/` implementing `InferenceBackend`
 2. Register it in `InferenceService`
 3. Add configuration UI in `Settings/`
-4. That's it — the rest of the app works through the protocol
+4. That's it - the rest of the app works through the protocol
 
 ---
 
@@ -410,6 +410,6 @@ A sandboxed, less feature rich version is also available on the [Mac App Store](
 
 ## License
 
-GPL-3.0 License — see [LICENSE](LICENSE) for details.
+GPL-3.0 License - see [LICENSE](LICENSE) for details.
 
 **Other projects:** [DevPad](https://www.devpadapp.com) · [Nabu](https://www.devpadapp.com/nabu.html)
