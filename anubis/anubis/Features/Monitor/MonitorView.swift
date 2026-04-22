@@ -22,36 +22,41 @@ struct MonitorView: View {
         _viewModel = StateObject(wrappedValue: MonitorViewModel(metricsService: metricsService))
     }
 
+    private var isEmptyState: Bool {
+        !viewModel.isMonitoring && viewModel.sampleCount == 0
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Toolbar
-            toolbar
-                .padding(.horizontal, Spacing.lg)
-                .padding(.vertical, Spacing.sm)
-
-            // Stress test toolbar (only when monitoring)
-            if viewModel.isMonitoring || viewModel.stressManager.anyActive {
+            if !isEmptyState {
+                // Toolbar
+                toolbar
+                    .padding(.horizontal, Spacing.lg)
+                    .padding(.vertical, Spacing.sm)
                 Divider()
-                StressTestToolbar(manager: viewModel.stressManager)
-                    .padding(.horizontal, Spacing.lg)
-                    .padding(.vertical, Spacing.xs)
+            }
 
-                if let warning = viewModel.stressManager.thermalWarning {
-                    HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text(warning)
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-                    .padding(.horizontal, Spacing.lg)
-                    .padding(.bottom, Spacing.xs)
+            // Stress test toolbar — always available; starting any stress test
+            // auto-starts monitoring via MonitorViewModel.setupStressAutoStart.
+            StressTestToolbar(manager: viewModel.stressManager)
+                .padding(.horizontal, Spacing.lg)
+                .padding(.vertical, Spacing.xs)
+
+            if let warning = viewModel.stressManager.thermalWarning {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(warning)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
                 }
+                .padding(.horizontal, Spacing.lg)
+                .padding(.bottom, Spacing.xs)
             }
 
             Divider()
 
-            if !viewModel.isMonitoring && viewModel.sampleCount == 0 {
+            if isEmptyState {
                 emptyState
             } else {
                 GeometryReader { geo in
@@ -150,36 +155,68 @@ struct MonitorView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: Spacing.lg) {
-            Spacer()
+        VStack {
+            Spacer(minLength: Spacing.lg)
 
-            VStack(spacing: Spacing.md) {
-                Image(systemName: "waveform.path.ecg")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.tertiary)
+            VStack(spacing: Spacing.lg) {
+                ZStack {
+                    Circle()
+                        .fill(Color.anubisAccent.opacity(0.12))
+                        .frame(width: 96, height: 96)
+                    Image(systemName: "waveform.path.ecg")
+                        .font(.system(size: 44, weight: .light))
+                        .foregroundStyle(Color.anubisAccent)
+                }
 
-                Text("System Monitor")
-                    .font(.title2.weight(.semibold))
+                VStack(spacing: Spacing.xs) {
+                    Text("System Monitor")
+                        .font(.title.weight(.semibold))
 
-                VStack(spacing: 4) {
                     Text(ChipInfo.macModelName)
                         .font(.headline)
                         .foregroundStyle(.secondary)
+
                     Text("\(chip.name) · \(chip.performanceCores)P + \(chip.efficiencyCores)E · \(chip.gpuCores) GPU · \(chip.unifiedMemoryGB) GB")
                         .font(.subheadline)
                         .foregroundStyle(.tertiary)
                 }
 
-                Text("Press Start to begin recording system metrics.\nCPU, GPU, memory, power, and thermal data will be charted in real time.")
+                Text("CPU, GPU, memory, power, and thermal data will be charted in real time.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 400)
+                    .frame(maxWidth: 380)
+
+                Button {
+                    viewModel.startMonitoring()
+                } label: {
+                    Label("Start Monitoring", systemImage: "play.fill")
+                        .font(.title3.weight(.semibold))
+                        .padding(.horizontal, Spacing.md)
+                        .padding(.vertical, Spacing.xs)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .keyboardShortcut(.return, modifiers: .command)
+                .padding(.top, Spacing.xs)
+            }
+            .padding(.horizontal, Spacing.xl)
+            .padding(.vertical, Spacing.xl + Spacing.sm)
+            .frame(maxWidth: 540)
+            .background {
+                RoundedRectangle(cornerRadius: CornerRadius.xl)
+                    .fill(Color.cardBackground)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: CornerRadius.xl)
+                            .strokeBorder(Color.cardBorder, lineWidth: 1)
+                    }
+                    .shadow(color: Color.black.opacity(0.06), radius: 12, y: 4)
             }
 
-            Spacer()
+            Spacer(minLength: Spacing.lg)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(Spacing.lg)
     }
 
     // MARK: - Toolbar
@@ -225,7 +262,7 @@ struct MonitorView: View {
                         .fill(.red)
                         .frame(width: 8, height: 8)
                         .shadow(color: .red.opacity(0.5), radius: 4)
-                    Text("Recording")
+                    Text("Monitoring")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                 }

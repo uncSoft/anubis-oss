@@ -93,9 +93,10 @@ struct TimelineChart: View {
             .interpolationMethod(.linear)
         }
         .chartXAxis {
+            // Wall-clock labels squish too tightly in dense layouts and rarely
+            // carry useful info during a benchmark — gridlines preserve temporal rhythm.
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine()
-                AxisValueLabel(format: .dateTime.minute().second())
             }
         }
         .chartYAxis {
@@ -182,11 +183,11 @@ struct MemoryTimelineChart: View {
                     HStack(spacing: Spacing.sm) {
                         // Absolute value (primary)
                         Text(Formatters.bytes(currentBytes))
-                            .font(.mono(14, weight: .semibold))
+                            .font(.mono(12, weight: .semibold))
                             .foregroundStyle(color)
 
                         // Percentage of system RAM (secondary)
-                        Text("(\(String(format: "%.0f%%", currentPercent)) of RAM)")
+                        Text("\(String(format: "%.0f%%", currentPercent))RAM")
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
@@ -256,9 +257,10 @@ struct MemoryTimelineChart: View {
             .interpolationMethod(.linear)
         }
         .chartXAxis {
+            // Wall-clock labels squish too tightly in dense layouts and rarely
+            // carry useful info during a benchmark — gridlines preserve temporal rhythm.
             AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                 AxisGridLine()
-                AxisValueLabel(format: .dateTime.minute().second())
             }
         }
         .chartYAxis {
@@ -326,7 +328,6 @@ struct MultiSeriesChart: View {
             .chartXAxis {
                 AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                     AxisGridLine()
-                    AxisValueLabel(format: .dateTime.minute().second())
                 }
             }
             .chartYAxis {
@@ -373,7 +374,7 @@ struct MultiSeriesChart: View {
 
     return VStack(spacing: Spacing.md) {
         TimelineChart(
-            title: "Tokens per Second",
+            title: "Tok/Second",
             data: data,
             color: .chartTokens,
             unit: "tok/s"

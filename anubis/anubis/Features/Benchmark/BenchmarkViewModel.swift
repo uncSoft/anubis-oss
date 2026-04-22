@@ -194,6 +194,8 @@ final class BenchmarkViewModel: ObservableObject {
             return inferenceService.configManager.ollamaConfig?.name ?? "Ollama"
         case .openai:
             return inferenceService.currentOpenAIConfig?.name ?? "OpenAI Compatible"
+        case .appleIntelligence:
+            return "Apple Intelligence"
         }
     }
 
@@ -204,6 +206,8 @@ final class BenchmarkViewModel: ObservableObject {
             return inferenceService.configManager.ollamaConfig?.baseURL ?? "http://localhost:11434"
         case .openai:
             return inferenceService.currentOpenAIConfig?.baseURL ?? "—"
+        case .appleIntelligence:
+            return "on-device"
         }
     }
 

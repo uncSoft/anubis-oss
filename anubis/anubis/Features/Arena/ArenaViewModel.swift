@@ -710,6 +710,8 @@ extension ArenaViewModel {
             return configManager.ollamaConfig?.baseURL ?? "http://localhost:11434"
         case .openai:
             return openAIConfig?.baseURL ?? "—"
+        case .appleIntelligence:
+            return "on-device"
         }
     }
 

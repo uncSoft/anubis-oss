@@ -100,7 +100,36 @@ struct DebugInspectorState {
                 model: model, prompt: prompt, systemPrompt: systemPrompt,
                 maxTokens: maxTokens, temperature: temperature, topP: topP
             )
+        case .appleIntelligence:
+            return buildAppleIntelligenceSummary(
+                prompt: prompt, systemPrompt: systemPrompt,
+                maxTokens: maxTokens, temperature: temperature
+            )
         }
+    }
+
+    private static func buildAppleIntelligenceSummary(
+        prompt: String,
+        systemPrompt: String?,
+        maxTokens: Int?,
+        temperature: Double?
+    ) -> String {
+        var dict: [String: Any] = [
+            "framework": "FoundationModels.LanguageModelSession",
+            "prompt": prompt
+        ]
+        if let sys = systemPrompt, !sys.isEmpty {
+            dict["instructions"] = sys
+        }
+        var options: [String: Any] = [:]
+        if let temp = temperature { options["temperature"] = temp }
+        if let max = maxTokens { options["maximumResponseTokens"] = max }
+        if !options.isEmpty { dict["options"] = options }
+        if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]),
+           let json = String(data: data, encoding: .utf8) {
+            return json
+        }
+        return "{}"
     }
 
     private static func buildOllamaJSON(

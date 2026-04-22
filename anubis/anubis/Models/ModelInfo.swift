@@ -11,6 +11,7 @@ import Foundation
 enum InferenceBackendType: String, Codable, CaseIterable, Identifiable {
     case ollama = "Ollama"
     case openai = "OpenAI Compatible"
+    case appleIntelligence = "Apple Intelligence"
 
     var id: String { rawValue }
 
@@ -20,6 +21,7 @@ enum InferenceBackendType: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .ollama: return "server.rack"
         case .openai: return "globe"
+        case .appleIntelligence: return "apple.logo"
         }
     }
 }

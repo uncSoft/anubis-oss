@@ -249,6 +249,8 @@ class VaultViewModel: ObservableObject {
                 return config.baseURL
             }
             return "—"
+        case .appleIntelligence:
+            return "on-device"
         }
     }
 }

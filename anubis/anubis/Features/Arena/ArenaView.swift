@@ -544,17 +544,17 @@ struct ComparisonPanel: View {
     private func sessionStatsFooter(_ session: BenchmarkSession) -> some View {
         let isOllama = backend == .ollama
 
-        return VStack(alignment: .leading, spacing: Spacing.sm) {
+        return VStack(alignment: .leading, spacing: Spacing.xs) {
             Text("Session Details")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .padding(.bottom, Spacing.xs)
+
 
             LazyVGrid(columns: [
                 GridItem(.flexible()),
                 GridItem(.flexible()),
                 GridItem(.flexible())
-            ], spacing: Spacing.sm) {
+            ], spacing: Spacing.xs) {
                 // Avg Tokens/sec
                 DetailStatCell(
                     title: "Avg Tokens/sec",

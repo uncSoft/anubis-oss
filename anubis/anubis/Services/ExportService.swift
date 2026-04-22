@@ -225,6 +225,83 @@ enum ExportService {
         return report
     }
 
+    // MARK: - Model Report Export (aggregated stats)
+
+    /// Export aggregated per-model report rows to CSV.
+    static func exportModelReportToCSV(_ rows: [ModelReportRow]) -> String {
+        var csv = "model_name,quantization,format,backend,avg_tokens_per_second,avg_watts_per_token,"
+        csv += "avg_time_to_first_token_ms,avg_token_latency_ms,avg_system_power_watts,peak_memory_bytes,run_count\n"
+
+        for row in rows {
+            var fields: [String] = []
+            fields.append(escapeCSV(row.modelName))
+            fields.append(escapeCSV(row.quantization ?? ""))
+            fields.append(escapeCSV(row.format ?? ""))
+            fields.append(escapeCSV(row.backend))
+            fields.append(String(format: "%.2f", row.avgTokensPerSecond))
+            fields.append(row.avgWattsPerToken.map { String(format: "%.4f", $0) } ?? "")
+            fields.append(row.avgTimeToFirstToken.map { String(format: "%.0f", $0 * 1000) } ?? "")
+            fields.append(row.avgTokenLatencyMs.map { String(format: "%.2f", $0) } ?? "")
+            fields.append(row.avgSystemPowerWatts.map { String(format: "%.2f", $0) } ?? "")
+            fields.append(row.peakMemoryBytes.map { "\($0)" } ?? "")
+            fields.append("\(row.runCount)")
+            csv += fields.joined(separator: ",") + "\n"
+        }
+        return csv
+    }
+
+    /// Export aggregated per-model report rows as a Markdown document with a hardware
+    /// banner and a summary footer (mirrors the on-screen Reports table).
+    static func exportModelReportToMarkdown(_ rows: [ModelReportRow], chip: ChipInfo) -> String {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateStyle = .medium
+        dateFormatter.timeStyle = .short
+
+        var md = "# Anubis Performance Report\n\n"
+        md += "_Generated: \(dateFormatter.string(from: Date()))_\n\n"
+        md += "## Hardware\n\n"
+        md += "- **\(chip.macModel ?? ChipInfo.macModelIdentifier)**\n"
+        md += "- \(chip.name) · \(chip.performanceCores)P + \(chip.efficiencyCores)E · "
+        md += "\(chip.gpuCores) GPU · \(chip.unifiedMemoryGB) GB\n\n"
+
+        md += "## Models (\(rows.count))\n\n"
+        md += "| Model | Quant | Format | Backend | Avg Tk/s | Avg W/Tk | TTFT | Avg Power | Peak Mem | Runs |\n"
+        md += "|---|---|---|---|---:|---:|---:|---:|---:|---:|\n"
+        for row in rows {
+            let quant = row.quantization ?? "—"
+            let format = row.format?.uppercased() ?? "—"
+            let backend = row.backend.isEmpty ? "—" : row.backend
+            let tps = String(format: "%.1f", row.avgTokensPerSecond)
+            let wpt = row.avgWattsPerToken.map { String(format: "%.2f", $0) } ?? "—"
+            let ttft = row.avgTimeToFirstToken.map { String(format: "%.0f ms", $0 * 1000) } ?? "—"
+            let power = row.avgSystemPowerWatts.map { String(format: "%.1f W", $0) } ?? "—"
+            let mem = row.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—"
+            md += "| \(escapeMarkdownCell(row.modelName)) | \(quant) | \(format) | \(escapeMarkdownCell(backend)) "
+            md += "| \(tps) | \(wpt) | \(ttft) | \(power) | \(mem) | \(row.runCount) |\n"
+        }
+        md += "\n"
+
+        if rows.count > 1 {
+            md += "## Summary\n\n"
+            if let fastest = rows.max(by: { $0.avgTokensPerSecond < $1.avgTokensPerSecond }) {
+                md += "- **Fastest:** \(fastest.modelName) — \(String(format: "%.1f", fastest.avgTokensPerSecond)) tk/s\n"
+            }
+            if let efficient = rows.filter({ $0.avgWattsPerToken != nil })
+                .min(by: { $0.avgWattsPerToken! < $1.avgWattsPerToken! }) {
+                md += "- **Most efficient:** \(efficient.modelName) — "
+                md += "\(String(format: "%.2f", efficient.avgWattsPerToken!)) W/tk\n"
+            }
+            let totalRuns = rows.reduce(0) { $0 + $1.runCount }
+            md += "- **Total:** \(rows.count) models · \(totalRuns) runs\n"
+        }
+
+        return md
+    }
+
+    private static func escapeMarkdownCell(_ string: String) -> String {
+        string.replacingOccurrences(of: "|", with: "\\|")
+    }
+
     // MARK: - Helpers
 
     private static func escapeCSV(_ string: String) -> String {

@@ -234,6 +234,8 @@ struct BackendStatusView: View {
             return configManager.ollamaConfig?.baseURL ?? "http://localhost:11434"
         case .openai:
             return inferenceService.currentOpenAIConfig?.baseURL ?? "—"
+        case .appleIntelligence:
+            return "on-device"
         }
     }
 
@@ -272,6 +274,22 @@ struct BackendStatusView: View {
                                 if inferenceService.currentOpenAIConfig?.id == config.id {
                                     Image(systemName: "checkmark")
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Apple Intelligence (Foundation Models, macOS 26+)
+                if #available(macOS 26.0, *) {
+                    Divider()
+                    Button {
+                        inferenceService.setAppleIntelligenceBackend()
+                    } label: {
+                        HStack {
+                            Label("Apple Intelligence", systemImage: "apple.logo")
+                            Spacer()
+                            if inferenceService.currentBackend == .appleIntelligence {
+                                Image(systemName: "checkmark")
                             }
                         }
                     }
@@ -332,6 +350,7 @@ struct BackendStatusView: View {
         switch inferenceService.currentBackend {
         case .ollama: return "server.rack"
         case .openai: return "globe"
+        case .appleIntelligence: return "apple.logo"
         }
     }
 }

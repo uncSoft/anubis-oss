@@ -30,6 +30,7 @@ struct BenchmarkView: View {
     @State private var showSystemPrompt = false
     @State private var showParameters = false
     @State private var showPerformance = false
+    @State private var showSessionDetails = true
     @State private var showLeaderboardUpload = false
 
     init(
@@ -644,7 +645,7 @@ struct BenchmarkView: View {
             )
 
             CompactMetricsCard(
-                title: "Total Memory",
+                title: "Tot. Memory",
                 value: viewModel.formattedBackendMemory,
                 icon: "memorychip",
                 color: .chartMemory,
@@ -681,7 +682,8 @@ struct BenchmarkView: View {
                     onExpandCores: { viewModel.openCoreDetailWindow() },
                     gpuUtilization: viewModel.latestGPUUtilization,
                     onExpandGPU: { viewModel.openGPUDetailWindow() },
-                    averageTps: viewModel.effectiveAverageTps
+                    averageTps: viewModel.effectiveAverageTps,
+                    elapsedTime: viewModel.elapsedTime
                 )
             } else {
                 // Collapsed state - show placeholder
@@ -716,11 +718,18 @@ struct BenchmarkView: View {
     // MARK: - Detailed Stats Section
 
     private var detailedStatsSection: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
+        DisclosureGroup(isExpanded: $showSessionDetails) {
+            detailedStatsGrid
+                .padding(.top, Spacing.xs)
+        } label: {
             Text("Session Details")
                 .font(.headline)
-                .padding(.bottom, Spacing.xs)
+                .contentShape(Rectangle())
+        }
+    }
 
+    private var detailedStatsGrid: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
                 // Row 1: Latency / Load / Context / GPU Frequency
                 DetailStatCell(
@@ -1043,6 +1052,15 @@ struct StreamingTextView: NSViewRepresentable {
         // Skip layout for offscreen text — critical for long streaming responses
         textView.layoutManager?.allowsNonContiguousLayout = true
 
+        // Disable kerning + ligatures globally — kills CoreText OTL::GPOS pair-positioning
+        // hot path that pegs the main thread on long responses (see hang sample 2026-04-21).
+        textView.typingAttributes = [
+            .font: textView.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .foregroundColor: NSColor.labelColor,
+            .kern: 0,
+            .ligature: 0,
+        ]
+
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -1096,7 +1114,9 @@ struct StreamingTextView: NSViewRepresentable {
         if let storage = textView.textStorage {
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: textView.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: NSColor.labelColor
+                .foregroundColor: NSColor.labelColor,
+                .kern: 0,
+                .ligature: 0,
             ]
             storage.beginEditing()
             storage.append(NSAttributedString(string: delta, attributes: attrs))
@@ -1223,7 +1243,7 @@ struct ExpandedMetricsView: View {
                     heroCard.frame(height: cardHeight)
                     metricsCard.frame(height: cardHeight)
                     TimelineChart(
-                        title: "Tokens per Second",
+                        title: "Tokens/Sec",
                         data: chartData.tokensPerSecond,
                         color: .chartTokens,
                         unit: "tok/s",
@@ -1242,7 +1262,7 @@ struct ExpandedMetricsView: View {
                         chartHeight: chartHeight
                     )
                     MemoryTimelineChart(
-                        title: "Total Memory",
+                        title: "Tot. Memory",
                         data: chartData.memoryUtilization,
                         currentBytes: viewModel.effectiveBackendMemoryBytes,
                         totalBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
@@ -1305,6 +1325,13 @@ struct ExpandedMetricsView: View {
                         // Row 5: CPU Power
                         TimelineChart(
                             title: "CPU Power",
+                            data: chartData.cpuPower,
+                            color: .chartCPUPower,
+                            unit: "W",
+                            chartHeight: chartHeight
+                        )
+                        TimelineChart(
+                            title: "Time",
                             data: chartData.cpuPower,
                             color: .chartCPUPower,
                             unit: "W",
@@ -1387,7 +1414,7 @@ struct ExpandedMetricsView: View {
             heroCard
             metricsCard
             TimelineChart(
-                title: "Tokens per Second",
+                title: "Tok/Second",
                 data: chartData.tokensPerSecond,
                 color: .chartTokens,
                 unit: "tok/s",
@@ -1405,7 +1432,7 @@ struct ExpandedMetricsView: View {
                 chartHeight: exportHeight
             )
             MemoryTimelineChart(
-                title: "Total Memory",
+                title: "Tot. Memory",
                 data: chartData.memoryUtilization,
                 currentBytes: viewModel.effectiveBackendMemoryBytes,
                 totalBytes: viewModel.currentMetrics?.memoryTotalBytes ?? 1,
@@ -1810,14 +1837,15 @@ struct ChartGrid: View {
     var averageTps: Double? = nil
     var isComplete: Bool = false
     var chartHeight: CGFloat = 150
+    var elapsedTime: TimeInterval = 0
 
-    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+    private let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: Spacing.md) {
-            // Row 1: Tokens/sec | GPU Utilization
+            // 3-col flow — chart order preserved; rows fill left-to-right.
             TimelineChart(
-                title: "Tokens per Second",
+                title: "Tok/Second",
                 data: data.tokensPerSecond,
                 color: .chartTokens,
                 unit: "tok/s",
@@ -1846,7 +1874,6 @@ struct ChartGrid: View {
                 )
             }
 
-            // Row 2: CPU Utilization | Total Memory
             if hasHardwareMetrics {
                 TimelineChart(
                     title: "CPU Utilization",
@@ -1859,7 +1886,7 @@ struct ChartGrid: View {
             }
 
             MemoryTimelineChart(
-                title: "Total Memory",
+                title: "Tot. Memory",
                 data: data.memoryUtilization,
                 currentBytes: currentMemoryBytes,
                 totalBytes: totalMemoryBytes,
@@ -1867,7 +1894,6 @@ struct ChartGrid: View {
                 chartHeight: chartHeight
             )
 
-            // Row 3: CPU Cores | GPU Cores
             if hasPowerMetrics && data.hasPowerData {
                 if !perCoreSnapshot.isEmpty {
                     CoreUtilizationGrid(snapshot: perCoreSnapshot) {
@@ -1879,7 +1905,6 @@ struct ChartGrid: View {
                     onExpandGPU?()
                 }
 
-                // Row 4: GPU Power | System Power
                 TimelineChart(
                     title: "GPU Power",
                     data: data.gpuPower,
@@ -1896,7 +1921,6 @@ struct ChartGrid: View {
                     chartHeight: chartHeight
                 )
 
-                // Row 5: GPU Frequency | Watts/Token
                 TimelineChart(
                     title: "GPU Frequency",
                     data: data.gpuFrequency,
@@ -1913,7 +1937,6 @@ struct ChartGrid: View {
                     chartHeight: chartHeight
                 )
 
-                // Row 6: CPU Power
                 TimelineChart(
                     title: "CPU Power",
                     data: data.cpuPower,
@@ -1921,6 +1944,8 @@ struct ChartGrid: View {
                     unit: "W",
                     chartHeight: chartHeight
                 )
+
+                RunTimeCard(elapsedTime: elapsedTime, isComplete: isComplete, chartHeight: chartHeight)
             }
 
             // Show core grids even without power metrics
@@ -1939,6 +1964,49 @@ struct ChartGrid: View {
     }
 }
 
+/// Fills the trailing slot in the chart grid with the current/total run time —
+/// matches chart card height so the last row stays visually balanced.
+struct RunTimeCard: View {
+    let elapsedTime: TimeInterval
+    let isComplete: Bool
+    let chartHeight: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack {
+                Text("Run Time")
+                    .font(.headline)
+                Spacer()
+                Text(isComplete ? "total" : "live")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary.opacity(0.6))
+            }
+
+            ZStack {
+                RoundedRectangle(cornerRadius: CornerRadius.md)
+                    .fill(Color.emptyStateBackground)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: CornerRadius.md)
+                            .strokeBorder(Color.cardBorder, lineWidth: 1)
+                    }
+
+                VStack(spacing: Spacing.xs) {
+                    Image(systemName: isComplete ? "checkmark.circle.fill" : "timer")
+                        .font(.system(size: 22, weight: .light))
+                        .foregroundStyle(isComplete ? Color.anubisSuccess : Color.anubisAccent)
+                    Text(Formatters.duration(elapsedTime))
+                        .font(.mono(28, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .contentTransition(.numericText())
+                        .monospacedDigit()
+                }
+            }
+            .frame(height: chartHeight)
+        }
+        .cardStyle()
+    }
+}
+
 /// Live chart wrapper that observes BenchmarkChartStore independently,
 /// isolating chart re-renders from the main view's body.
 private struct LiveChartsView: View {
@@ -1954,6 +2022,7 @@ private struct LiveChartsView: View {
     var onExpandGPU: (() -> Void)? = nil
     var averageTps: Double = 0
     var chartHeight: CGFloat = 150
+    var elapsedTime: TimeInterval = 0
 
     var body: some View {
         ChartGrid(
@@ -1968,7 +2037,8 @@ private struct LiveChartsView: View {
             onExpandGPU: onExpandGPU,
             averageTps: averageTps,
             isComplete: !isRunning,
-            chartHeight: chartHeight
+            chartHeight: chartHeight,
+            elapsedTime: elapsedTime
         )
     }
 }

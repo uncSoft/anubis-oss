@@ -42,6 +42,9 @@ final class InferenceService: ObservableObject {
     /// OpenAI-compatible clients (keyed by configuration ID)
     private var openAIClients: [UUID: OpenAICompatibleClient] = [:]
 
+    /// Apple Intelligence (Foundation Models) on-device backend
+    private let appleIntelligenceClient = AppleIntelligenceClient()
+
     /// Demo backend for App Store review mode
     private let demoBackend = DemoInferenceBackend()
 
@@ -129,6 +132,13 @@ final class InferenceService: ObservableObject {
         lastError = nil
     }
 
+    /// Switch to the Apple Intelligence (Foundation Models) backend
+    func setAppleIntelligenceBackend() {
+        currentOpenAIConfig = nil
+        currentBackend = .appleIntelligence
+        lastError = nil
+    }
+
     /// Get the currently active backend
     var activeBackend: any InferenceBackend {
         // Use demo backend when in demo mode
@@ -149,6 +159,8 @@ final class InferenceService: ObservableObject {
             }
             // Ultimate fallback
             return ollamaClient
+        case .appleIntelligence:
+            return appleIntelligenceClient
         }
     }
 
@@ -168,6 +180,9 @@ final class InferenceService: ObservableObject {
             let health = await client.checkHealth()
             openAIBackendHealth[id] = health
         }
+
+        let appleHealth = await appleIntelligenceClient.checkHealth()
+        backendHealth[.appleIntelligence] = appleHealth
     }
 
     /// Check if the current backend is available
@@ -206,6 +221,15 @@ final class InferenceService: ObservableObject {
                 openAIBackendHealth[id] = .healthy()
             } catch {
                 openAIBackendHealth[id] = .unhealthy(error: error.localizedDescription)
+            }
+        }
+
+        // Fetch from Apple Intelligence (returns empty if unavailable)
+        let appleHealth = await appleIntelligenceClient.checkHealth()
+        backendHealth[.appleIntelligence] = appleHealth
+        if appleHealth.isRunning {
+            if let appleModels = try? await appleIntelligenceClient.listModels() {
+                models.append(contentsOf: appleModels)
             }
         }
 

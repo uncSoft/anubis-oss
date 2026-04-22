@@ -61,6 +61,7 @@ final class MonitorViewModel: ObservableObject {
     private var elapsedTimer: Timer?
     private var startTime: Date?
     private var metricsSubscription: AnyCancellable?
+    private var stressSubscriptions = Set<AnyCancellable>()
 
     /// Raw samples (full resolution). Charts get a decimated view when count exceeds threshold.
     private var rawSamples = MonitorChartData.empty
@@ -72,6 +73,24 @@ final class MonitorViewModel: ObservableObject {
     init(metricsService: MetricsService) {
         self.metricsService = metricsService
         setupMetricsSubscription()
+        setupStressAutoStart()
+    }
+
+    /// Auto-start monitoring when the user kicks off any stress test from idle —
+    /// stress tests are only meaningful when their effects are being charted.
+    private func setupStressAutoStart() {
+        Publishers.CombineLatest3(
+            stressManager.$cpuActive,
+            stressManager.$gpuActive,
+            stressManager.$memoryActive
+        )
+        .map { $0 || $1 || $2 }
+        .removeDuplicates()
+        .sink { [weak self] anyActive in
+            guard let self, anyActive, !self.isMonitoring else { return }
+            self.startMonitoring()
+        }
+        .store(in: &stressSubscriptions)
     }
 
     // MARK: - Control
