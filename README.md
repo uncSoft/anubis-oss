@@ -22,6 +22,30 @@ Anubis is a native macOS app for benchmarking, comparing, and managing local lar
 
 ## What's New
 
+### Apple Intelligence Backend *(New in 3.0)* 🍎
+
+Anubis now benchmarks **Apple's on-device Foundation Model** alongside Ollama, MLX, and the rest — no server, no network, no setup. If your Mac supports Apple Intelligence (macOS 26+), it shows up in the backend menu automatically.
+
+- **Zero configuration** — pick `Apple Intelligence` from the backend selector and run; it talks directly to the on-device model via Apple's `FoundationModels` framework
+- **Streaming token output** like every other backend, with the same live charts and metric cards
+- **System prompt support** maps to Foundation Models `Instructions`
+- Cleanly hidden on macOS versions or hardware without Apple Intelligence
+
+### Reports Tab — Export *(New in 3.0)*
+
+Export the per-model performance summary directly from the Reports tab.
+
+- **Markdown** — branded report with hardware banner, table, and Fastest / Most-efficient summary
+- **CSV** — flat per-model rows for spreadsheet analysis
+- Respects your current selection, or exports all models when none are selected
+
+### Denser Benchmark Dashboard *(New in 3.0)*
+
+- **3-column live chart grid** (was 2) — fits more on screen without scrolling
+- **Collapsible Session Details** to reclaim vertical space
+- **Run Time card** fills the trailing grid slot so the layout always reads even
+- Cleaner chart axes — wall-clock x-axis labels removed in favor of gridlines
+
 ### Hardware Stress Testing *(New in 2.9)*
 
 Push your Apple Silicon to its limits and observe power draw, thermal throttling, and frequency scaling under controlled load - all from within the Monitor.
@@ -160,6 +184,7 @@ Vault - View model details, unload, and Pull models directly for Ollama
 
 | Backend | Type | Default Port | Setup |
 |---------|------|--------------|-------|
+| **Apple Intelligence** | On-device (Foundation Models) | — | macOS 26+ with Apple Intelligence enabled. No setup; appears in the backend menu when supported. |
 | **Ollama** | Native support | 11434 | Install from [ollama.com](https://ollama.com) - auto-detected on launch |
 | **LM Studio** | OpenAI-compatible | 1234 | Enable local server in LM Studio settings |
 | **mlx-lm** | OpenAI-compatible | 8080 | `pip install mlx-lm && mlx_lm.server --model <model>` |
