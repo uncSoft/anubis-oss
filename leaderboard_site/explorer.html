@@ -191,7 +191,10 @@
             }
 
             // Clean up data for Perspective — pick the most interesting columns
-            // and ensure numeric types
+            // and ensure numeric types. "Tokens/sec" reflects output-only throughput
+            // for submissions from app v3.1+ (reasoning-aware); older entries may
+            // include thinking tokens. "Prefill tok/s" and "Reasoning tok/s" are
+            // computed from raw counts and durations.
             const cleaned = entries.map(e => ({
                 "Name":             e.display_name || "Anonymous",
                 "Model":            e.model_name || "",
@@ -203,13 +206,18 @@
                 "GPU Cores":        num(e.chip_gpu_cores),
                 "CPU Cores":        num(e.chip_core_count),
                 "Bandwidth (GB/s)": num(e.chip_bandwidth_gbs),
-                "Tokens/sec":       num(e.tokens_per_second),
+                "Output tok/s":     num(e.tokens_per_second),
+                "Prefill tok/s":    prefillTps(e),
+                "Reasoning tok/s":  reasoningTps(e),
+                "Reasoning Tokens": num(e.reasoning_tokens),
+                "Reasoning Duration (s)": num(e.reasoning_duration),
                 "TTFT (ms)":        e.time_to_first_token != null ? num(e.time_to_first_token * 1000) : null,
                 "Avg Latency (ms)": num(e.avg_token_latency_ms),
                 "Eval Duration (s)": num(e.eval_duration),
                 "Total Duration (s)": num(e.total_duration),
                 "Load Time (s)":    num(e.load_duration),
                 "Prompt Tokens":    num(e.prompt_tokens),
+                "Prompt Eval (s)":  num(e.prompt_eval_duration),
                 "Completion Tokens": num(e.completion_tokens),
                 "Total Tokens":     num(e.total_tokens),
                 "Context Length":   num(e.context_length),
@@ -222,6 +230,7 @@
                 "Peak GPU Freq (MHz)": num(e.peak_gpu_frequency_mhz),
                 "Peak Memory (GB)": e.peak_memory_bytes != null ? round(e.peak_memory_bytes / 1073741824, 2) : null,
                 "Backend":          e.backend || "",
+                "App Version":      e.app_version || "",
                 "Submitted":        e.submitted_at || "",
             }));
 
@@ -236,16 +245,17 @@
             const viewer = document.getElementById("viewer");
             await viewer.load(table);
 
-            // Default view: datagrid sorted by tok/s descending
+            // Default view: datagrid sorted by output tok/s descending
             await viewer.restore({
                 plugin: "Datagrid",
                 theme: "Pro Dark",
                 columns: [
                     "Name", "Model", "Quantization", "Format", "Chip", "Memory (GB)",
-                    "Tokens/sec", "TTFT (ms)", "Watts/Token",
+                    "Output tok/s", "Prefill tok/s", "Reasoning tok/s",
+                    "TTFT (ms)", "Watts/Token",
                     "Avg GPU Power (W)", "Peak Memory (GB)", "Backend"
                 ],
-                sort: [["Tokens/sec", "desc"]],
+                sort: [["Output tok/s", "desc"]],
                 settings: true,
             });
 
@@ -270,6 +280,20 @@
             if (v == null) return null;
             const f = Math.pow(10, d);
             return Math.round(v * f) / f;
+        }
+
+        function prefillTps(e) {
+            const t = num(e.prompt_tokens);
+            const d = num(e.prompt_eval_duration);
+            if (t == null || d == null || d <= 0) return null;
+            return t / d;
+        }
+
+        function reasoningTps(e) {
+            const t = num(e.reasoning_tokens);
+            const d = num(e.reasoning_duration);
+            if (t == null || d == null || d <= 0) return null;
+            return t / d;
         }
     </script>
 </body>

@@ -58,3 +58,12 @@ anubis - Release Steps for Auto-Update.md
 
 # Secrets (HMAC keys, API tokens — never commit)
 **/Secrets.swift
+leaderboard_site/anubis/api/config.php
+leaderboard_site/anubis/api/error_log
+
+# Build artifacts (release zips, exported apps)
+anubis/anubis-oss.zip
+anubis/anubis-oss_old.zip
+anubis/anubis-oss/
+anubis/anubis.app/
+anubis_power_logs.txt
