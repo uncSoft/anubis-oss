@@ -611,7 +611,8 @@ struct BenchmarkView: View {
                 value: viewModel.timeToFirstToken.map { Formatters.milliseconds($0 * 1000) } ?? "—",
                 icon: "clock.arrow.circlepath",
                 color: .chartTokens,
-                help: "Time to first token. Includes model loading if cold start."
+                subtitle: viewModel.prefillTokensPerSecond.map { "Prefill: \(Formatters.tokensPerSecond($0))" },
+                help: "Time to first token (includes any reasoning/thinking phase for reasoning models). Subtitle shows prefill speed: input tokens ÷ TTFT."
             )
 
             // Row 2: Power & System
@@ -940,6 +941,13 @@ private struct InferenceStatsButton: View {
             }
             if let v = session.totalTokens {
                 statRow("total_tokens", "\(v)")
+            }
+            if let rt = session.reasoningTokens, rt > 0 {
+                statRow("reasoning_tokens", "\(rt)")
+                if let rd = session.reasoningDuration, rd > 0 {
+                    statRow("reasoning_duration", formatDuration(rd))
+                    statRow("reasoning_token/s", formatDecimal(Double(rt) / rd))
+                }
             }
         }
         .padding(Spacing.sm)

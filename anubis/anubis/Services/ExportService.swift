@@ -16,7 +16,8 @@ enum ExportService {
     /// Export benchmark sessions to CSV
     static func exportSessionsToCSV(_ sessions: [BenchmarkSession]) -> String {
         var csv = "id,model_id,model_name,model_quantization,model_format,backend,started_at,ended_at,status,"
-        csv += "tokens_per_second,total_tokens,prompt_tokens,completion_tokens,"
+        csv += "output_tokens_per_second,prefill_tokens_per_second,total_tokens,prompt_tokens,completion_tokens,"
+        csv += "reasoning_tokens,reasoning_duration_sec,reasoning_tokens_per_second,"
         csv += "time_to_first_token_sec,avg_token_latency_ms,load_duration_sec,"
         csv += "context_length,peak_memory_bytes,total_duration_sec,eval_duration_sec,"
         csv += "prompt_eval_duration_sec,"
@@ -39,9 +40,25 @@ enum ExportService {
             row.append(session.endedAt.map { dateFormatter.string(from: $0) } ?? "")
             row.append(session.status.rawValue)
             row.append(session.tokensPerSecond.map { String(format: "%.2f", $0) } ?? "")
+            // prefill (input) tokens/sec — derived from prompt tokens / prompt eval duration
+            let prefillTps: Double? = {
+                guard let pt = session.promptTokens, let pe = session.promptEvalDuration,
+                      pt > 0, pe > 0 else { return nil }
+                return Double(pt) / pe
+            }()
+            row.append(prefillTps.map { String(format: "%.2f", $0) } ?? "")
             row.append(session.totalTokens.map { "\($0)" } ?? "")
             row.append(session.promptTokens.map { "\($0)" } ?? "")
             row.append(session.completionTokens.map { "\($0)" } ?? "")
+            // reasoning split (issues #17, #18)
+            row.append(session.reasoningTokens.map { "\($0)" } ?? "")
+            row.append(session.reasoningDuration.map { String(format: "%.4f", $0) } ?? "")
+            let reasoningTps: Double? = {
+                guard let rt = session.reasoningTokens, let rd = session.reasoningDuration,
+                      rt > 0, rd > 0 else { return nil }
+                return Double(rt) / rd
+            }()
+            row.append(reasoningTps.map { String(format: "%.2f", $0) } ?? "")
             row.append(session.timeToFirstToken.map { String(format: "%.4f", $0) } ?? "")
             row.append(session.averageTokenLatencyMs.map { String(format: "%.2f", $0) } ?? "")
             row.append(session.loadDuration.map { String(format: "%.4f", $0) } ?? "")

@@ -245,9 +245,8 @@ actor OpenAICompatibleClient: InferenceBackend {
             throw AnubisError.invalidResponse(details: "Status \(httpResponse.statusCode): \(errorBody)")
         }
 
-        var totalTokens = 0
+        var state = StreamState()
         let startTime = Date()
-        var firstTokenTime: Date?
         var lastUsage: OpenAIUsage?
 
         for try await line in bytes.lines {
@@ -256,23 +255,7 @@ actor OpenAICompatibleClient: InferenceBackend {
             let jsonString = String(line.dropFirst(6))
 
             if jsonString == "[DONE]" {
-                let now = Date()
-                let totalDuration = now.timeIntervalSince(startTime)
-                let promptEval = firstTokenTime.map { $0.timeIntervalSince(startTime) } ?? 0
-                let evalDuration = firstTokenTime.map { now.timeIntervalSince($0) } ?? totalDuration
-                // Use backend-reported token counts when available, fall back to our approximation
-                let promptToks = lastUsage?.promptTokens ?? 0
-                let completionToks = lastUsage?.completionTokens ?? totalTokens
-                let stats = InferenceStats(
-                    totalTokens: promptToks + completionToks,
-                    promptTokens: promptToks,
-                    completionTokens: completionToks,
-                    totalDuration: totalDuration,
-                    promptEvalDuration: promptEval,
-                    evalDuration: evalDuration,
-                    loadDuration: 0,
-                    contextLength: promptToks > 0 ? promptToks + completionToks : 0
-                )
+                let stats = state.finalize(startTime: startTime, usage: lastUsage)
                 continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
                 continuation.finish()
                 return
@@ -282,40 +265,69 @@ actor OpenAICompatibleClient: InferenceBackend {
 
             do {
                 let chunk = try JSONDecoder().decode(OpenAIChatStreamResponse.self, from: data)
-                let content = chunk.choices.first?.delta.content
 
                 // Capture usage if provided (typically on the final chunk)
                 if let usage = chunk.usage {
                     lastUsage = usage
                 }
 
-                if let content = content, !content.isEmpty {
-                    totalTokens += 1  // Approximate token count (used as fallback)
-                    if firstTokenTime == nil {
-                        firstTokenTime = Date()
+                let delta = chunk.choices.first?.delta
+
+                // Reasoning streamed in a dedicated field (DeepSeek/Qwen/etc convention).
+                // Yield wrapped in <think>…</think> so it's visible but distinguishable from output.
+                if let rc = delta?.reasoningContent ?? delta?.reasoning, !rc.isEmpty {
+                    let now = Date()
+                    state.markFirstChunk(now)
+                    if !state.reasoningOpen {
+                        state.reasoningOpen = true
+                        state.reasoningStart = now
+                        continuation.yield(InferenceChunk(text: "<think>", done: false))
                     }
-                    continuation.yield(InferenceChunk(text: content, done: false, stats: nil))
+                    state.reasoningTokens += 1
+                    state.reasoningEnd = now
+                    continuation.yield(InferenceChunk(text: rc, done: false))
+                }
+
+                // Standard content. May contain inline <think>…</think> blocks (some
+                // llama-cpp/lmstudio configurations emit reasoning this way).
+                if let content = delta?.content, !content.isEmpty {
+                    let pieces = state.processContent(content)
+                    for piece in pieces {
+                        let now = Date()
+                        state.markFirstChunk(now)
+                        switch piece.kind {
+                        case .reasoning:
+                            if !state.reasoningOpen {
+                                state.reasoningOpen = true
+                                state.reasoningStart = now
+                            }
+                            state.reasoningTokens += 1
+                            state.reasoningEnd = now
+                            continuation.yield(InferenceChunk(text: piece.text, done: false))
+                        case .output:
+                            // Close any reasoning emitted via the `reasoning_content` field
+                            // before the first real output token.
+                            if state.reasoningOpen && !state.reasoningClosedEmitted {
+                                state.reasoningClosedEmitted = true
+                                continuation.yield(InferenceChunk(text: "</think>", done: false))
+                            }
+                            if state.firstContentTime == nil {
+                                state.firstContentTime = now
+                            }
+                            state.outputTokens += 1
+                            continuation.yield(InferenceChunk(text: piece.text, done: false))
+                        }
+                    }
                 }
 
                 // Check finish_reason - generation complete before [DONE]
                 if let finishReason = chunk.choices.first?.finishReason,
                    finishReason == "stop" || finishReason == "length" {
-                    let now = Date()
-                    let totalDuration = now.timeIntervalSince(startTime)
-                    let promptEval = firstTokenTime.map { $0.timeIntervalSince(startTime) } ?? 0
-                    let evalDuration = firstTokenTime.map { now.timeIntervalSince($0) } ?? totalDuration
-                    let promptToks = lastUsage?.promptTokens ?? 0
-                    let completionToks = lastUsage?.completionTokens ?? totalTokens
-                    let stats = InferenceStats(
-                        totalTokens: promptToks + completionToks,
-                        promptTokens: promptToks,
-                        completionTokens: completionToks,
-                        totalDuration: totalDuration,
-                        promptEvalDuration: promptEval,
-                        evalDuration: evalDuration,
-                        loadDuration: 0,
-                        contextLength: promptToks > 0 ? promptToks + completionToks : 0
-                    )
+                    if state.reasoningOpen && !state.reasoningClosedEmitted {
+                        state.reasoningClosedEmitted = true
+                        continuation.yield(InferenceChunk(text: "</think>", done: false))
+                    }
+                    let stats = state.finalize(startTime: startTime, usage: lastUsage)
                     continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
                     continuation.finish()
                     return
@@ -327,6 +339,135 @@ actor OpenAICompatibleClient: InferenceBackend {
         }
 
         continuation.finish()
+    }
+}
+
+// MARK: - Stream State for Reasoning-Aware Parsing
+
+/// Tracks reasoning vs. output tokens during a streaming chat completion.
+/// Splits inline <think>…</think> blocks across chunks and surfaces the
+/// timing needed for accurate prefill TPS, thinking TPS, and output TPS.
+private struct StreamState {
+    enum PieceKind { case reasoning, output }
+    struct Piece { let kind: PieceKind; let text: String }
+
+    var firstChunkTime: Date?
+    var firstContentTime: Date?
+    var reasoningStart: Date?
+    var reasoningEnd: Date?
+
+    var reasoningTokens = 0
+    var outputTokens = 0
+
+    var reasoningOpen = false
+    var reasoningClosedEmitted = false
+
+    /// True while we're inside an inline `<think>` block in the content stream.
+    private var insideThinkTag = false
+    /// Buffer for partial tags spanning chunk boundaries (e.g. "<thi" then "nk>").
+    private var pendingTagBuffer = ""
+
+    private static let openTag = "<think>"
+    private static let closeTag = "</think>"
+
+    mutating func markFirstChunk(_ now: Date) {
+        if firstChunkTime == nil { firstChunkTime = now }
+    }
+
+    /// Split a content delta into reasoning vs. output pieces, accounting for
+    /// `<think>` tags that may straddle chunks.
+    mutating func processContent(_ chunk: String) -> [Piece] {
+        var pieces: [Piece] = []
+        var work = pendingTagBuffer + chunk
+        pendingTagBuffer = ""
+
+        while !work.isEmpty {
+            let target = insideThinkTag ? Self.closeTag : Self.openTag
+            if let range = work.range(of: target) {
+                let before = String(work[..<range.lowerBound])
+                if !before.isEmpty {
+                    pieces.append(Piece(kind: insideThinkTag ? .reasoning : .output, text: before))
+                }
+                // Emit the tag itself with the corresponding kind so users see the marker.
+                pieces.append(Piece(kind: insideThinkTag ? .reasoning : .reasoning, text: target))
+                insideThinkTag.toggle()
+                work = String(work[range.upperBound...])
+            } else {
+                // Check whether the tail might be the start of a partial tag — defer it.
+                if let suffixIdx = Self.partialTagSuffix(work, target: target) {
+                    let safe = String(work[..<suffixIdx])
+                    if !safe.isEmpty {
+                        pieces.append(Piece(kind: insideThinkTag ? .reasoning : .output, text: safe))
+                    }
+                    pendingTagBuffer = String(work[suffixIdx...])
+                } else {
+                    pieces.append(Piece(kind: insideThinkTag ? .reasoning : .output, text: work))
+                }
+                break
+            }
+        }
+        return pieces
+    }
+
+    /// Returns the start index of a possible partial-tag suffix in `s`, or nil.
+    private static func partialTagSuffix(_ s: String, target: String) -> String.Index? {
+        // Find the longest suffix of `s` that is a prefix of `target` (and < target.count).
+        let maxLen = min(s.count, target.count - 1)
+        guard maxLen > 0 else { return nil }
+        for len in stride(from: maxLen, through: 1, by: -1) {
+            let suffix = s.suffix(len)
+            if target.hasPrefix(suffix) {
+                return s.index(s.endIndex, offsetBy: -len)
+            }
+        }
+        return nil
+    }
+
+    func finalize(startTime: Date, usage: OpenAIUsage?) -> InferenceStats {
+        let now = Date()
+        let totalDuration = now.timeIntervalSince(startTime)
+        let promptEval = firstChunkTime.map { $0.timeIntervalSince(startTime) } ?? 0
+        let evalDuration = firstChunkTime.map { now.timeIntervalSince($0) } ?? totalDuration
+
+        // Reasoning duration: from first reasoning chunk to first content chunk
+        // (or to end, if reasoning ran to completion without follow-on content).
+        let reasoningDuration: TimeInterval
+        if let rs = reasoningStart {
+            let rEnd = firstContentTime ?? reasoningEnd ?? now
+            reasoningDuration = max(0, rEnd.timeIntervalSince(rs))
+        } else {
+            reasoningDuration = 0
+        }
+
+        // Prefer backend-reported counts. If usage gives a single completion count
+        // it includes reasoning — we approximate the split using our local counts.
+        let promptToks = usage?.promptTokens ?? 0
+        let backendCompletion = usage?.completionTokens
+        let localCompletion = reasoningTokens + outputTokens
+        let completionToks = backendCompletion ?? localCompletion
+
+        // If backend total doesn't match our split, scale the local reasoning ratio.
+        let reasoningTokenCount: Int = {
+            guard reasoningTokens > 0 else { return 0 }
+            if let backend = backendCompletion, localCompletion > 0 {
+                let ratio = Double(reasoningTokens) / Double(localCompletion)
+                return min(backend, Int((Double(backend) * ratio).rounded()))
+            }
+            return reasoningTokens
+        }()
+
+        return InferenceStats(
+            totalTokens: promptToks + completionToks,
+            promptTokens: promptToks,
+            completionTokens: completionToks,
+            totalDuration: totalDuration,
+            promptEvalDuration: promptEval,
+            evalDuration: evalDuration,
+            loadDuration: 0,
+            contextLength: promptToks > 0 ? promptToks + completionToks : 0,
+            reasoningTokens: reasoningTokenCount,
+            reasoningDuration: reasoningDuration
+        )
     }
 }
 
@@ -657,6 +798,15 @@ private struct OpenAIStreamChoice: Codable {
 private struct OpenAIDelta: Codable {
     let role: String?
     let content: String?
+    /// DeepSeek/Qwen/GLM convention — reasoning streamed in a separate field.
+    let reasoningContent: String?
+    /// Some servers (e.g. some vLLM, OpenRouter) expose reasoning under this key instead.
+    let reasoning: String?
+
+    enum CodingKeys: String, CodingKey {
+        case role, content, reasoning
+        case reasoningContent = "reasoning_content"
+    }
 }
 
 // MARK: - LM Studio Extended API Types

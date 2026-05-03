@@ -46,7 +46,9 @@ struct InferenceStats: Sendable, Codable {
     /// Time to process the prompt in seconds
     let promptEvalDuration: TimeInterval
 
-    /// Time to generate tokens in seconds
+    /// Time to generate tokens in seconds. For reasoning models, this covers
+    /// the full generation phase including thinking — `outputEvalDuration`
+    /// excludes thinking and is what should be used for output tk/s.
     let evalDuration: TimeInterval
 
     /// Time to load the model in seconds (cold start indicator)
@@ -55,22 +57,84 @@ struct InferenceStats: Sendable, Codable {
     /// Number of context tokens used
     let contextLength: Int
 
-    /// Tokens per second (completion)
+    /// Tokens emitted as reasoning/thinking (subset of completionTokens). 0 if not a reasoning run.
+    let reasoningTokens: Int
+
+    /// Time spent producing reasoning tokens in seconds. 0 if not a reasoning run.
+    let reasoningDuration: TimeInterval
+
+    init(
+        totalTokens: Int,
+        promptTokens: Int,
+        completionTokens: Int,
+        totalDuration: TimeInterval,
+        promptEvalDuration: TimeInterval,
+        evalDuration: TimeInterval,
+        loadDuration: TimeInterval,
+        contextLength: Int,
+        reasoningTokens: Int = 0,
+        reasoningDuration: TimeInterval = 0
+    ) {
+        self.totalTokens = totalTokens
+        self.promptTokens = promptTokens
+        self.completionTokens = completionTokens
+        self.totalDuration = totalDuration
+        self.promptEvalDuration = promptEvalDuration
+        self.evalDuration = evalDuration
+        self.loadDuration = loadDuration
+        self.contextLength = contextLength
+        self.reasoningTokens = reasoningTokens
+        self.reasoningDuration = reasoningDuration
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.totalTokens = try c.decode(Int.self, forKey: .totalTokens)
+        self.promptTokens = try c.decode(Int.self, forKey: .promptTokens)
+        self.completionTokens = try c.decode(Int.self, forKey: .completionTokens)
+        self.totalDuration = try c.decode(TimeInterval.self, forKey: .totalDuration)
+        self.promptEvalDuration = try c.decode(TimeInterval.self, forKey: .promptEvalDuration)
+        self.evalDuration = try c.decode(TimeInterval.self, forKey: .evalDuration)
+        self.loadDuration = try c.decode(TimeInterval.self, forKey: .loadDuration)
+        self.contextLength = try c.decode(Int.self, forKey: .contextLength)
+        self.reasoningTokens = (try? c.decode(Int.self, forKey: .reasoningTokens)) ?? 0
+        self.reasoningDuration = (try? c.decode(TimeInterval.self, forKey: .reasoningDuration)) ?? 0
+    }
+
+    /// Output token count excluding reasoning/thinking tokens.
+    var outputTokens: Int {
+        max(0, completionTokens - reasoningTokens)
+    }
+
+    /// Generation duration excluding reasoning time. Used for output tok/s.
+    var outputEvalDuration: TimeInterval {
+        max(0, evalDuration - reasoningDuration)
+    }
+
+    /// Tokens per second for visible output (excludes thinking).
     var tokensPerSecond: Double {
-        guard evalDuration > 0 else { return 0 }
-        return Double(completionTokens) / evalDuration
+        let dur = outputEvalDuration
+        guard dur > 0 else { return 0 }
+        return Double(outputTokens) / dur
     }
 
-    /// Average latency per token in milliseconds
+    /// Average latency per output token in milliseconds.
     var averageTokenLatencyMs: Double {
-        guard completionTokens > 0 else { return 0 }
-        return (evalDuration * 1000) / Double(completionTokens)
+        let toks = outputTokens
+        guard toks > 0 else { return 0 }
+        return (outputEvalDuration * 1000) / Double(toks)
     }
 
-    /// Prompt processing speed (tokens/sec)
+    /// Prompt processing speed — input tokens/sec (prefill speed).
     var promptProcessingSpeed: Double {
         guard promptEvalDuration > 0 else { return 0 }
         return Double(promptTokens) / promptEvalDuration
+    }
+
+    /// Reasoning/thinking generation speed (tokens/sec).
+    var reasoningTokensPerSecond: Double {
+        guard reasoningDuration > 0 else { return 0 }
+        return Double(reasoningTokens) / reasoningDuration
     }
 }
 

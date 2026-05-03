@@ -400,8 +400,12 @@ struct SessionDetailView: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.md) {
                 // Row 1: Performance
                 StatCell(
-                    title: "Tokens/sec",
+                    title: "Output Tk/s",
                     value: session.tokensPerSecond.map { Formatters.tokensPerSecond($0) } ?? "—"
+                )
+                StatCell(
+                    title: "Prefill Tk/s",
+                    value: prefillTokensPerSecondString
                 )
                 StatCell(
                     title: "Time to First Token",
@@ -411,12 +415,33 @@ struct SessionDetailView: View {
                     title: "Avg Token Latency",
                     value: session.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—"
                 )
+
+                // Optional reasoning row — only when the run produced thinking tokens
+                if let rt = session.reasoningTokens, rt > 0,
+                   let rd = session.reasoningDuration, rd > 0 {
+                    StatCell(
+                        title: "Reasoning Tk/s",
+                        value: Formatters.tokensPerSecond(Double(rt) / rd)
+                    )
+                    StatCell(
+                        title: "Reasoning Tokens",
+                        value: "\(rt)"
+                    )
+                    StatCell(
+                        title: "Reasoning Duration",
+                        value: Formatters.duration(rd)
+                    )
+                    StatCell(
+                        title: "Output Tokens (excl. reasoning)",
+                        value: session.completionTokens.map { "\($0 - rt)" } ?? "—"
+                    )
+                }
+
+                // Row 2: Token counts + Total Duration
                 StatCell(
                     title: "Total Duration",
                     value: session.totalDuration.map { Formatters.duration($0) } ?? "—"
                 )
-
-                // Row 2: Token counts
                 StatCell(
                     title: "Total Tokens",
                     value: session.totalTokens.map { "\($0)" } ?? "—"
@@ -429,6 +454,8 @@ struct SessionDetailView: View {
                     title: "Context Length",
                     value: session.contextLength.map { "\($0)" } ?? "—"
                 )
+
+                // Row 3: Memory (Power & Freq follow below)
                 StatCell(
                     title: "Peak Memory",
                     value: session.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—"
@@ -496,6 +523,18 @@ struct SessionDetailView: View {
 
     private var chartData: BenchmarkChartData {
         BenchmarkSample.chartData(from: samples)
+    }
+
+    /// Prefill (input) tokens per second = prompt tokens ÷ prompt eval duration.
+    /// For Ollama, both are backend-reported. For OpenAI-compat/Apple, prompt
+    /// eval duration is wall-clock TTFT and may include reasoning time on
+    /// reasoning models (which we now track separately).
+    private var prefillTokensPerSecondString: String {
+        guard let promptTokens = session.promptTokens,
+              let promptEval = session.promptEvalDuration,
+              promptTokens > 0,
+              promptEval > 0 else { return "—" }
+        return Formatters.tokensPerSecond(Double(promptTokens) / promptEval)
     }
 
     private var chartsSection: some View {

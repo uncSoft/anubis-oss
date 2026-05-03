@@ -145,6 +145,9 @@ final class BenchmarkViewModel: ObservableObject {
     /// Time to first token (live tracking)
     @Published private(set) var timeToFirstToken: TimeInterval?
 
+    /// Prefill (input) tokens per second, populated when stats arrive at end of run.
+    @Published private(set) var prefillTokensPerSecond: Double?
+
     /// Peak memory usage during benchmark
     @Published private(set) var currentPeakMemory: Int64 = 0
 
@@ -433,6 +436,7 @@ final class BenchmarkViewModel: ObservableObject {
         currentTokensPerSecond = 0
         peakTokensPerSecond = 0
         timeToFirstToken = nil
+        prefillTokensPerSecond = nil
         currentPeakMemory = 0
         modelMemoryTotal = 0
         modelMemoryGPU = 0
@@ -651,6 +655,9 @@ final class BenchmarkViewModel: ObservableObject {
                 if let finalStats = finalBuf.stats {
                     self.debugState.finalTokensPerSecond = finalStats.tokensPerSecond
                     self.debugState.finalTotalTokens = finalStats.totalTokens
+                    if finalStats.promptProcessingSpeed > 0 {
+                        self.prefillTokensPerSecond = finalStats.promptProcessingSpeed
+                    }
                 }
                 await finishBenchmark()
 
@@ -673,7 +680,20 @@ final class BenchmarkViewModel: ObservableObject {
                 self.debugState.phase = .error
                 self.debugState.errorMessage = error.localizedDescription
                 self.debugState.completedAt = Date()
-                self.error = .inferenceTimeout(after: elapsedTime)
+
+                // Surface the actual error rather than masquerading every failure
+                // as an inference timeout (which yields the misleading "timed out
+                // after 0 seconds" message when the request fails immediately).
+                #if DEBUG
+                print("[Benchmark] inference failed after \(String(format: "%.2f", elapsedTime))s: \(error)")
+                #endif
+                if let anubisError = error as? AnubisError {
+                    self.error = anubisError
+                } else if elapsedTime < 1.0 {
+                    self.error = .invalidResponse(details: error.localizedDescription)
+                } else {
+                    self.error = .streamingError(reason: error.localizedDescription)
+                }
                 await finishBenchmark()
             }
         }

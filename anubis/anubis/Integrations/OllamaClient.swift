@@ -116,6 +116,7 @@ actor OllamaClient: InferenceBackend {
             prompt: request.prompt,
             system: request.systemPrompt,
             stream: true,
+            think: nil,    // omit — older Ollama versions and non-reasoning models reject it
             options: OllamaOptions(
                 numPredict: request.maxTokens,
                 temperature: request.temperature,
@@ -128,45 +129,11 @@ actor OllamaClient: InferenceBackend {
 
         let (bytes, response) = try await session.bytes(for: urlRequest)
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw AnubisError.invalidResponse(details: "Not an HTTP response")
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            throw AnubisError.invalidResponse(details: "Status \(httpResponse.statusCode)")
-        }
-
-        for try await line in bytes.lines {
-            guard !line.isEmpty else { continue }
-
-            guard let data = line.data(using: .utf8) else { continue }
-
-            let chunk = try JSONDecoder().decode(OllamaGenerateResponse.self, from: data)
-
-            let stats: InferenceStats? = chunk.done ? InferenceStats(
-                totalTokens: (chunk.promptEvalCount ?? 0) + (chunk.evalCount ?? 0),
-                promptTokens: chunk.promptEvalCount ?? 0,
-                completionTokens: chunk.evalCount ?? 0,
-                totalDuration: Double(chunk.totalDuration ?? 0) / 1_000_000_000,
-                promptEvalDuration: Double(chunk.promptEvalDuration ?? 0) / 1_000_000_000,
-                evalDuration: Double(chunk.evalDuration ?? 0) / 1_000_000_000,
-                loadDuration: Double(chunk.loadDuration ?? 0) / 1_000_000_000,
-                contextLength: chunk.context?.count ?? 0
-            ) : nil
-
-            continuation.yield(InferenceChunk(
-                text: chunk.response,
-                done: chunk.done,
-                stats: stats
-            ))
-
-            if chunk.done {
-                continuation.finish()
-                return
-            }
-        }
-
-        continuation.finish()
+        try await Self.consumeOllamaStream(
+            bytes: bytes,
+            response: response,
+            continuation: continuation
+        )
     }
 
     private func parseParameterCount(_ size: String?) -> Double? {
@@ -266,6 +233,7 @@ actor OllamaClient: InferenceBackend {
             prompt: request.prompt,
             system: request.systemPrompt,
             stream: true,
+            think: nil,
             keepAlive: keepAlive,
             options: OllamaOptions(
                 numPredict: request.maxTokens,
@@ -279,39 +247,78 @@ actor OllamaClient: InferenceBackend {
 
         let (bytes, response) = try await session.bytes(for: urlRequest)
 
+        try await Self.consumeOllamaStream(
+            bytes: bytes,
+            response: response,
+            continuation: continuation
+        )
+    }
+
+    /// Shared stream-consumption logic. Splits inline `<think>…</think>` blocks
+    /// in Ollama's `response` field into reasoning vs. output, decodes the
+    /// optional `thinking` field for Ollama 0.5+ servers, and surfaces clear
+    /// errors with the response body when the request fails.
+    private static func consumeOllamaStream(
+        bytes: URLSession.AsyncBytes,
+        response: URLResponse,
+        continuation: AsyncThrowingStream<InferenceChunk, Error>.Continuation
+    ) async throws {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw AnubisError.invalidResponse(details: "Not an HTTP response")
         }
 
-        guard httpResponse.statusCode == 200 else {
-            throw AnubisError.invalidResponse(details: "Status \(httpResponse.statusCode)")
+        if httpResponse.statusCode != 200 {
+            // Drain the body so we can report Ollama's actual error message
+            // (rather than a bare status code) — useful for "model does not
+            // support thinking", "model not loaded", malformed prompt, etc.
+            var errorBody = ""
+            for try await line in bytes.lines {
+                errorBody += line
+                if errorBody.count > 1000 { break }
+            }
+            #if DEBUG
+            print("[Ollama] HTTP \(httpResponse.statusCode) error body: \(errorBody)")
+            #endif
+            throw AnubisError.invalidResponse(
+                details: "Ollama returned HTTP \(httpResponse.statusCode)\(errorBody.isEmpty ? "" : ": \(errorBody)")"
+            )
         }
+
+        var thinkingState = OllamaThinkingState()
+        let decoder = JSONDecoder()
 
         for try await line in bytes.lines {
             guard !line.isEmpty else { continue }
-
             guard let data = line.data(using: .utf8) else { continue }
 
-            let chunk = try JSONDecoder().decode(OllamaGenerateResponse.self, from: data)
+            let chunk: OllamaGenerateResponse
+            do {
+                chunk = try decoder.decode(OllamaGenerateResponse.self, from: data)
+            } catch {
+                #if DEBUG
+                print("[Ollama] failed to decode line: \(line)")
+                print("[Ollama] decode error: \(error)")
+                #endif
+                throw AnubisError.streamingError(
+                    reason: "Could not parse Ollama response: \(error.localizedDescription)"
+                )
+            }
 
-            let stats: InferenceStats? = chunk.done ? InferenceStats(
-                totalTokens: (chunk.promptEvalCount ?? 0) + (chunk.evalCount ?? 0),
-                promptTokens: chunk.promptEvalCount ?? 0,
-                completionTokens: chunk.evalCount ?? 0,
-                totalDuration: Double(chunk.totalDuration ?? 0) / 1_000_000_000,
-                promptEvalDuration: Double(chunk.promptEvalDuration ?? 0) / 1_000_000_000,
-                evalDuration: Double(chunk.evalDuration ?? 0) / 1_000_000_000,
-                loadDuration: Double(chunk.loadDuration ?? 0) / 1_000_000_000,
-                contextLength: chunk.context?.count ?? 0
-            ) : nil
+            // Decode any `thinking` field (Ollama 0.5+ when supported).
+            thinkingState.observe(chunk: chunk) { piece in
+                continuation.yield(piece)
+            }
 
-            continuation.yield(InferenceChunk(
-                text: chunk.response,
-                done: chunk.done,
-                stats: stats
-            ))
+            // Split inline <think>…</think> tags in the response body so models
+            // that emit thinking inline are also accounted for.
+            let pieces = thinkingState.processInlineResponse(chunk.response)
+            for piece in pieces {
+                continuation.yield(InferenceChunk(text: piece, done: false))
+            }
 
+            let stats: InferenceStats? = chunk.done ? thinkingState.stats(from: chunk) : nil
             if chunk.done {
+                continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
                 continuation.finish()
                 return
             }
@@ -622,6 +629,9 @@ private struct OllamaGenerateRequest: Codable {
     let prompt: String
     let system: String?
     let stream: Bool
+    /// Ollama 0.5+: enables separate `thinking` field on streamed responses for
+    /// reasoning-capable models. Servers that don't recognize the field ignore it.
+    let think: Bool?
     let options: OllamaOptions?
 }
 
@@ -630,11 +640,12 @@ private struct OllamaGenerateRequestFull: Codable {
     let prompt: String
     let system: String?
     let stream: Bool
+    let think: Bool?
     let keepAlive: String?
     let options: OllamaOptions?
 
     enum CodingKeys: String, CodingKey {
-        case model, prompt, system, stream, options
+        case model, prompt, system, stream, think, options
         case keepAlive = "keep_alive"
     }
 }
@@ -673,6 +684,8 @@ private struct OllamaOptions: Codable {
 private struct OllamaGenerateResponse: Codable {
     let model: String
     let response: String
+    /// Ollama 0.5+ streams reasoning content here separately when `think: true`.
+    let thinking: String?
     let done: Bool
     let context: [Int]?
     let totalDuration: Int64?
@@ -685,6 +698,7 @@ private struct OllamaGenerateResponse: Codable {
     enum CodingKeys: String, CodingKey {
         case model
         case response
+        case thinking
         case done
         case context
         case totalDuration = "total_duration"
@@ -693,6 +707,156 @@ private struct OllamaGenerateResponse: Codable {
         case promptEvalDuration = "prompt_eval_duration"
         case evalCount = "eval_count"
         case evalDuration = "eval_duration"
+    }
+}
+
+/// Tracks reasoning chunks so we can wrap them visibly and split eval
+/// duration / completion tokens into thinking vs. output halves. Handles
+/// both Ollama 0.5+ `thinking` field and inline `<think>…</think>` blocks.
+private struct OllamaThinkingState {
+    private var reasoningStartedAt: Date?
+    private var reasoningEndedAt: Date?
+    private var firstResponseAt: Date?
+    /// Reasoning chunk count (from `thinking` field OR text inside `<think>` tags).
+    private var reasoningChunkCount = 0
+    /// Output chunk count (visible response excluding reasoning).
+    private var responseChunkCount = 0
+
+    /// True while we're inside an inline <think> block in the response stream.
+    private var insideInlineThink = false
+    /// Buffer for partial inline <think>/</think> tags spanning chunk boundaries.
+    private var pendingTagBuffer = ""
+
+    private static let openTag = "<think>"
+    private static let closeTag = "</think>"
+
+    /// Decode the dedicated `thinking` field (Ollama 0.5+ servers).
+    /// Yields `<think>…</think>` markers around the streamed reasoning text.
+    mutating func observe(chunk: OllamaGenerateResponse, yield: (InferenceChunk) -> Void) {
+        let now = Date()
+
+        if let thinking = chunk.thinking, !thinking.isEmpty {
+            if reasoningStartedAt == nil {
+                reasoningStartedAt = now
+                yield(InferenceChunk(text: "<think>", done: false))
+            }
+            reasoningEndedAt = now
+            reasoningChunkCount += 1
+            yield(InferenceChunk(text: thinking, done: false))
+        }
+
+        if !chunk.response.isEmpty {
+            // First non-thinking output: close the explicit-field reasoning marker
+            // if we opened one. Inline <think> handling is separate.
+            if firstResponseAt == nil {
+                firstResponseAt = now
+                if reasoningStartedAt != nil && !insideInlineThink {
+                    yield(InferenceChunk(text: "</think>", done: false))
+                }
+            }
+        } else if chunk.done && reasoningStartedAt != nil && firstResponseAt == nil && !insideInlineThink {
+            yield(InferenceChunk(text: "</think>", done: false))
+        }
+    }
+
+    /// Split the `response` field on inline `<think>…</think>` tags. Tags
+    /// straddling chunk boundaries are buffered. Pieces are returned ready
+    /// to yield as visible text — markers stay in the stream.
+    mutating func processInlineResponse(_ chunk: String) -> [String] {
+        guard !chunk.isEmpty else { return [] }
+        var pieces: [String] = []
+        var work = pendingTagBuffer + chunk
+        pendingTagBuffer = ""
+
+        while !work.isEmpty {
+            let target = insideInlineThink ? Self.closeTag : Self.openTag
+            if let range = work.range(of: target) {
+                let before = String(work[..<range.lowerBound])
+                if !before.isEmpty {
+                    countToken(insideInlineThink, now: Date())
+                    pieces.append(before)
+                }
+                pieces.append(target)
+                if !insideInlineThink {
+                    if reasoningStartedAt == nil { reasoningStartedAt = Date() }
+                } else {
+                    reasoningEndedAt = Date()
+                }
+                insideInlineThink.toggle()
+                work = String(work[range.upperBound...])
+            } else if let suffixIdx = Self.partialTagSuffix(work, target: target) {
+                let safe = String(work[..<suffixIdx])
+                if !safe.isEmpty {
+                    countToken(insideInlineThink, now: Date())
+                    pieces.append(safe)
+                }
+                pendingTagBuffer = String(work[suffixIdx...])
+                break
+            } else {
+                countToken(insideInlineThink, now: Date())
+                pieces.append(work)
+                break
+            }
+        }
+        return pieces
+    }
+
+    private mutating func countToken(_ asReasoning: Bool, now: Date) {
+        if asReasoning {
+            reasoningChunkCount += 1
+        } else {
+            if firstResponseAt == nil { firstResponseAt = now }
+            responseChunkCount += 1
+        }
+    }
+
+    private static func partialTagSuffix(_ s: String, target: String) -> String.Index? {
+        let maxLen = min(s.count, target.count - 1)
+        guard maxLen > 0 else { return nil }
+        for len in stride(from: maxLen, through: 1, by: -1) {
+            let suffix = s.suffix(len)
+            if target.hasPrefix(suffix) {
+                return s.index(s.endIndex, offsetBy: -len)
+            }
+        }
+        return nil
+    }
+
+    /// Build InferenceStats from the final chunk, splitting eval_duration/eval_count
+    /// across thinking and output proportionally to our local chunk counts.
+    func stats(from chunk: OllamaGenerateResponse) -> InferenceStats {
+        let totalEvalCount = chunk.evalCount ?? 0
+        let totalEvalDurationS = Double(chunk.evalDuration ?? 0) / 1_000_000_000
+
+        let chunkTotal = reasoningChunkCount + responseChunkCount
+        let reasoningRatio: Double = chunkTotal > 0
+            ? Double(reasoningChunkCount) / Double(chunkTotal)
+            : 0
+
+        // Prefer wall-clock reasoning duration when available; otherwise fall back
+        // to the proportional split of eval_duration.
+        let reasoningDuration: TimeInterval = {
+            if let s = reasoningStartedAt {
+                let e = firstResponseAt ?? reasoningEndedAt ?? s
+                return max(0, e.timeIntervalSince(s))
+            }
+            return totalEvalDurationS * reasoningRatio
+        }()
+
+        let reasoningTokens = Int((Double(totalEvalCount) * reasoningRatio).rounded())
+
+        return InferenceStats(
+            totalTokens: (chunk.promptEvalCount ?? 0) + totalEvalCount,
+            promptTokens: chunk.promptEvalCount ?? 0,
+            completionTokens: totalEvalCount,
+            totalDuration: Double(chunk.totalDuration ?? 0) / 1_000_000_000,
+            promptEvalDuration: Double(chunk.promptEvalDuration ?? 0) / 1_000_000_000,
+            evalDuration: totalEvalDurationS,
+            loadDuration: Double(chunk.loadDuration ?? 0) / 1_000_000_000,
+            contextLength: chunk.context?.count ?? 0,
+            reasoningTokens: min(totalEvalCount, reasoningTokens),
+            reasoningDuration: min(totalEvalDurationS, reasoningDuration)
+        )
     }
 }
 

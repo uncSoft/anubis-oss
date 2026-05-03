@@ -55,6 +55,12 @@ struct LeaderboardSubmission: Codable {
     let peakGpuFrequencyMhz: Double?
     let avgWattsPerToken: Double?
 
+    // Reasoning split (issues #17, #18) — populated only for runs that produced
+    // thinking tokens. `tokensPerSecond` already excludes reasoning, but these
+    // fields let the leaderboard show prefill / thinking / output rates separately.
+    let reasoningTokens: Int?
+    let reasoningDuration: Double?
+
     // Process
     let backendProcessName: String?
 
@@ -102,6 +108,8 @@ struct LeaderboardSubmission: Codable {
         case avgGpuFrequencyMhz = "avg_gpu_frequency_mhz"
         case peakGpuFrequencyMhz = "peak_gpu_frequency_mhz"
         case avgWattsPerToken = "avg_watts_per_token"
+        case reasoningTokens = "reasoning_tokens"
+        case reasoningDuration = "reasoning_duration"
         case backendProcessName = "backend_process_name"
         case chipName = "chip_name"
         case chipCoreCount = "chip_core_count"
@@ -134,6 +142,10 @@ struct LeaderboardEntry: Codable, Identifiable {
     let timeToFirstToken: Double?
     let totalTokens: Int?
     let completionTokens: Int?
+    let promptTokens: Int?
+    let promptEvalDuration: Double?
+    let reasoningTokens: Int?
+    let reasoningDuration: Double?
     let avgGpuPowerWatts: Double?
     let avgSystemPowerWatts: Double?
     let avgWattsPerToken: Double?
@@ -156,6 +168,10 @@ struct LeaderboardEntry: Codable, Identifiable {
         case timeToFirstToken = "time_to_first_token"
         case totalTokens = "total_tokens"
         case completionTokens = "completion_tokens"
+        case promptTokens = "prompt_tokens"
+        case promptEvalDuration = "prompt_eval_duration"
+        case reasoningTokens = "reasoning_tokens"
+        case reasoningDuration = "reasoning_duration"
         case avgGpuPowerWatts = "avg_gpu_power_watts"
         case avgSystemPowerWatts = "avg_system_power_watts"
         case avgWattsPerToken = "avg_watts_per_token"
@@ -243,6 +259,8 @@ actor LeaderboardService {
             avgGpuFrequencyMhz: benchmarkSession.avgGpuFrequencyMHz,
             peakGpuFrequencyMhz: benchmarkSession.peakGpuFrequencyMHz,
             avgWattsPerToken: benchmarkSession.avgWattsPerToken,
+            reasoningTokens: benchmarkSession.reasoningTokens,
+            reasoningDuration: benchmarkSession.reasoningDuration,
             backendProcessName: benchmarkSession.backendProcessName,
             chipName: chip.name,
             chipCoreCount: chip.coreCount,

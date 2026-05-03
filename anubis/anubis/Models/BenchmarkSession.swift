@@ -57,6 +57,10 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     var backendProcessName: String?
     var chipInfoJSON: String?
 
+    // v6 reasoning/thinking accounting (issues #17, #18)
+    var reasoningTokens: Int?
+    var reasoningDuration: Double?
+
     enum CodingKeys: String, CodingKey, ColumnExpression {
         case id
         case modelId = "model_id"
@@ -90,6 +94,8 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         case avgWattsPerToken = "avg_watts_per_token"
         case backendProcessName = "backend_process_name"
         case chipInfoJSON = "chip_info_json"
+        case reasoningTokens = "reasoning_tokens"
+        case reasoningDuration = "reasoning_duration"
     }
 
     /// Create a new benchmark session
@@ -133,6 +139,8 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         self.peakGpuFrequencyMHz = nil
         self.avgWattsPerToken = nil
         self.backendProcessName = nil
+        self.reasoningTokens = nil
+        self.reasoningDuration = nil
 
         // Snapshot chip info as JSON
         if let data = try? JSONEncoder().encode(ChipInfo.current),
@@ -167,6 +175,12 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         self.contextLength = stats.contextLength
         self.peakMemoryBytes = peakMemoryBytes
         self.averageTokenLatencyMs = stats.averageTokenLatencyMs
+
+        // v6 reasoning split — only populate when the run actually produced reasoning
+        if stats.reasoningTokens > 0 {
+            self.reasoningTokens = stats.reasoningTokens
+            self.reasoningDuration = stats.reasoningDuration
+        }
 
         // v4 power summary
         if let power = powerSummary {

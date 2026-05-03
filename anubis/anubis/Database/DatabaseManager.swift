@@ -213,6 +213,14 @@ final class DatabaseManager {
             }
         }
 
+        // Migration v6: Reasoning/thinking token accounting (issues #17, #18)
+        migrator.registerMigration("v6") { db in
+            try db.alter(table: "benchmark_session") { t in
+                t.add(column: "reasoning_tokens", .integer)
+                t.add(column: "reasoning_duration", .double)
+            }
+        }
+
         try migrator.migrate(queue)
     }
 
