@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>SUFeedURL</key>
-	<string>https://devpadapp.com/anubis/appcast.xml</string>
+	<string>https://uncsoft.github.io/anubis-oss/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>uXjeYxgRvTVd3fAkaTty9gPCe1GSbgmoGspZg8NCuuE=</string>
 	<key>SUAutomaticallyCheckForUpdates</key>

@@ -1,0 +1,173 @@
+<?xml version="1.0" standalone="yes"?>
+<rss
+	xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+	<channel>
+		<title>anubis</title>
+  <item>
+      <title>Version 3.1</title>
+      <pubDate>Sun, 03 May 2026 18:30:00 -0400</pubDate>
+      <sparkle:version>3.1</sparkle:version>
+      <sparkle:shortVersionString>3.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Highlights - Version 3.1</h2>
+          <p>Reasoning-aware metrics, prefill speed, accurate TTFT.</p>
+          <ul>
+              <li><b>Output tokens/sec now excludes thinking time.</b> Reasoning models like DeepSeek-R1, Qwen3-thinking, GLM, and gpt-oss stream their thoughts on a separate channel; previously this time was wrongly charged against TTFT and the tokens were counted as output. Anubis now decodes reasoning content and surfaces it as &lt;think&gt;...&lt;/think&gt; in the response.</li>
+              <li><b>Prefill (input) tokens/sec is now a first-class metric.</b> Visible on the TTFT card, in session history, in CSV export, and on the leaderboard.</li>
+              <li><b>Reasoning split.</b> Thinking-model runs record reasoning tokens and reasoning duration separately; the session detail view shows reasoning tok/s alongside output tok/s.</li>
+              <li><b>Better error messages</b> for backend failures - Ollama HTTP errors no longer surface as "timed out after 0 seconds."</li>
+              <li><b>Leaderboard explorer</b> gains Prefill tok/s and Reasoning tok/s columns.</li>
+          </ul>
+          <p>Fixes <a href="https://github.com/uncSoft/anubis-oss/issues/17">#17</a> and <a href="https://github.com/uncSoft/anubis-oss/issues/18">#18</a>.</p>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.1.0/Anubis-OSS-3.1.zip"
+          sparkle:version="3.1"
+          sparkle:shortVersionString="3.1"
+          length="13563029"
+          type="application/octet-stream"
+          sparkle:edSignature="/4zA+gB5JfOGK4WkbuIrTl47qd2JoiE5U6sCdoUKFKWzvivdN2gQK7DSDBImFePWXP9Hekf0ZpSG/DPmlcnWAA==" />
+  </item>
+  <item>
+      <title>Version 3.0</title>
+      <pubDate>Wed, 22 Apr 2026 01:22:00 -0400</pubDate>
+      <sparkle:version>3.0</sparkle:version>
+      <sparkle:shortVersionString>3.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Highlights - Version 3.0</h2>
+          <ul>
+              <li><b>Apple Intelligence backend</b> - on-device Foundation Models (macOS 26+).</li>
+              <li><b>Reports - Export</b> - Markdown or CSV of the per-model summary.</li>
+              <li><b>Monitor redesign</b> - framed empty state, big Start button, stress menus from idle.</li>
+              <li><b>Benchmark UI density pass</b> - 3-column charts, collapsible Session Details, trailing Run Time card, cleaner x-axis.</li>
+              <li><b>Streaming text fix</b> - disabled kerning/ligatures to drop CoreText pair-positioning from the layout hot path.</li>
+              </ul>
+          <h2>What's New in 2.9</h2>
+          <h3>Hardware Stress Testing</h3>
+          <p>Push your Apple Silicon to its limits from within the Monitor:</p>
+          <ul>
+              <li><strong>CPU stress</strong> - spawns processes per core (All Cores, P-Cores, E-Cores, or Single Core)</li>
+              <li><strong>GPU stress</strong> - Metal Mandelbrot fractal zoom with 4 intensity levels</li>
+              <li><strong>Memory bandwidth stress</strong> - continuous streaming with measured GB/s throughput</li>
+              <li>Safety: 5-minute auto-timeout, thermal watchdog, GPU auto-downgrade</li>
+          </ul>
+          <h3>Floating Monitor HUD</h3>
+          <p>Compact, always-on-top system metrics overlay - launchable from any tab. Live CPU, GPU, memory, power, frequency, and thermal state on a dark glass widget.</p>
+          <h3>New Benchmark Prompts</h3>
+          <p>5 new built-in prompts: Causal Reasoning, System Design, Dialogue Scene, Historical Analysis, Constrained Writing (15 total).</p>
+          <h3>Other Improvements</h3>
+          <ul>
+              <li>System-wide memory tracking (active + wired + compressed)</li>
+              <li>Backend process memory overlay on memory chart</li>
+          </ul>
+          </ul>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.0.0/Anubis-OSS-3.0.zip"
+          sparkle:version="3.0"
+          sparkle:shortVersionString="3.0"
+          length="13517952"
+          type="application/octet-stream"
+          sparkle:edSignature="4BcU0gIifAjBiYFU8TOyue2qeX0jGCQu7XwRVad+tyLYlok6Wcj/beYv2lzsjBlJI7cnhmOVc4weEP5nJvEHAQ==" />
+  </item>
+    <item>
+      <title>Version 2.9.0</title>
+      <description><![CDATA[
+          <h2>What's New in 2.9</h2>
+          <h3>Hardware Stress Testing</h3>
+          <p>Push your Apple Silicon to its limits from within the Monitor:</p>
+          <ul>
+              <li><strong>CPU stress</strong> - spawns processes per core (All Cores, P-Cores, E-Cores, or Single Core)</li>
+              <li><strong>GPU stress</strong> - Metal Mandelbrot fractal zoom with 4 intensity levels</li>
+              <li><strong>Memory bandwidth stress</strong> - continuous streaming with measured GB/s throughput</li>
+              <li>Safety: 5-minute auto-timeout, thermal watchdog, GPU auto-downgrade</li>
+          </ul>
+          <h3>Floating Monitor HUD</h3>
+          <p>Compact, always-on-top system metrics overlay - launchable from any tab. Live CPU, GPU, memory, power, frequency, and thermal state on a dark glass widget.</p>
+          <h3>New Benchmark Prompts</h3>
+          <p>5 new built-in prompts: Causal Reasoning, System Design, Dialogue Scene, Historical Analysis, Constrained Writing (15 total).</p>
+          <h3>Other Improvements</h3>
+          <ul>
+              <li>System-wide memory tracking (active + wired + compressed)</li>
+              <li>Backend process memory overlay on memory chart</li>
+          </ul>
+      ]]></description>
+      <pubDate>Tue, 18 Mar 2026 23:33:00 -0700</pubDate>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v2.9.0/Anubis-OSS-2.9.zip"
+          sparkle:version="2.9"
+          sparkle:shortVersionString="2.9"
+          sparkle:edSignature="MdMI7XmLhn28uHyhbt7yL543rgLtxHhx6ZKzIZ0eZUOm30Y1r15E7lIMHP+zhvhK4sE1oTBNwY/Z0EsERgf5Cg=="
+          length="13492420"
+          type="application/octet-stream"
+      />
+    </item>
+		<item>
+			<title>Version 2.7</title>
+			<sparkle:version>2.7</sparkle:version>
+			<sparkle:shortVersionString>2.7</sparkle:shortVersionString>
+			<sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+			<pubDate>Sat, 15 Mar 2026 06:00:00 +0000</pubDate>
+			<enclosure
+    url="https://github.com/uncSoft/anubis-oss/releases/download/v2.7.0/Anubis-OSS-2.7.zip"
+                  sparkle:edSignature="xJ3M5yE6dyCubASztE4FdR9HFKPLvoWxFKztVZ/Mo3uIDF1tE/7GfxqonHpDgetCYQYExuxvKaOOml24XaB7Cg=="
+                  length="13137812"
+                  type="application/octet-stream"/>
+		</item>
+		<item>
+			<title>2.6</title>
+			<pubDate>Thu, 13 Mar 2026 00:15:00 -0400</pubDate>
+			<sparkle:version>2.6</sparkle:version>
+			<sparkle:shortVersionString>2.6</sparkle:shortVersionString>
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+			<enclosure
+    url="https://github.com/uncSoft/anubis-oss/releases/download/v2.6.0/Anubis-OSS-2.6.zip"
+    length="13126444" type="application/octet-stream" sparkle:edSignature="7mfSzNsGN20pt9gdDSn5fMuu55mVRlrjaAVb3f7Wkc+EEzXtzmMDN4GGSkqEOu4BCJwfk9hqt4a9MmkCIiSOBQ=="/>
+		</item>
+		<item>
+			<title>2.5</title>
+			<pubDate>Sat, 08 Mar 2026 23:25:00 -0500</pubDate>
+			<sparkle:version>2.5</sparkle:version>
+			<sparkle:shortVersionString>2.5</sparkle:shortVersionString>
+			<sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+			<enclosure
+    url="https://github.com/uncSoft/anubis-oss/releases/download/v2.5.0/Anubis-OSS-2.5.zip"
+    length="13139019" type="application/octet-stream" sparkle:edSignature="wHypsLLnq9i+5RY7gik4Ap/wNaOXRWOpRFUqS0NIOqI9PsPQOHxaqiWngedd7dDgPooTsNzHJccPiLrcoKQvCw=="/>
+		</item>
+		<item>
+      <title>Version 2.8.0</title>
+      <description><![CDATA[
+          <h2>What's New in v2.8</h2>
+          <h3>System Monitor</h3>
+          <ul>
+              <li>New standalone system monitor mode - live CPU, GPU, memory, power, and thermal charts without running a benchmark</li>
+              <li>Adaptive chart sizing that fits all rows in a single window</li>
+          </ul>
+          <h3>Tok/s Accuracy Fix</h3>
+          <ul>
+              <li>Fixed eval duration for OpenAI-compatible backends (LM Studio, vLLM, etc.) - no longer includes model load + prompt prefill time</li>
+              <li>Parses OpenAI usage object for accurate token counts</li>
+          </ul>
+          <h3>Other Improvements</h3>
+          <ul>
+              <li>Model quantization and GGUF/MLX format tracking</li>
+              <li>Pull Model button in benchmark toolbar</li>
+              <li>3-column expanded dashboard layout</li>
+          </ul>
+      ]]></description>
+      <pubDate>Sat, 15 Mar 2026 18:30:00 +0000</pubDate>
+      <sparkle:version>2.8.0</sparkle:version>
+      <sparkle:shortVersionString>2.8</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v2.8.0/Anubis-OSS-2.8.zip"
+          type="application/octet-stream"
+          sparkle:edSignature="k0rA5Th/SWKKyiiqo1kfZM0qQWlHqDhTFh1vF9O6VBRlZ/XAjKRONi7VQFpBgaUFKIWYJ/qGWzm8DiK7RwktDg=="
+          length="13215174"
+      />
+  </item>
+	</channel>
+</rss>
