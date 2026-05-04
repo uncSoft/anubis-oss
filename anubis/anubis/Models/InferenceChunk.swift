@@ -139,6 +139,24 @@ struct InferenceStats: Sendable, Codable {
 }
 
 /// Request configuration for inference
+/// Controls Ollama's `think` request parameter for reasoning-capable models.
+/// `auto` omits the field entirely so the model uses its server-side default
+/// (the safe choice — older Ollama versions and non-thinking models reject
+/// the parameter outright). `on`/`off` force `think:true` / `think:false`.
+enum OllamaThinkMode: String, Sendable, Codable, CaseIterable {
+    case auto
+    case on
+    case off
+
+    var displayLabel: String {
+        switch self {
+        case .auto: return "Auto"
+        case .on:   return "On"
+        case .off:  return "Off"
+        }
+    }
+}
+
 struct InferenceRequest: Sendable {
     /// The model to use
     let model: String
@@ -161,6 +179,9 @@ struct InferenceRequest: Sendable {
     /// Stop sequences
     let stopSequences: [String]?
 
+    /// Ollama-only: control the `think` request parameter. Ignored by other backends.
+    let ollamaThinkMode: OllamaThinkMode
+
     init(
         model: String,
         prompt: String,
@@ -168,7 +189,8 @@ struct InferenceRequest: Sendable {
         maxTokens: Int? = nil,
         temperature: Double? = nil,
         topP: Double? = nil,
-        stopSequences: [String]? = nil
+        stopSequences: [String]? = nil,
+        ollamaThinkMode: OllamaThinkMode = .auto
     ) {
         self.model = model
         self.prompt = prompt
@@ -177,6 +199,7 @@ struct InferenceRequest: Sendable {
         self.temperature = temperature
         self.topP = topP
         self.stopSequences = stopSequences
+        self.ollamaThinkMode = ollamaThinkMode
     }
 }
 

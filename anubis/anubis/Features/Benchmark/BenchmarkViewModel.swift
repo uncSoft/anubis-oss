@@ -231,6 +231,18 @@ final class BenchmarkViewModel: ObservableObject {
     /// Maximum tokens to generate
     @Published var maxTokens: Int = 2048
 
+    /// Ollama-only: controls the `think` request parameter. Persisted across
+    /// launches. `.auto` is the default — omits the field so the model uses
+    /// its server-side default (older Ollama / non-thinking models reject the
+    /// param outright). Explicit `.on` / `.off` forces the value.
+    @Published var ollamaThinkMode: OllamaThinkMode = OllamaThinkMode(
+        rawValue: UserDefaults.standard.string(forKey: "anubis.ollamaThinkMode") ?? ""
+    ) ?? .auto {
+        didSet {
+            UserDefaults.standard.set(ollamaThinkMode.rawValue, forKey: "anubis.ollamaThinkMode")
+        }
+    }
+
     /// Debug inspector state
     @Published private(set) var debugState = DebugInspectorState()
 
@@ -518,7 +530,8 @@ final class BenchmarkViewModel: ObservableObject {
                     systemPrompt: systemPrompt.isEmpty ? nil : systemPrompt,
                     maxTokens: maxTokens,
                     temperature: temperature,
-                    topP: topP
+                    topP: topP,
+                    ollamaThinkMode: ollamaThinkMode
                 )
 
                 // Initialize debug state

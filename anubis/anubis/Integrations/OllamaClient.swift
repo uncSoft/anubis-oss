@@ -116,7 +116,7 @@ actor OllamaClient: InferenceBackend {
             prompt: request.prompt,
             system: request.systemPrompt,
             stream: true,
-            think: nil,    // omit — older Ollama versions and non-reasoning models reject it
+            think: Self.thinkValue(for: request.ollamaThinkMode),
             options: OllamaOptions(
                 numPredict: request.maxTokens,
                 temperature: request.temperature,
@@ -233,7 +233,7 @@ actor OllamaClient: InferenceBackend {
             prompt: request.prompt,
             system: request.systemPrompt,
             stream: true,
-            think: nil,
+            think: Self.thinkValue(for: request.ollamaThinkMode),
             keepAlive: keepAlive,
             options: OllamaOptions(
                 numPredict: request.maxTokens,
@@ -252,6 +252,16 @@ actor OllamaClient: InferenceBackend {
             response: response,
             continuation: continuation
         )
+    }
+
+    /// Map the user-facing think mode to the JSON value to send (or omit).
+    /// `.auto` → nil (field omitted from request); `.on`/`.off` → explicit bool.
+    private static func thinkValue(for mode: OllamaThinkMode) -> Bool? {
+        switch mode {
+        case .auto: return nil
+        case .on:   return true
+        case .off:  return false
+        }
     }
 
     /// Shared stream-consumption logic. Splits inline `<think>…</think>` blocks

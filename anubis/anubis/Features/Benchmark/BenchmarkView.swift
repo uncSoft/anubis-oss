@@ -487,21 +487,46 @@ struct BenchmarkView: View {
 
             // Performance toggles (collapsible)
             DisclosureGroup(isExpanded: $showPerformance) {
-                HStack(spacing: Spacing.md) {
-                    Toggle(isOn: $viewModel.streamResponse) {
-                        Text("Stream Response")
-                            .font(.caption)
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                    .disabled(viewModel.isRunning)
+                VStack(alignment: .leading, spacing: Spacing.xs) {
+                    HStack(spacing: Spacing.md) {
+                        Toggle(isOn: $viewModel.streamResponse) {
+                            Text("Stream Response")
+                                .font(.caption)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .disabled(viewModel.isRunning)
 
-                    Toggle(isOn: $viewModel.showLiveCharts) {
-                        Text("Live Charts")
-                            .font(.caption)
+                        Toggle(isOn: $viewModel.showLiveCharts) {
+                            Text("Live Charts")
+                                .font(.caption)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
                     }
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
+
+                    // Ollama-only: control the `think` request param. Older
+                    // Ollama versions and non-reasoning models reject the field,
+                    // so default `Auto` omits it entirely.
+                    if viewModel.selectedBackend == .ollama {
+                        HStack(spacing: Spacing.sm) {
+                            Text("Thinking")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Picker("", selection: $viewModel.ollamaThinkMode) {
+                                ForEach(OllamaThinkMode.allCases, id: \.self) { mode in
+                                    Text(mode.displayLabel).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .controlSize(.small)
+                            .frame(maxWidth: 220)
+                            .labelsHidden()
+                            .disabled(viewModel.isRunning)
+                            .help("Auto: omit the `think` field (model default — safest for older Ollama versions or non-thinking models). On: send think:true to force reasoning. Off: send think:false to disable it.")
+                            Spacer()
+                        }
+                    }
                 }
                 .padding(.top, Spacing.xxs)
             } label: {
@@ -509,7 +534,9 @@ struct BenchmarkView: View {
                     Text("Performance")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    if !viewModel.streamResponse || !viewModel.showLiveCharts {
+                    if !viewModel.streamResponse
+                        || !viewModel.showLiveCharts
+                        || (viewModel.selectedBackend == .ollama && viewModel.ollamaThinkMode != .auto) {
                         Text("modified")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
