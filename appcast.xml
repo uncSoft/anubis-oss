@@ -4,6 +4,28 @@
 	<channel>
 		<title>anubis</title>
   <item>
+      <title>Version 3.2</title>
+      <pubDate>Mon, 04 May 2026 21:15:00 -0400</pubDate>
+      <sparkle:version>3.2</sparkle:version>
+      <sparkle:shortVersionString>3.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Highlights - Version 3.2</h2>
+          <ul>
+              <li><b>Ollama thinking-mode toggle.</b> A new tri-state Picker (Auto / On / Off) under the benchmark Performance disclosure controls Ollama's <code>think</code> request parameter. Auto omits the field so the model uses its server-side default (the safe choice for older Ollama versions or non-thinking models). Set On to force reasoning, Off to force-disable it.</li>
+              <li><b>Auto-update feed moved to GitHub Pages.</b> v3.2+ pulls the appcast from <code>uncsoft.github.io/anubis-oss/appcast.xml</code> for full version-controlled history of every release notice. Older v3.0/v3.1 installs continue to work via the existing <code>devpadapp.com</code> URL.</li>
+          </ul>
+          <p>Builds on the v3.1 reasoning-aware metrics work (see release notes for v3.1 below).</p>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.2.0/Anubis-OSS-3.2.zip"
+          sparkle:version="3.2"
+          sparkle:shortVersionString="3.2"
+          length="13572059"
+          type="application/octet-stream"
+          sparkle:edSignature="+teUvsIww7hBfZaj0XpppadzzVPt/VMEMnzH7F4O5GHEDM5mj4u5ulV+ECWyR+ikB8c6MnKB8NwdjO6pEPjVDg==" />
+  </item>
+  <item>
       <title>Version 3.1</title>
       <pubDate>Sun, 03 May 2026 18:30:00 -0400</pubDate>
       <sparkle:version>3.1</sparkle:version>
