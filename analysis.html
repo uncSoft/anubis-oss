@@ -320,23 +320,13 @@
     <div class="subtitle">The most interesting takeaways from the community benchmarks</div>
 
     <!-- AI-FINDINGS-START -->
-    <div class="finding">
-      <strong>Memory bandwidth is king.</strong> The M1 Ultra's 800 GB/s bandwidth lets it outrun the M4 on large models despite being 3 generations older. The M2 Max at 400 GB/s frequently beats the M4 Pro at 273 GB/s on the same models.
-    </div>
-    <div class="finding green">
-      <strong>The M4 Mac mini is the efficiency champ.</strong> At ~8W average system power it delivers strong tok/W &mdash; comparable to the M4 Max at 23W. The A18 Pro (MacBook Neo) leads per-watt but is limited to small models by its 8GB RAM.
-    </div>
-    <div class="finding orange">
-      <strong>MoE models are the sweet spot for Mac.</strong> GPT-OSS-120B (a Mixture-of-Experts model) runs at 74 tok/s on M4 Max 128GB &mdash; nearly as fast as dense 20B models. These massive models run smoothly because only ~10B parameters activate per token.
-    </div>
-    <div class="finding purple">
-      <strong>Backend matters &mdash; sometimes a lot.</strong> The same Llama-3.2-3B model runs at 44.5 tok/s on MLX vs 41 tok/s on Ollama on the same M4/24GB hardware. For small models, MLX-native format consistently edges out GGUF through Ollama by 5-10%.
-    </div>
-    <div class="finding pink">
-      <strong>The MacBook Neo (A18 Pro) can run LLMs.</strong> With only 8GB and 100 GB/s bandwidth, it manages 50 tok/s on 1B models and 23 tok/s on 3B models. Viable for lightweight assistants and edge inference, but forget anything &gt;7B.
-    </div>
+    <div class="finding"><strong>Memory bandwidth still dominates generational leaps.</strong> The M1 Ultra (800 GB/s) posts a median of 36.5 tok/s on large models while the newer M4 Pro (273 GB/s) manages 45.9 tok/s median &mdash; a modest edge despite three generations of architectural gains. The M3 Max (400 GB/s, 36GB) pulls far ahead with a 155 tok/s median, showing that bandwidth plus memory capacity together set the ceiling.</div>
+    <div class="finding green"><strong>The M4 leads on efficiency by a wide margin.</strong> At 0.34 watts per token, the base M4 is the most power-efficient Mac chip in the dataset &mdash; nearly half the cost of the M4 Pro (0.54 W/tok) and the M4 Max (0.76 W/tok). The A18 Pro edges it out at 0.19 W/tok but is constrained to 8GB and sub-25 tok/s median throughput.</div>
+    <div class="finding orange"><strong>MoE models now run at serious speed on 128GB machines.</strong> GPT-OSS-120B hits 74.3 tok/s on M4 Max 128GB and Qwen3.5-122B-A10B reaches 59.5 tok/s on M5 Max 128GB &mdash; both activating only ~10&ndash;12B parameters per token. Even the M2 Max 96GB runs Qwen3.5-122B at 36.9 tok/s, making 120B&plus; MoE models broadly accessible across the high-RAM Mac lineup.</div>
+    <div class="finding purple"><strong>The M5 Max makes a strong debut in the dataset.</strong> With 42 runs logged, the M5 Max posts a median of 100 tok/s and an average of 173 tok/s &mdash; the highest average of any chip in the dataset. It hits 1,014 tok/s on a 104M Qwen pretrain (LM Studio / GGUF) and sustains 102 tok/s output on gemma4:e4b, with prefill on the same gemma run measuring 1,012 tok/s.</div>
+    <div class="finding pink"><strong>The A18 Pro has a hidden prefill superpower.</strong> Running Llama-3.2-3B-Instruct-4bit via MLX, the A18 Pro recorded a prefill speed of 18,600 tok/s &mdash; more than 19&times; faster than the M4&rsquo;s 942 tok/s on the same model. Output generation remains limited to ~17&ndash;21 tok/s due to 8GB RAM and 100 GB/s bandwidth, but prompt ingestion is extraordinarily fast for an edge device.</div>
 
-    <div class="meta-stamp">Findings last updated: 2026-05-04 &middot; Data above is live; narrative is human-curated and refreshed on a monthly cadence.</div>
+    <div class="meta-stamp">Findings last updated: 2026-05-05 &middot; Data above is live; narrative is human-curated and refreshed on a monthly cadence.</div>
     <!-- AI-FINDINGS-END -->
   </div>
 
