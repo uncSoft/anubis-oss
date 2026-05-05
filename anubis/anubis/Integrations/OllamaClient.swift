@@ -264,6 +264,25 @@ actor OllamaClient: InferenceBackend {
         }
     }
 
+    /// Pull a quoted model id out of an Ollama JSON error body, e.g.
+    /// `{"error":"\"llama3.2:3b\" does not support thinking"}` → `llama3.2:3b`.
+    /// Falls back to nil if the shape doesn't match — the caller will use a
+    /// generic "this model" placeholder.
+    private static func extractQuotedModelId(from body: String) -> String? {
+        // First try to JSON-decode the body to get the unescaped error string.
+        // Ollama always returns {"error": "..."} on this path.
+        if let data = body.data(using: .utf8),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let msg = obj["error"] as? String {
+            // Now msg looks like:  "llama3.2:3b" does not support thinking
+            if let openQuote = msg.firstIndex(of: "\""),
+               let closeQuote = msg[msg.index(after: openQuote)...].firstIndex(of: "\"") {
+                return String(msg[msg.index(after: openQuote)..<closeQuote])
+            }
+        }
+        return nil
+    }
+
     /// Shared stream-consumption logic. Splits inline `<think>…</think>` blocks
     /// in Ollama's `response` field into reasoning vs. output, decodes the
     /// optional `thinking` field for Ollama 0.5+ servers, and surfaces clear
@@ -289,6 +308,16 @@ actor OllamaClient: InferenceBackend {
             #if DEBUG
             print("[Ollama] HTTP \(httpResponse.statusCode) error body: \(errorBody)")
             #endif
+
+            // Detect the specific "does not support thinking" 400 so we can
+            // surface a friendlier, actionable error pointing at the toggle.
+            // Ollama's body looks like: {"error":"\"llama3.2:3b\" does not support thinking"}
+            if httpResponse.statusCode == 400,
+               errorBody.contains("does not support thinking") {
+                let modelId = Self.extractQuotedModelId(from: errorBody)
+                throw AnubisError.thinkingNotSupported(modelId: modelId ?? "this model")
+            }
+
             throw AnubisError.invalidResponse(
                 details: "Ollama returned HTTP \(httpResponse.statusCode)\(errorBody.isEmpty ? "" : ": \(errorBody)")"
             )

@@ -67,3 +67,6 @@ anubis/anubis-oss_old.zip
 anubis/anubis-oss/
 anubis/anubis.app/
 anubis_power_logs.txt
+
+# Refresh-findings local venv
+scripts/.venv/

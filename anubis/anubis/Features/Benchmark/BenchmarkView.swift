@@ -467,11 +467,20 @@ struct BenchmarkView: View {
             }
 
             if let error = viewModel.error {
-                HStack {
+                HStack(alignment: .top, spacing: Spacing.xs) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(Color.anubisWarning)
-                    Text(error.localizedDescription)
-                        .font(.caption)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(error.localizedDescription)
+                            .font(.caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let suggestion = error.recoverySuggestion {
+                            Text(suggestion)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
                 .padding(Spacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)

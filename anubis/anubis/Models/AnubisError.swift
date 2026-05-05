@@ -20,6 +20,7 @@ enum AnubisError: LocalizedError {
     case databaseError(underlying: Error)
     case invalidOperation(reason: String)
     case leaderboardError(reason: String)
+    case thinkingNotSupported(modelId: String)
 
     var errorDescription: String? {
         switch self {
@@ -45,6 +46,8 @@ enum AnubisError: LocalizedError {
             return "Invalid operation: \(reason)"
         case .leaderboardError(let reason):
             return "Leaderboard error: \(reason)"
+        case .thinkingNotSupported(let modelId):
+            return "\(modelId) does not support thinking mode"
         }
     }
 
@@ -76,6 +79,8 @@ enum AnubisError: LocalizedError {
             return nil
         case .leaderboardError:
             return "Check your internet connection and try again"
+        case .thinkingNotSupported:
+            return "Set Thinking to Auto or Off in Performance options, then run again."
         }
     }
 }
