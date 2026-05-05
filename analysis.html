@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Benchmark Analysis — Anubis OSS</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --pink: #f778ba;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    background-image:
+      linear-gradient(rgba(108,180,238,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(108,180,238,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+  header {
+    text-align: center;
+    padding: 40px 20px 30px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 30px;
+  }
+  header h1 {
+    font-size: 2.2em;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  header p { color: var(--text-muted); font-size: 1.1em; }
+  header .freshness {
+    color: var(--text-muted);
+    font-size: 0.85em;
+    margin-top: 12px;
+  }
+  header .freshness .live-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    margin-right: 6px;
+    vertical-align: middle;
+    box-shadow: 0 0 8px rgba(63,185,80,0.6);
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 30px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    text-align: center;
+  }
+  .stat-card .value {
+    font-size: 1.8em;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .stat-card .label {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .section h2 { font-size: 1.3em; margin-bottom: 6px; color: var(--text); }
+  .section .subtitle {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    margin-bottom: 16px;
+  }
+  .section .meta-stamp {
+    font-size: 0.78em;
+    color: var(--text-muted);
+    font-style: italic;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border);
+  }
+
+  .chart-container {
+    position: relative;
+    width: 100%;
+    height: 400px;
+  }
+  .chart-container.tall { height: 550px; }
+
+  .finding {
+    background: rgba(88, 166, 255, 0.06);
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    border-radius: 0 8px 8px 0;
+    font-size: 0.95em;
+  }
+  .finding strong { color: var(--accent); }
+  .finding.green { border-left-color: var(--green); }
+  .finding.green strong { color: var(--green); }
+  .finding.orange { border-left-color: var(--orange); }
+  .finding.orange strong { color: var(--orange); }
+  .finding.purple { border-left-color: var(--purple); }
+  .finding.purple strong { color: var(--purple); }
+  .finding.pink { border-left-color: var(--pink); }
+  .finding.pink strong { color: var(--pink); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88em;
+  }
+  th, td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  td { color: var(--text); }
+  tr:hover td { background: rgba(88, 166, 255, 0.04); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .highlight { color: var(--green); font-weight: 600; }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 800px) { .two-col { grid-template-columns: 1fr; } }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.78em;
+    font-weight: 600;
+  }
+  .badge-fast { background: rgba(63, 185, 80, 0.15); color: var(--green); }
+  .badge-mid { background: rgba(210, 153, 34, 0.15); color: var(--orange); }
+  .badge-slow { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+  .badge-new {
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    color: #fff;
+    margin-left: 8px;
+  }
+
+  /* loading + error states */
+  #app-loading, #app-error {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--text-muted);
+  }
+  #app-loading .spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    margin: 0 auto 16px;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #app-error { color: var(--red); }
+  #app-error button {
+    margin-top: 12px;
+    padding: 8px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #app-error button:hover { border-color: var(--accent); }
+
+  /* Site chrome */
+  .site-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 16px 24px;
+    border-bottom: 1px solid rgba(108,180,238,0.06);
+    flex-wrap: wrap;
+  }
+  .site-nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #aaa;
+    text-decoration: none;
+    border: 1px solid transparent;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .site-nav a:hover {
+    border-color: rgba(108,180,238,0.2);
+    color: #6cb4ee;
+  }
+  .site-nav .nav-brand {
+    font-weight: 700;
+    color: #fff;
+    font-size: 15px;
+    margin-right: 8px;
+  }
+  .site-nav .nav-brand .accent { color: #6cb4ee; }
+  .site-nav .nav-brand:hover { border-color: transparent; color: #fff; }
+  .site-nav-icon {
+    width: 24px;
+    height: 28px;
+    filter: drop-shadow(0 0 8px rgba(108,180,238,0.3));
+    vertical-align: middle;
+    margin-right: 4px;
+  }
+  .site-footer {
+    text-align: center;
+    padding: 32px 24px;
+    border-top: 1px solid rgba(108,180,238,0.06);
+    font-size: 13px;
+    color: #444;
+    margin-top: 20px;
+  }
+  .site-footer a { color: #555; text-decoration: none; }
+  .site-footer a:hover { color: #6cb4ee; }
+  header .site-footer-links a { color: #8b949e; }
+  header .site-footer-links a:hover { color: #6cb4ee; }
+  .site-footer-links {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="https://devpadapp.com/anubis-oss.html" class="nav-brand"><img src="https://github.com/user-attachments/assets/4369ce8d-8f3a-4502-9c49-6f3a82372e00" alt="Anubis" class="site-nav-icon"><span class="accent">Anubis</span> OSS</a>
+  <a href="https://github.com/uncSoft/anubis-oss/releases/latest">Download</a>
+  <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+  <a href="https://devpadapp.com/leaderboard.html">Leaderboard</a>
+  <a href="https://devpadapp.com/explorer.html">Explorer</a>
+  <a href="https://ko-fi.com/jtatuncsoft/tip">Support</a>
+</nav>
+
+<header>
+  <h1>Mac LLM Benchmark Analysis</h1>
+  <p id="header-summary">Community benchmark results from Apple Silicon Macs</p>
+  <div class="freshness"><span class="live-dot"></span>Live data &middot; <span id="last-updated">loading…</span></div>
+  <div class="site-footer-links" style="margin-top: 16px;">
+    <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+    <a href="https://devpadapp.com/leaderboard.html">Leaderboard</a>
+    <a href="https://devpadapp.com/anubis-oss.html">Anubis Home</a>
+    <a href="https://devpadapp.com">devPad</a>
+    <a href="https://ko-fi.com/jtatuncsoft/tip">Ko-fi</a>
+  </div>
+</header>
+
+<div class="container">
+
+<div id="app-loading">
+  <div class="spinner"></div>
+  <p>Fetching live benchmark data…</p>
+</div>
+
+<div id="app-error" style="display:none">
+  <p id="app-error-msg"></p>
+  <button onclick="location.reload()">Retry</button>
+</div>
+
+<div id="app-content" style="display:none">
+
+  <!-- Top-level stats -->
+  <div class="stats-grid" id="stats-grid"></div>
+
+  <!-- Key Findings (hand-written narrative — refreshed on cadence) -->
+  <div class="section">
+    <h2>Key Findings</h2>
+    <div class="subtitle">The most interesting takeaways from the community benchmarks</div>
+
+    <div class="finding">
+      <strong>Memory bandwidth is king.</strong> The M1 Ultra's 800 GB/s bandwidth lets it outrun the M4 on large models despite being 3 generations older. The M2 Max at 400 GB/s frequently beats the M4 Pro at 273 GB/s on the same models.
+    </div>
+    <div class="finding green">
+      <strong>The M4 Mac mini is the efficiency champ.</strong> At ~8W average system power it delivers strong tok/W &mdash; comparable to the M4 Max at 23W. The A18 Pro (MacBook Neo) leads per-watt but is limited to small models by its 8GB RAM.
+    </div>
+    <div class="finding orange">
+      <strong>MoE models are the sweet spot for Mac.</strong> GPT-OSS-120B (a Mixture-of-Experts model) runs at 74 tok/s on M4 Max 128GB &mdash; nearly as fast as dense 20B models. These massive models run smoothly because only ~10B parameters activate per token.
+    </div>
+    <div class="finding purple">
+      <strong>Backend matters &mdash; sometimes a lot.</strong> The same Llama-3.2-3B model runs at 44.5 tok/s on MLX vs 41 tok/s on Ollama on the same M4/24GB hardware. For small models, MLX-native format consistently edges out GGUF through Ollama by 5-10%.
+    </div>
+    <div class="finding pink">
+      <strong>The MacBook Neo (A18 Pro) can run LLMs.</strong> With only 8GB and 100 GB/s bandwidth, it manages 50 tok/s on 1B models and 23 tok/s on 3B models. Viable for lightweight assistants and edge inference, but forget anything &gt;7B.
+    </div>
+
+    <div class="meta-stamp">Findings last updated: 2026-05-04 &middot; Data above is live; narrative is human-curated and refreshed on a monthly cadence.</div>
+  </div>
+
+  <!-- Reasoning model section (NEW for v3.1+) -->
+  <div class="section" id="reasoning-section" style="display:none">
+    <h2>Reasoning Models &mdash; Three Throughput Metrics<span class="badge badge-new">v3.1+</span></h2>
+    <div class="subtitle">For DeepSeek-R1, Qwen3-thinking, and other reasoning models, output tok/s now excludes thinking time. Prefill (input) and reasoning rates are tracked separately so you can see where each model spends its time.</div>
+    <div class="chart-container"><canvas id="reasoningChart"></canvas></div>
+    <div class="meta-stamp" id="reasoning-stamp"></div>
+  </div>
+
+  <!-- Prefill speed leaderboard (NEW for v3.1+) -->
+  <div class="section" id="prefill-section" style="display:none">
+    <h2>Prefill Speed Leaderboard<span class="badge badge-new">v3.1+</span></h2>
+    <div class="subtitle">Top input tokens/sec rates &mdash; the prefill phase often dominates total latency on smaller prompts. Computed from prompt_tokens / prompt_eval_duration on submissions from app v3.1+.</div>
+    <table>
+      <thead><tr><th>#</th><th>Model</th><th>Chip</th><th>RAM</th><th class="num">prefill tok/s</th><th class="num">output tok/s</th><th>Backend</th><th>User</th></tr></thead>
+      <tbody id="prefill-table"></tbody>
+    </table>
+  </div>
+
+  <!-- Throughput by Chip -->
+  <div class="section">
+    <h2>Throughput by Apple Silicon Chip</h2>
+    <div class="subtitle">Average, median, and max tokens/sec across all tested models per chip</div>
+    <div class="chart-container"><canvas id="chipChart"></canvas></div>
+  </div>
+
+  <!-- Memory bandwidth scatter -->
+  <div class="section">
+    <h2>Memory Bandwidth vs Throughput</h2>
+    <div class="subtitle">Each dot is a benchmark run &mdash; bandwidth is the primary driver of LLM inference speed</div>
+    <div class="chart-container"><canvas id="bwChart"></canvas></div>
+  </div>
+
+  <!-- Power + TTFT -->
+  <div class="two-col">
+    <div class="section">
+      <h2>Power Efficiency</h2>
+      <div class="subtitle">Tokens per Watt of system power by chip</div>
+      <div class="chart-container"><canvas id="powerChart"></canvas></div>
+    </div>
+    <div class="section">
+      <h2>Time to First Token</h2>
+      <div class="subtitle">Median TTFT by chip (lower is better)</div>
+      <div class="chart-container"><canvas id="ttftChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Backend showdown -->
+  <div class="section">
+    <h2>Backend Showdown</h2>
+    <div class="subtitle">Average throughput by inference backend (backends with fewer than 2 runs excluded)</div>
+    <div class="chart-container"><canvas id="backendChart"></canvas></div>
+  </div>
+
+  <!-- Top performers -->
+  <div class="section">
+    <h2>Leaderboard: Top 15 Fastest Runs</h2>
+    <div class="subtitle">Highest output tokens/sec across all submissions</div>
+    <table>
+      <thead><tr><th>#</th><th>Model</th><th>Chip</th><th>RAM</th><th class="num">tok/s</th><th class="num">TTFT</th><th class="num">W/tok</th><th>Backend</th><th>User</th></tr></thead>
+      <tbody id="topTable"></tbody>
+    </table>
+  </div>
+
+  <!-- Big model club -->
+  <div class="section">
+    <h2>Big Model Club: 100B+ Parameters</h2>
+    <div class="subtitle">Running frontier-class models locally on a Mac</div>
+    <table>
+      <thead><tr><th>Model</th><th>Chip</th><th>RAM</th><th class="num">tok/s</th><th>Quant</th><th>Backend</th></tr></thead>
+      <tbody id="bigTable"></tbody>
+    </table>
+  </div>
+
+  <!-- Format + Memory -->
+  <div class="two-col">
+    <div class="section">
+      <h2>Model Format Distribution</h2>
+      <div class="subtitle">Submissions by model format (GGUF vs MLX)</div>
+      <div class="chart-container"><canvas id="formatChart"></canvas></div>
+    </div>
+    <div class="section">
+      <h2>Memory Tier Performance</h2>
+      <div class="subtitle">Average tokens/sec grouped by unified memory size</div>
+      <div class="chart-container"><canvas id="memChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Community -->
+  <div class="section">
+    <h2>Community Contributors</h2>
+    <div class="subtitle">Top contributors by number of benchmark submissions</div>
+    <div class="chart-container"><canvas id="userChart"></canvas></div>
+  </div>
+
+</div><!-- /app-content -->
+</div><!-- /container -->
+
+<div class="site-footer">
+  <div id="footer-summary">Analysis generated from live community-submitted Anubis benchmark data</div>
+  <div style="margin-top: 12px;">Anubis OSS &mdash; GPL-3.0 &mdash; Developed by JT @ uncSoft</div>
+  <div class="site-footer-links">
+    <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+    <a href="https://devpadapp.com/leaderboard.html">Leaderboard</a>
+    <a href="https://devpadapp.com/anubis-oss.html">Anubis Home</a>
+    <a href="https://devpadapp.com">devPad</a>
+    <a href="https://devpadapp.com/nabu.html">Nabu</a>
+    <a href="https://ko-fi.com/jtatuncsoft/tip">Ko-fi</a>
+    <a href="https://devpadapp.com/anubis/privacy.html">Privacy</a>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+const API_URL = 'https://devpadapp.com/anubis/api/leaderboard.php?limit=10000';
+
+// Chart.js global defaults — match dark theme
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = '#30363d';
+Chart.defaults.font.family = '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif';
+
+// Color palette (matches CSS vars)
+const C = {
+  accent: '#58a6ff', green: '#3fb950', orange: '#d29922',
+  red: '#f85149', purple: '#bc8cff', pink: '#f778ba', muted: '#8b949e'
+};
+
+// ── Aggregation helpers ──────────────────────────────────────────────
+const median = (arr) => {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a,b) => a-b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2;
+};
+const mean = (arr) => arr.length ? arr.reduce((a,b) => a+b, 0) / arr.length : null;
+const count = (xs, pred) => xs.filter(pred).length;
+const groupBy = (arr, keyFn) => arr.reduce((m, x) => {
+  const k = keyFn(x); if (!m[k]) m[k] = []; m[k].push(x); return m;
+}, {});
+
+const prefillTps = (e) => {
+  if (e.prompt_tokens == null || !e.prompt_eval_duration || e.prompt_eval_duration <= 0) return null;
+  return e.prompt_tokens / e.prompt_eval_duration;
+};
+const reasoningTps = (e) => {
+  if (e.reasoning_tokens == null || !e.reasoning_duration || e.reasoning_duration <= 0) return null;
+  return e.reasoning_tokens / e.reasoning_duration;
+};
+const wattsPerTok = (e) => e.avg_watts_per_token != null ? e.avg_watts_per_token : null;
+
+// Filter out broken historical entries (impossibly high tok/s from prompt_eval_duration ~= 0)
+const isValidRun = (e) => e.tokens_per_second != null && e.tokens_per_second < 2000;
+
+// Chip ordering: M1 < M1 Pro < M1 Max < M1 Ultra < M2 ... < M4 Max, A18 Pro last
+const chipOrder = (name) => {
+  if (!name) return [99, 99];
+  const m = name.match(/M(\d+)\s*(Pro|Max|Ultra)?/i);
+  if (m) {
+    const gen = parseInt(m[1]);
+    const tier = { undefined: 0, '': 0, 'Pro': 1, 'Max': 2, 'Ultra': 3 }[m[2] || ''] || 0;
+    return [gen, tier];
+  }
+  if (/A\d+/i.test(name)) return [10, 0]; // A-series after M-series
+  return [99, 99];
+};
+const sortChips = (chips) => [...chips].sort((a, b) => {
+  const oa = chipOrder(a), ob = chipOrder(b);
+  return oa[0] - ob[0] || oa[1] - ob[1] || a.localeCompare(b);
+});
+
+const fmtNum = (v, d = 2) => v == null ? '—' : Number(v).toFixed(d);
+const fmtInt = (v) => v == null ? '—' : Math.round(v).toLocaleString();
+const fmtTtft = (v) => v == null ? '—' : (v * 1000).toFixed(0) + ' ms';
+const fmtPct = (v) => v == null ? '—' : (v * 100).toFixed(1) + '%';
+const fmtDate = (s) => s ? new Date(s.replace(' ', 'T') + 'Z').toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' }) : '—';
+
+// ── Renderers ────────────────────────────────────────────────────────
+const renderStats = (entries) => {
+  const valid = entries.filter(isValidRun);
+  const stats = [
+    { value: entries.length, label: 'Benchmark Runs' },
+    { value: new Set(entries.map(e => e.display_name).filter(Boolean)).size, label: 'Contributors' },
+    { value: new Set(entries.map(e => e.model_name).filter(Boolean)).size, label: 'Models Tested' },
+    { value: new Set(entries.map(e => e.chip_name).filter(Boolean)).size, label: 'Apple Silicon Chips' },
+    { value: Math.round(Math.max(...valid.map(e => e.tokens_per_second), 0)), label: 'Peak tok/s' },
+    { value: new Set(entries.map(e => `${e.chip_name || ''}|${e.chip_memory_gb || ''}`).filter(s => s !== '|')).size, label: 'Mac Configurations' }
+  ];
+  document.getElementById('stats-grid').innerHTML = stats.map(s =>
+    `<div class="stat-card"><div class="value">${s.value.toLocaleString()}</div><div class="label">${s.label}</div></div>`
+  ).join('');
+
+  const headerEl = document.getElementById('header-summary');
+  headerEl.textContent = `Community benchmark results from ${entries.length.toLocaleString()} runs across ${stats[1].value} contributors, ${stats[2].value} models, and ${stats[3].value} Apple Silicon chips`;
+
+  const latest = entries.map(e => e.submitted_at).filter(Boolean).sort().slice(-1)[0];
+  document.getElementById('last-updated').textContent = latest
+    ? `Most recent submission: ${fmtDate(latest)}`
+    : 'No data yet';
+
+  document.getElementById('footer-summary').textContent =
+    `Live data from ${entries.length.toLocaleString()} community-submitted Anubis benchmarks across ${stats[1].value} contributors`;
+};
+
+const renderChipChart = (entries) => {
+  const valid = entries.filter(isValidRun);
+  const groups = groupBy(valid, e => e.chip_name || 'Unknown');
+  const chips = sortChips(Object.keys(groups));
+  const data = chips.map(c => groups[c].map(e => e.tokens_per_second));
+
+  new Chart(document.getElementById('chipChart'), {
+    type: 'bar',
+    data: {
+      labels: chips,
+      datasets: [
+        { label: 'Average tok/s', data: data.map(d => mean(d)), backgroundColor: C.accent + 'cc' },
+        { label: 'Median tok/s', data: data.map(d => median(d)), backgroundColor: C.purple + 'cc' },
+        { label: 'Max tok/s', data: data.map(d => Math.max(...d, 0)), backgroundColor: C.green + 'cc' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'tokens/sec' } } }
+    }
+  });
+};
+
+const renderBwChart = (entries) => {
+  const valid = entries.filter(e => isValidRun(e) && e.chip_bandwidth_gbs);
+  const groups = groupBy(valid, e => e.chip_name || 'Unknown');
+  const chips = sortChips(Object.keys(groups));
+  const palette = [C.accent, C.green, C.orange, C.red, C.purple, C.pink, '#7ee787', '#ffa657', '#79c0ff'];
+
+  const datasets = chips.map((chip, i) => ({
+    label: chip,
+    data: groups[chip].map(e => ({ x: e.chip_bandwidth_gbs, y: e.tokens_per_second })),
+    backgroundColor: palette[i % palette.length] + 'aa',
+    borderColor: palette[i % palette.length],
+    pointRadius: 4, pointHoverRadius: 6
+  }));
+
+  new Chart(document.getElementById('bwChart'), {
+    type: 'scatter',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { title: { display: true, text: 'Memory Bandwidth (GB/s)' } },
+        y: { title: { display: true, text: 'tokens/sec' }, beginAtZero: true }
+      }
+    }
+  });
+};
+
+const renderPowerChart = (entries) => {
+  const valid = entries.filter(e => isValidRun(e) && wattsPerTok(e) != null);
+  const groups = groupBy(valid, e => e.chip_name || 'Unknown');
+  const chips = sortChips(Object.keys(groups));
+  const tokPerW = chips.map(c => {
+    const wpts = groups[c].map(wattsPerTok).filter(w => w > 0);
+    if (!wpts.length) return 0;
+    const avgWpt = mean(wpts);
+    return avgWpt > 0 ? 1 / avgWpt : 0;  // tokens/W = 1 / (W/tok)
+  });
+
+  new Chart(document.getElementById('powerChart'), {
+    type: 'bar',
+    data: {
+      labels: chips,
+      datasets: [{ label: 'Avg tokens/Watt', data: tokPerW, backgroundColor: C.green + 'cc' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      scales: { x: { beginAtZero: true, title: { display: true, text: 'tokens / Watt' } } }
+    }
+  });
+};
+
+const renderTtftChart = (entries) => {
+  const valid = entries.filter(e => isValidRun(e) && e.time_to_first_token != null);
+  const groups = groupBy(valid, e => e.chip_name || 'Unknown');
+  const chips = sortChips(Object.keys(groups));
+  const ttfts = chips.map(c => median(groups[c].map(e => e.time_to_first_token * 1000)));
+
+  new Chart(document.getElementById('ttftChart'), {
+    type: 'bar',
+    data: {
+      labels: chips,
+      datasets: [{ label: 'Median TTFT (ms)', data: ttfts, backgroundColor: C.orange + 'cc' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      scales: { x: { beginAtZero: true, title: { display: true, text: 'milliseconds' } } }
+    }
+  });
+};
+
+const renderBackendChart = (entries) => {
+  const valid = entries.filter(isValidRun);
+  const groups = groupBy(valid, e => e.backend || 'unknown');
+  const filtered = Object.entries(groups).filter(([_, runs]) => runs.length >= 2);
+  const sorted = filtered.sort((a, b) => mean(b[1].map(e => e.tokens_per_second)) - mean(a[1].map(e => e.tokens_per_second)));
+  const labels = sorted.map(([k]) => k);
+  const avgs = sorted.map(([_, runs]) => mean(runs.map(e => e.tokens_per_second)));
+  const counts = sorted.map(([_, runs]) => runs.length);
+
+  new Chart(document.getElementById('backendChart'), {
+    type: 'bar',
+    data: {
+      labels: labels.map((l, i) => `${l} (n=${counts[i]})`),
+      datasets: [{ label: 'Avg tokens/sec', data: avgs, backgroundColor: C.purple + 'cc' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      scales: { x: { beginAtZero: true, title: { display: true, text: 'avg tokens/sec' } } }
+    }
+  });
+};
+
+const renderTopTable = (entries) => {
+  const top = entries.filter(isValidRun)
+    .sort((a, b) => b.tokens_per_second - a.tokens_per_second)
+    .slice(0, 15);
+  const rows = top.map((e, i) => {
+    const tps = e.tokens_per_second;
+    const cls = tps > 100 ? 'badge-fast' : tps > 30 ? 'badge-mid' : 'badge-slow';
+    return `<tr>
+      <td>${i + 1}</td>
+      <td>${esc(e.model_name || '—')}</td>
+      <td>${esc(e.chip_name || '—')}</td>
+      <td>${e.chip_memory_gb ? e.chip_memory_gb + ' GB' : '—'}</td>
+      <td class="num"><span class="badge ${cls}">${fmtNum(tps, 1)}</span></td>
+      <td class="num">${fmtTtft(e.time_to_first_token)}</td>
+      <td class="num">${fmtNum(e.avg_watts_per_token, 3)}</td>
+      <td>${esc(e.backend || '—')}</td>
+      <td>${esc(e.display_name || 'Anonymous')}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('topTable').innerHTML = rows;
+};
+
+const renderBigTable = (entries) => {
+  // Heuristic: parse parameter count from model name (e.g. "120b", "100b", "qwen3-235b")
+  const big = entries.filter(isValidRun).filter(e => {
+    if (!e.model_name) return false;
+    const m = e.model_name.match(/(\d{2,4})\s*b/i);
+    if (!m) return false;
+    return parseInt(m[1]) >= 100;
+  }).sort((a, b) => b.tokens_per_second - a.tokens_per_second).slice(0, 20);
+
+  if (!big.length) {
+    document.getElementById('bigTable').innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted)">No 100B+ submissions yet</td></tr>';
+    return;
+  }
+  const rows = big.map(e => `
+    <tr>
+      <td>${esc(e.model_name)}</td>
+      <td>${esc(e.chip_name || '—')}</td>
+      <td>${e.chip_memory_gb ? e.chip_memory_gb + ' GB' : '—'}</td>
+      <td class="num highlight">${fmtNum(e.tokens_per_second, 1)}</td>
+      <td>${esc(e.model_quantization || '—')}</td>
+      <td>${esc(e.backend || '—')}</td>
+    </tr>`).join('');
+  document.getElementById('bigTable').innerHTML = rows;
+};
+
+const renderFormatChart = (entries) => {
+  const counts = { GGUF: 0, MLX: 0, Other: 0 };
+  for (const e of entries) {
+    const f = (e.model_format || '').toLowerCase();
+    if (f === 'gguf') counts.GGUF++;
+    else if (f === 'mlx') counts.MLX++;
+    else counts.Other++;
+  }
+  new Chart(document.getElementById('formatChart'), {
+    type: 'doughnut',
+    data: {
+      labels: Object.keys(counts),
+      datasets: [{
+        data: Object.values(counts),
+        backgroundColor: [C.accent, C.purple, C.muted]
+      }]
+    },
+    options: { responsive: true, maintainAspectRatio: false }
+  });
+};
+
+const renderMemTierChart = (entries) => {
+  const tiers = [8, 16, 24, 32, 36, 48, 64, 96, 128];
+  const valid = entries.filter(isValidRun).filter(e => e.chip_memory_gb);
+  const data = tiers.map(t => mean(valid.filter(e => e.chip_memory_gb === t).map(e => e.tokens_per_second)));
+
+  new Chart(document.getElementById('memChart'), {
+    type: 'bar',
+    data: {
+      labels: tiers.map(t => `${t} GB`),
+      datasets: [{ label: 'Avg tokens/sec', data, backgroundColor: C.accent + 'cc' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: { y: { beginAtZero: true, title: { display: true, text: 'avg tokens/sec' } } }
+    }
+  });
+};
+
+const renderUserChart = (entries) => {
+  const counts = entries.reduce((m, e) => {
+    const n = e.display_name || 'Anonymous';
+    m[n] = (m[n] || 0) + 1;
+    return m;
+  }, {});
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 20);
+  new Chart(document.getElementById('userChart'), {
+    type: 'bar',
+    data: {
+      labels: top.map(([n]) => n),
+      datasets: [{ label: 'Submissions', data: top.map(([, c]) => c), backgroundColor: C.pink + 'cc' }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }
+    }
+  });
+};
+
+// ── v3.1+ specific renderers ─────────────────────────────────────────
+const renderPrefillSection = (entries) => {
+  const withPrefill = entries.filter(isValidRun)
+    .map(e => ({ ...e, _prefill: prefillTps(e) }))
+    .filter(e => e._prefill != null && e._prefill > 0 && e._prefill < 50000)
+    .sort((a, b) => b._prefill - a._prefill)
+    .slice(0, 15);
+
+  if (!withPrefill.length) {
+    return; // section stays hidden
+  }
+  document.getElementById('prefill-section').style.display = '';
+  const rows = withPrefill.map((e, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${esc(e.model_name || '—')}</td>
+      <td>${esc(e.chip_name || '—')}</td>
+      <td>${e.chip_memory_gb ? e.chip_memory_gb + ' GB' : '—'}</td>
+      <td class="num highlight">${fmtNum(e._prefill, 1)}</td>
+      <td class="num">${fmtNum(e.tokens_per_second, 1)}</td>
+      <td>${esc(e.backend || '—')}</td>
+      <td>${esc(e.display_name || 'Anonymous')}</td>
+    </tr>`).join('');
+  document.getElementById('prefill-table').innerHTML = rows;
+};
+
+const renderReasoningSection = (entries) => {
+  const reasoning = entries.filter(isValidRun)
+    .map(e => ({ ...e, _prefill: prefillTps(e), _reasoning: reasoningTps(e) }))
+    .filter(e => e._reasoning != null && e._reasoning > 0)
+    .sort((a, b) => b.tokens_per_second - a.tokens_per_second)
+    .slice(0, 12);
+
+  if (!reasoning.length) return;
+  document.getElementById('reasoning-section').style.display = '';
+
+  const labels = reasoning.map(e => `${e.model_name} (${(e.chip_name || '').replace('Apple ', '')})`);
+  new Chart(document.getElementById('reasoningChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Output tok/s', data: reasoning.map(e => e.tokens_per_second), backgroundColor: C.accent + 'cc' },
+        { label: 'Prefill tok/s', data: reasoning.map(e => e._prefill), backgroundColor: C.green + 'cc' },
+        { label: 'Reasoning tok/s', data: reasoning.map(e => e._reasoning), backgroundColor: C.purple + 'cc' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+      scales: { x: { beginAtZero: true, title: { display: true, text: 'tokens/sec' } } }
+    }
+  });
+  document.getElementById('reasoning-stamp').textContent =
+    `${reasoning.length} reasoning-model run(s) shown out of ${entries.filter(e => e.reasoning_tokens > 0).length} total reasoning runs in the dataset.`;
+};
+
+// ── Misc ─────────────────────────────────────────────────────────────
+const esc = (s) => {
+  if (s == null) return '—';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+};
+
+const showError = (msg) => {
+  document.getElementById('app-loading').style.display = 'none';
+  document.getElementById('app-content').style.display = 'none';
+  const err = document.getElementById('app-error');
+  err.style.display = '';
+  document.getElementById('app-error-msg').textContent = msg;
+};
+
+// ── Main ─────────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const r = await fetch(API_URL);
+    if (!r.ok) throw new Error(`API returned HTTP ${r.status}`);
+    const data = await r.json();
+    const entries = data.entries || [];
+    if (!entries.length) throw new Error('Leaderboard is empty.');
+
+    document.getElementById('app-loading').style.display = 'none';
+    document.getElementById('app-content').style.display = '';
+
+    renderStats(entries);
+    renderChipChart(entries);
+    renderBwChart(entries);
+    renderPowerChart(entries);
+    renderTtftChart(entries);
+    renderBackendChart(entries);
+    renderTopTable(entries);
+    renderBigTable(entries);
+    renderFormatChart(entries);
+    renderMemTierChart(entries);
+    renderUserChart(entries);
+    renderPrefillSection(entries);
+    renderReasoningSection(entries);
+  } catch (e) {
+    console.error(e);
+    showError(`Failed to load benchmark data: ${e.message}`);
+  }
+})();
+</script>
+
+</body>
+</html>
