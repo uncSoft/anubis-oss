@@ -22,6 +22,26 @@ Anubis is a native macOS app for benchmarking, comparing, and managing local lar
 
 ## What's New
 
+### Ollama Thinking Toggle *(New in 3.2)*
+
+Tri-state control over Ollama's `think` request parameter, exposed in the Benchmark Performance disclosure when the Ollama backend is selected.
+
+- **Auto** (default) — omit the field so the model uses its server-side default; safe for older Ollama versions and non-thinking models that reject the parameter
+- **On** — force `think:true` to enable reasoning where supported
+- **Off** — force `think:false` to disable reasoning on models that default it on (e.g. recent DeepSeek-R1 builds)
+
+The choice persists across launches.
+
+### Reasoning-Aware Metrics & Prefill Speed *(New in 3.1)*
+
+Output tokens/sec is now visible-throughput only for reasoning models. Previously, thinking time was charged against TTFT and thinking tokens were counted as output, inflating the numbers. Fixes [#17](https://github.com/uncSoft/anubis-oss/issues/17) and [#18](https://github.com/uncSoft/anubis-oss/issues/18).
+
+- **Output tok/s excludes thinking time** — for DeepSeek-R1, Qwen3-thinking, GLM, gpt-oss, and other reasoning models
+- **Prefill (input) tokens/sec is a first-class metric** — visible on the TTFT card, in session history, in CSV export, and on the leaderboard
+- **Reasoning split** — thinking-model runs record reasoning tokens and reasoning duration separately; the session detail view shows reasoning tok/s alongside output tok/s
+- **Visible thinking** — both Ollama and OpenAI-compatible backends decode reasoning content (`reasoning_content`, `reasoning`, or inline `<think>…</think>` tags) and surface it wrapped in `<think>…</think>` markers in the response
+- **Better error messages** — Ollama HTTP errors no longer surface as "timed out after 0 seconds"
+
 ### Apple Intelligence Backend *(New in 3.0)* 🍎
 
 Anubis now benchmarks **Apple's on-device Foundation Model** alongside Ollama, MLX, and the rest — no server, no network, no setup. If your Mac supports Apple Intelligence (macOS 26+), it shows up in the backend menu automatically.
@@ -93,11 +113,12 @@ Real-time performance dashboard for single-model testing.
 
 - Select any model from any configured backend
 - Stream responses with live metrics overlay
-- **8 metric cards**: Tokens/sec, GPU %, CPU %, Time to First Token, Process Memory, Model Memory, Thermal State, GPU Frequency
+- **8 metric cards**: Output Tok/s, GPU %, CPU %, TTFT (with Prefill tok/s subtitle), Process Memory, Model Memory, Thermal State, GPU Frequency
 - **7 live charts**: Tokens/sec, GPU utilization, CPU utilization, process memory, GPU/CPU/ANE/DRAM power, GPU frequency - all updating in real time
 - **Power telemetry**: Real-time GPU, CPU, ANE, and DRAM power consumption in watts via IOReport
 - **Process monitoring**: Auto-detects backend process by port (Ollama, LM Studio, mlx-lm, vLLM, etc.) with manual process picker
-- Detailed session stats: average tok/s (total tokens / decode time), peak tok/s (highest instantaneous rate), TTFT, model load time, context length, eval duration, power averages
+- **Reasoning-aware**: Output tok/s excludes thinking time; reasoning tok/s and prefill tok/s tracked separately for thinking models like DeepSeek-R1 and Qwen3-thinking
+- Detailed session stats: output tok/s (excludes reasoning), prefill tok/s, peak tok/s, TTFT, model load time, context length, eval duration, power averages
 - Configurable parameters: temperature, top-p, max tokens, system prompt
 - **15 prompt presets** organized by category (Reasoning, Coding, Creative, Knowledge, Instruction)
 - **Session history** with full replay, CSV export, and Markdown reports
@@ -135,7 +156,8 @@ Standalone real-time hardware monitoring dashboard - no benchmark required.
 Upload your benchmark results to the [community leaderboard](https://devpadapp.com/leaderboard.html) and see how your Mac stacks up against other Apple Silicon machines.
 
 - **One-click upload** from the benchmark toolbar after a completed run
-- **Community rankings** sorted by tokens/sec with full drill-down into performance, power, and hardware details
+- **Community rankings** sorted by output tok/s with full drill-down into performance, power, and hardware details
+- **Three throughput metrics per row**: output tok/s, prefill tok/s, and reasoning tok/s — see exactly where each model spends its time
 - **Model quantization & format tracking** - every submission records the quantization level (Q4_K_M, FP16, 4-bit, etc.) and model format (GGUF vs MLX) so you can compare apples to apples
 - **Filter by chip, model, quantization, or format** to compare like-for-like
 - **[Data Explorer](https://devpadapp.com/explorer.html)** - interactive pivot table and charting powered by FINOS Perspective
