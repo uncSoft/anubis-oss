@@ -4,6 +4,29 @@
 	<channel>
 		<title>anubis</title>
   <item>
+      <title>Version 3.2.1</title>
+      <pubDate>Tue, 05 May 2026 12:15:00 -0400</pubDate>
+      <sparkle:version>3.2.1</sparkle:version>
+      <sparkle:shortVersionString>3.2.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Patch - Version 3.2.1</h2>
+          <p>Friendlier error message when the Ollama Thinking toggle (introduced in v3.2) is set to <b>On</b> for a model that doesn't support reasoning.</p>
+          <ul>
+              <li>Previously: a truncated raw HTTP 400 banner reading <code>Ollama returned HTTP 400: {"error":...}</code></li>
+              <li>Now: <code>llama3.2:3b does not support thinking mode</code> with a recovery hint pointing back at the toggle (<code>Set Thinking to Auto or Off in Performance options, then run again.</code>).</li>
+              <li>The benchmark error banner now wraps long messages and shows the recovery suggestion as a secondary line, so future error paths surface their fix-it hint automatically.</li>
+          </ul>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.2.1.0/Anubis-OSS-3.2.1.zip"
+          sparkle:version="3.2.1"
+          sparkle:shortVersionString="3.2.1"
+          length="13576056"
+          type="application/octet-stream"
+          sparkle:edSignature="wHl6jJPJYA7h1fiFi5rOTcDgoXyL2UrmghIsSnyUD7/wdSzFbFYb86lS1UFAnoKuu1MFHOCwHJ1nIDS45OHZBQ==" />
+  </item>
+  <item>
       <title>Version 3.2</title>
       <pubDate>Mon, 04 May 2026 21:15:00 -0400</pubDate>
       <sparkle:version>3.2</sparkle:version>
