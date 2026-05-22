@@ -4,6 +4,38 @@
 	<channel>
 		<title>anubis</title>
   <item>
+      <title>Version 3.3</title>
+      <pubDate>Fri, 22 May 2026 12:40:00 -0400</pubDate>
+      <sparkle:version>3.3</sparkle:version>
+      <sparkle:shortVersionString>3.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Version 3.3 — Methodology page, OpenAI-compat stats, GPU freq fix</h2>
+          <p>Three bug fixes from community reports, plus a new methodology page documenting how every metric is computed.</p>
+          <h3>Bug fixes</h3>
+          <ul>
+              <li><b>Energy per token unit + bias (#22).</b> What was labeled <code>W/Tk</code> is actually <b>J/Tk</b> (joules per token) by dimensional analysis. Relabeled across the UI, reports, charts, and markdown exports. The session aggregate was also ~40% biased high — it averaged per-sample ratios with a cumulative-tps denominator that ramps up early in generation. Now computed as <code>avgSystemPower / tokensPerSecond</code> from session aggregates. DB column names and export keys are unchanged for compatibility. <i>Credit to @taozhiyuai.</i></li>
+              <li><b>OpenAI-compatible backend stats (#23).</b> LM Studio, vLLM, llama.cpp-server, and similar backends now report <code>Prompt Tokens</code> correctly (we send <code>stream_options.include_usage: true</code>); reasoning-only model output no longer reports <code>tok/s = 0</code>; non-streaming backends like OMLX now show a warning triangle and tooltip when their timing is unreliable instead of silently inflating tok/s. <i>Credit to @taozhiyuai.</i></li>
+              <li><b>GPU frequency table truncation (#20).</b> On M4 (and likely M5 Max), the sub-GHz GPU P-states were silently missing from the freq table due to a unit-detection bug — only the upper P-states survived. Fixed by picking unit scale once per table from its max value and saturating high P-states to the top entry. <i>Credit to @corbinschwartz.</i></li>
+          </ul>
+          <h3>New</h3>
+          <ul>
+              <li><b>Methodology page.</b> Every metric the app displays is now documented at <a href="https://uncsoft.github.io/anubis-oss/methodology.html">uncsoft.github.io/anubis-oss/methodology.html</a> with the formula, units, source file:line, and known caveats. Linked from <i>Settings → About → "How Metrics Are Computed"</i>. Includes a changelog of material changes to how metrics are computed.</li>
+          </ul>
+          <h3>Behind the scenes</h3>
+          <ul>
+              <li>Diagnostic GPU logs (freq table + P-state delta) now use <code>.public</code> privacy so they're readable in Console.app without sudo-toggling private_data display — makes hardware-specific bug reports easier to triage.</li>
+          </ul>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.3.0/Anubis-OSS-3.3.zip"
+          sparkle:version="3.3"
+          sparkle:shortVersionString="3.3"
+          length="13586862"
+          type="application/octet-stream"
+          sparkle:edSignature="YrPJbwmk7WjSc2Vu9oU9Bt+/yJYyJ4H7/SoG0PJXiIxrnpr36E54I7ZRQnjZjIHW95zrXa3K1YpOv8+dlatpCw==" />
+  </item>
+  <item>
       <title>Version 3.2.1</title>
       <pubDate>Tue, 05 May 2026 12:15:00 -0400</pubDate>
       <sparkle:version>3.2.1</sparkle:version>
