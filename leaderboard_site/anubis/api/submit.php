@@ -68,6 +68,10 @@ $count = (int)$stmt->fetchColumn();
 
 
 // Insert
+//
+// methodology_version + group_* fields land starting v3.5 client (run
+// migrate_v7_methodology_and_groups.sql first). Older clients omit
+// them; the ?? null fallback below preserves backwards compatibility.
 $sql = 'INSERT INTO leaderboard_submissions (
     machine_id, display_name, app_version,
     model_id, model_name, model_quantization, model_format, backend, started_at, ended_at, prompt, status,
@@ -80,7 +84,15 @@ $sql = 'INSERT INTO leaderboard_submissions (
     backend_process_name,
     chip_name, chip_core_count, chip_p_cores, chip_e_cores,
     chip_gpu_cores, chip_neural_cores, chip_memory_gb, chip_bandwidth_gbs,
-    chip_mac_model, chip_mac_model_id
+    chip_mac_model, chip_mac_model_id,
+    methodology_version,
+    run_group_id, group_sample_count, group_repetition_index, group_seed_strategy,
+    group_mean_tokens_per_second, group_stdev_tokens_per_second,
+    group_ci_low_tokens_per_second, group_ci_high_tokens_per_second,
+    group_mean_time_to_first_token,
+    group_ci_low_time_to_first_token, group_ci_high_time_to_first_token,
+    group_mean_watts_per_token,
+    group_ci_low_watts_per_token, group_ci_high_watts_per_token
 ) VALUES (
     :machine_id, :display_name, :app_version,
     :model_id, :model_name, :model_quantization, :model_format, :backend, :started_at, :ended_at, :prompt, :status,
@@ -93,7 +105,15 @@ $sql = 'INSERT INTO leaderboard_submissions (
     :backend_process_name,
     :chip_name, :chip_core_count, :chip_p_cores, :chip_e_cores,
     :chip_gpu_cores, :chip_neural_cores, :chip_memory_gb, :chip_bandwidth_gbs,
-    :chip_mac_model, :chip_mac_model_id
+    :chip_mac_model, :chip_mac_model_id,
+    :methodology_version,
+    :run_group_id, :group_sample_count, :group_repetition_index, :group_seed_strategy,
+    :group_mean_tokens_per_second, :group_stdev_tokens_per_second,
+    :group_ci_low_tokens_per_second, :group_ci_high_tokens_per_second,
+    :group_mean_time_to_first_token,
+    :group_ci_low_time_to_first_token, :group_ci_high_time_to_first_token,
+    :group_mean_watts_per_token,
+    :group_ci_low_watts_per_token, :group_ci_high_watts_per_token
 )';
 
 $stmt = $db->prepare($sql);
@@ -146,6 +166,21 @@ $stmt->execute([
     ':chip_bandwidth_gbs'     => $v('chip_bandwidth_gbs'),
     ':chip_mac_model'         => $v('chip_mac_model'),
     ':chip_mac_model_id'      => $v('chip_mac_model_id'),
+    ':methodology_version'                => $v('methodology_version'),
+    ':run_group_id'                       => $v('run_group_id'),
+    ':group_sample_count'                 => $v('group_sample_count'),
+    ':group_repetition_index'             => $v('group_repetition_index'),
+    ':group_seed_strategy'                => $v('group_seed_strategy'),
+    ':group_mean_tokens_per_second'       => $v('group_mean_tokens_per_second'),
+    ':group_stdev_tokens_per_second'      => $v('group_stdev_tokens_per_second'),
+    ':group_ci_low_tokens_per_second'     => $v('group_ci_low_tokens_per_second'),
+    ':group_ci_high_tokens_per_second'    => $v('group_ci_high_tokens_per_second'),
+    ':group_mean_time_to_first_token'     => $v('group_mean_time_to_first_token'),
+    ':group_ci_low_time_to_first_token'   => $v('group_ci_low_time_to_first_token'),
+    ':group_ci_high_time_to_first_token'  => $v('group_ci_high_time_to_first_token'),
+    ':group_mean_watts_per_token'         => $v('group_mean_watts_per_token'),
+    ':group_ci_low_watts_per_token'       => $v('group_ci_low_watts_per_token'),
+    ':group_ci_high_watts_per_token'      => $v('group_ci_high_watts_per_token'),
 ]);
 
 $insertId = (int)$db->lastInsertId();
