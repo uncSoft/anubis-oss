@@ -385,11 +385,6 @@ final class BenchmarkViewModel: ObservableObject {
     private var lastSampleCollectedAt: Date = .distantPast
     private let minimumSampleSpacing: TimeInterval = 0.4
 
-    /// [DEBUG] Wall-clock of the last flushTextOnly run, used to detect
-    /// gaps where MainActor was blocked. Expected interval is 0.1s
-    /// (uiUpdateInterval); anything > 0.3s is a meaningful stall.
-    private var lastTextFlushAt: Date = .distantPast
-
     // Lock-protected stream buffers — written by Task.detached consumer, read by UI timer
     private struct StreamBuffers {
         var text: String = ""
@@ -717,18 +712,9 @@ final class BenchmarkViewModel: ObservableObject {
             // Boosting to .userInteractive makes the consumer pre-empt
             // other cooperative work so the socket always gets drained.
             self.consumeTask = Task.detached(priority: .userInteractive) { [lock] in
-                // [DEBUG] Chunk-rate periodic summary — logged every 200
-                // chunks so we can see whether Ollama is delivering at a
-                // steady rate or bursting.
-                var lastSummaryTime = Date()
-                var lastSummaryChunks = 0
-                let summaryEvery = 200
-
-                // [DEBUG] Inter-chunk arrival timing. We want to know
-                // whether chunks are arriving steadily from the backend
-                // or in bursts. Per-chunk timing for the first 30 chunks
-                // of the rep tells us the TTFT + ramp-up; gap histogram
-                // captured below tells us the steady-state pattern.
+                // Inter-chunk gap histogram — surfaces backend-side
+                // buffering issues at very low overhead (just bucket
+                // increments per chunk + one log line at rep end).
                 var lastChunkArrival: Date? = nil
                 var gapBuckets: (under10: Int, under100: Int, under500: Int, under2000: Int, over2000: Int) = (0, 0, 0, 0, 0)
                 var maxGap: Double = 0
@@ -738,8 +724,6 @@ final class BenchmarkViewModel: ObservableObject {
                     if Task.isCancelled { break }
                     let chunkArrivedAt = Date()
 
-                    // Inter-chunk gap accounting (off-MainActor — runs
-                    // detached, no contention with text flush).
                     if let prev = lastChunkArrival {
                         let gap = chunkArrivedAt.timeIntervalSince(prev)
                         switch gap {
@@ -750,25 +734,11 @@ final class BenchmarkViewModel: ObservableObject {
                         default:         gapBuckets.over2000 += 1
                         }
                         if gap > maxGap { maxGap = gap }
-                        // Log individual large gaps — these are the
-                        // user-visible "chunks took a second" moments.
-                        if gap > 0.5 {
-                            Log.benchmark.info("[CHUNK_GAP] gap=\(gap, privacy: .public)s session=\(consumerSessionId, privacy: .public) rep=\(consumerRepIdx, privacy: .public) chunk_idx=\(chunkIdx, privacy: .public)")
-                        }
                     }
                     lastChunkArrival = chunkArrivedAt
-
-                    // First 30 chunks: log timestamp + size so we can
-                    // see TTFT exactly + whether the early chunks are
-                    // 1-char fragments or proper multi-char tokens.
-                    if chunkIdx < 30 {
-                        Log.benchmark.info("[CHUNK_EARLY] idx=\(chunkIdx, privacy: .public) bytes=\(chunk.text.utf8.count, privacy: .public) text_len=\(chunk.text.count, privacy: .public) rep=\(consumerRepIdx, privacy: .public)")
-                    }
                     chunkIdx += 1
-                    // Mutate buffer under the lock, then surface the
-                    // chunkCount outside so we can log without capturing
-                    // the inout `buf` in the os_log autoclosure.
-                    let chunkCountSnapshot: Int = lock.withLock { buf in
+
+                    lock.withLock { buf in
                         buf.text += chunk.text
                         buf.tokenCount += 1
                         buf.chunkCount += 1
@@ -792,18 +762,11 @@ final class BenchmarkViewModel: ObservableObject {
                             buf.firstTokenTime = now
                         }
                         if chunk.done, let s = chunk.stats { buf.stats = s }
-                        return buf.chunkCount
-                    }
-
-                    if chunkCountSnapshot - lastSummaryChunks >= summaryEvery {
-                        let elapsed = chunkArrivedAt.timeIntervalSince(lastSummaryTime)
-                        let rate = elapsed > 0 ? Double(chunkCountSnapshot - lastSummaryChunks) / elapsed : 0
-                        Log.benchmark.info("[CHUNKS] session=\(consumerSessionId, privacy: .public) rep=\(consumerRepIdx, privacy: .public) total_chunks=\(chunkCountSnapshot, privacy: .public) window=\(elapsed, privacy: .public)s window_rate=\(rate, privacy: .public)chunks/s")
-                        lastSummaryTime = chunkArrivedAt
-                        lastSummaryChunks = chunkCountSnapshot
                     }
                 }
-                // [DEBUG] End-of-rep chunk-gap histogram + peak gap.
+                // End-of-rep chunk-gap histogram — one line per rep,
+                // operationally useful for diagnosing future streaming
+                // regressions.
                 Log.benchmark.info("[CHUNK_HIST] session=\(consumerSessionId, privacy: .public) rep=\(consumerRepIdx, privacy: .public) total_chunks=\(chunkIdx, privacy: .public) under10ms=\(gapBuckets.under10, privacy: .public) under100ms=\(gapBuckets.under100, privacy: .public) under500ms=\(gapBuckets.under500, privacy: .public) under2s=\(gapBuckets.under2000, privacy: .public) over2s=\(gapBuckets.over2000, privacy: .public) max_gap=\(maxGap, privacy: .public)s")
             }
 
@@ -1443,20 +1406,6 @@ final class BenchmarkViewModel: ObservableObject {
         os_signpost(.begin, log: Signposts.streaming, name: "flushText")
         defer { os_signpost(.end, log: Signposts.streaming, name: "flushText") }
 
-        let flushStart = Date()
-
-        // [DEBUG] Gap detector: the uiUpdateTimer fires every 0.1s. If
-        // we're called > 0.3s after the previous flush, the MainActor
-        // was blocked for at least that long — that's the user-visible
-        // text streaming "freeze". Log so we can correlate with what
-        // else was happening at that moment.
-        if lastTextFlushAt != .distantPast {
-            let gap = flushStart.timeIntervalSince(lastTextFlushAt)
-            if gap > 0.3 {
-                Log.benchmark.info("[STALL_TEXT] gap=\(gap, privacy: .public)s since previous flush (expected ~0.1s) rep=\(self.currentRepetitionIndex, privacy: .public)")
-            }
-        }
-        lastTextFlushAt = flushStart
         let text = streamLock.withLock { buf -> String in
             let t = buf.text
             buf.text = ""
@@ -1466,13 +1415,6 @@ final class BenchmarkViewModel: ObservableObject {
         if streamResponse && !text.isEmpty {
             responseTextStore.append(text)
             responseText += text
-        }
-
-        // [DEBUG] Log when this 10Hz path takes >30ms (a frame at 30fps
-        // = 33ms; anything above that is visible UI lag).
-        let elapsed = Date().timeIntervalSince(flushStart)
-        if elapsed > 0.030 {
-            Log.benchmark.info("[LAG_TEXT] flushTextOnly took \(elapsed * 1000, privacy: .public)ms text_size=\(text.utf8.count, privacy: .public)B response_total=\(self.responseText.utf8.count, privacy: .public)B rep=\(self.currentRepetitionIndex, privacy: .public)")
         }
 
         // First token detection (one-time)
@@ -1494,7 +1436,6 @@ final class BenchmarkViewModel: ObservableObject {
         os_signpost(.begin, log: Signposts.streaming, name: "flushMetrics")
         defer { os_signpost(.end, log: Signposts.streaming, name: "flushMetrics") }
 
-        let flushStart = Date()
         let snap = streamLock.withLock { $0 }
 
         var dirty = false
@@ -1516,11 +1457,6 @@ final class BenchmarkViewModel: ObservableObject {
         }
         if dirty {
             notifyLiveStatsChanged()
-        }
-
-        let elapsed = Date().timeIntervalSince(flushStart)
-        if elapsed > 0.030 {
-            Log.benchmark.info("[LAG_METRICS] flushMetricUpdates took \(elapsed * 1000, privacy: .public)ms rep=\(self.currentRepetitionIndex, privacy: .public)")
         }
     }
 
@@ -1598,7 +1534,6 @@ final class BenchmarkViewModel: ObservableObject {
         // freshly-reset (tokens=0) state. Drop it here so it can't
         // pollute the chart.
         guard sessionId == currentSession?.id else {
-            Log.benchmark.info("[SAMPLE_DROP] stale_session=\(sessionId, privacy: .public) current=\(self.currentSession?.id ?? -1, privacy: .public)")
             return
         }
 
@@ -1612,7 +1547,6 @@ final class BenchmarkViewModel: ObservableObject {
         let now = Date()
         let sinceLast = now.timeIntervalSince(lastSampleCollectedAt)
         if sinceLast < minimumSampleSpacing {
-            Log.benchmark.info("[SAMPLE_DROP] throttled session=\(sessionId, privacy: .public) since_last=\(sinceLast, privacy: .public)s")
             return
         }
         lastSampleCollectedAt = now
@@ -1668,21 +1602,6 @@ final class BenchmarkViewModel: ObservableObject {
             tokensGenerated: snapTokens,
             cumulativeTokensPerSecond: snapTps
         )
-
-        // [DEBUG] Log per-sample delta + instantTps that the chart will
-        // compute — lets us see the chart spike data live in Console.app.
-        // Only fires when there's a previous in-memory sample to delta
-        // against (within the current rep, since the list is reset
-        // between reps).
-        if let prev = currentSamplesInternal.last,
-           let prevTokens = prev.tokensGenerated {
-            let dt = sample.timestamp.timeIntervalSince(prev.timestamp)
-            let deltaTokens = snapTokens - prevTokens
-            let instantTps = (dt > 0 && deltaTokens > 0) ? Double(deltaTokens) / dt : 0
-            Log.benchmark.info("[SAMPLE] session=\(sessionId, privacy: .public) tokens=\(snapTokens, privacy: .public) delta_tokens=\(deltaTokens, privacy: .public) dt=\(dt, privacy: .public)s instant_tps=\(instantTps, privacy: .public) rep=\(self.currentRepetitionIndex, privacy: .public)")
-        } else {
-            Log.benchmark.info("[SAMPLE] session=\(sessionId, privacy: .public) tokens=\(snapTokens, privacy: .public) (first in rep) rep=\(self.currentRepetitionIndex, privacy: .public)")
-        }
 
         // Assign a local ID for in-memory tracking (DB will assign real ID on flush)
         currentSamplesInternal.append(sample)
@@ -1748,7 +1667,6 @@ final class BenchmarkViewModel: ObservableObject {
 
             let samples = currentSamplesInternal
             let maxPoints = maxChartDataPoints
-            let chartStartedAt = Date()
             Task.detached(priority: .utility) {
                 let samplesToUse: [BenchmarkSample]
                 if samples.count > maxPoints {
@@ -1760,15 +1678,10 @@ final class BenchmarkViewModel: ObservableObject {
                     samplesToUse = samples
                 }
 
-                let buildStart = Date()
                 let newChartData = BenchmarkSample.chartData(from: samplesToUse)
-                let buildElapsed = Date().timeIntervalSince(buildStart)
-                let queueLatency = buildStart.timeIntervalSince(chartStartedAt)
-                let tpsPts = newChartData.tokensPerSecond.count
 
                 await MainActor.run {
                     self.chartStore.update(newChartData)
-                    Log.benchmark.info("[CHART] samples_in=\(samples.count, privacy: .public) samples_used=\(samplesToUse.count, privacy: .public) tps_pts_out=\(tpsPts, privacy: .public) build_ms=\(buildElapsed * 1000, privacy: .public) queue_lag_ms=\(queueLatency * 1000, privacy: .public)")
                 }
             }
         }
