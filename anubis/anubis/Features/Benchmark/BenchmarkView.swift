@@ -60,6 +60,8 @@ struct BenchmarkView: View {
             // Right panel - Metrics Dashboard (~70% default)
             ScrollView {
                 VStack(spacing: Spacing.md) {
+                    groupProgressBanner
+                    groupSummaryCard
                     metricsCardsSection
                     detailedStatsSection
                     chartsSection
@@ -355,6 +357,53 @@ struct BenchmarkView: View {
                             .font(.mono(11, weight: .medium))
                             .frame(width: 40, alignment: .trailing)
                     }
+
+                    Divider()
+                        .padding(.vertical, 2)
+
+                    // Repetitions — N≥2 creates a BenchmarkRunGroup so
+                    // the result is mean ± 95% bootstrap CI instead of
+                    // a single number that hides variance.
+                    HStack {
+                        Text("Repetitions")
+                            .font(.caption)
+                            .frame(width: 80, alignment: .leading)
+                        Stepper(value: $viewModel.repetitions, in: 1...20) {
+                            EmptyView()
+                        }
+                        .labelsHidden()
+                        Text("\(viewModel.repetitions)")
+                            .font(.mono(11, weight: .medium))
+                            .frame(width: 40, alignment: .trailing)
+                        Text(viewModel.repetitions > 1
+                             ? "× mean ± 95% CI"
+                             : "(single run)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    // Seed strategy — only meaningful when Repetitions > 1.
+                    // Random (default) lets the CI capture sampler noise;
+                    // Fixed isolates hardware-only variance.
+                    if viewModel.repetitions > 1 {
+                        HStack {
+                            Text("Seed")
+                                .font(.caption)
+                                .frame(width: 80, alignment: .leading)
+                            Picker("", selection: $viewModel.seedStrategy) {
+                                Text("Random per rep").tag(SeedStrategy.random)
+                                Text("Fixed").tag(SeedStrategy.fixed)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 200)
+                            if viewModel.seedStrategy == .fixed {
+                                TextField("seed", value: $viewModel.fixedSeed, format: .number)
+                                    .font(.mono(11))
+                                    .frame(width: 80)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, Spacing.xs)
@@ -364,7 +413,7 @@ struct BenchmarkView: View {
                     Text("Parameters")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("T:\(String(format: "%.1f", viewModel.temperature)) P:\(String(format: "%.1f", viewModel.topP)) Tokens:\(viewModel.maxTokens)")
+                    Text("T:\(String(format: "%.1f", viewModel.temperature)) P:\(String(format: "%.1f", viewModel.topP)) Tokens:\(viewModel.maxTokens)\(viewModel.repetitions > 1 ? " · n=\(viewModel.repetitions)" : "")")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                     Spacer()
@@ -751,6 +800,160 @@ struct BenchmarkView: View {
                         }
                 }
             }
+        }
+    }
+
+    // MARK: - Run Group UI (Phase 1.2)
+
+    /// In-progress banner: "Run X of N" while a group is iterating.
+    @ViewBuilder
+    private var groupProgressBanner: some View {
+        if let group = viewModel.currentRunGroup,
+           group.status == .running,
+           viewModel.currentRepetitionIndex > 0 {
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: "repeat")
+                    .symbolEffect(.pulse, isActive: viewModel.isRunning)
+                    .foregroundStyle(Color.chartTokens)
+                Text("Run \(viewModel.currentRepetitionIndex) of \(group.repetitions)")
+                    .font(.subheadline.weight(.semibold))
+                Text(group.seedStrategy == .random ? "· random seed per rep" : "· fixed seed \(group.fixedSeed ?? 0)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                // Tiny progress dots — one per rep, filled = completed,
+                // hollow = pending, current = pulsing.
+                HStack(spacing: 4) {
+                    ForEach(0..<group.repetitions, id: \.self) { idx in
+                        Circle()
+                            .fill(idx < group.completedRepetitions
+                                  ? Color.chartTokens
+                                  : (idx + 1 == viewModel.currentRepetitionIndex
+                                     ? Color.chartTokens.opacity(0.5)
+                                     : Color.cardBorder))
+                            .frame(width: 6, height: 6)
+                    }
+                }
+            }
+            .padding(Spacing.sm)
+            .background {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.cardBackground)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(Color.chartTokens.opacity(0.3), lineWidth: 1)
+                    }
+            }
+        }
+    }
+
+    /// Post-completion summary card: mean ± 95% CI for each metric.
+    /// Shown only when the current group has finished (any status
+    /// except .running) — supersedes the per-session detail view as
+    /// the headline result.
+    @ViewBuilder
+    private var groupSummaryCard: some View {
+        if let group = viewModel.currentRunGroup,
+           group.status != .running,
+           (group.sampleCount ?? 0) > 0 {
+            VStack(alignment: .leading, spacing: Spacing.sm) {
+                HStack {
+                    Image(systemName: group.status == .completed
+                          ? "checkmark.seal.fill"
+                          : (group.status == .cancelled ? "xmark.octagon" : "exclamationmark.triangle"))
+                        .foregroundStyle(group.status == .completed ? Color.chartTokens : .orange)
+                    Text(group.status == .completed
+                         ? "Group complete · n=\(group.sampleCount ?? 0)"
+                         : "Group \(group.status.rawValue) · \(group.completedRepetitions)/\(group.repetitions) runs")
+                        .font(.headline)
+                    Spacer()
+                    Text(group.seedStrategy == .random ? "random seeds" : "fixed seed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), alignment: .leading, spacing: Spacing.sm) {
+                    groupMetricRow(
+                        label: "Output tok/s",
+                        mean: group.meanTokensPerSecond,
+                        ciLow: group.ciLowTokensPerSecond,
+                        ciHigh: group.ciHighTokensPerSecond,
+                        format: { String(format: "%.1f", $0) }
+                    )
+                    groupMetricRow(
+                        label: "TTFT",
+                        mean: group.meanTimeToFirstToken,
+                        ciLow: group.ciLowTimeToFirstToken,
+                        ciHigh: group.ciHighTimeToFirstToken,
+                        format: { String(format: "%.0f ms", $0 * 1000) }
+                    )
+                    groupMetricRow(
+                        label: "J/tok",
+                        mean: group.meanWattsPerToken,
+                        ciLow: group.ciLowWattsPerToken,
+                        ciHigh: group.ciHighWattsPerToken,
+                        format: { String(format: "%.3f", $0) }
+                    )
+                    groupMetricRow(
+                        label: "Avg system W",
+                        mean: group.meanSystemPowerWatts,
+                        ciLow: group.ciLowSystemPowerWatts,
+                        ciHigh: group.ciHighSystemPowerWatts,
+                        format: { String(format: "%.2f W", $0) }
+                    )
+                    groupMetricRow(
+                        label: "Peak memory",
+                        mean: group.meanPeakMemoryBytes,
+                        ciLow: group.ciLowPeakMemoryBytes,
+                        ciHigh: group.ciHighPeakMemoryBytes,
+                        format: { Formatters.bytes(Int64($0)) }
+                    )
+                }
+
+                Text("95% bootstrap CI · 1000 resamples. Per-rep results visible in Session History.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 2)
+            }
+            .padding(Spacing.md)
+            .background {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(Color.cardBackground)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 10)
+                            .strokeBorder(group.status == .completed ? Color.chartTokens.opacity(0.4) : Color.cardBorder, lineWidth: 1)
+                    }
+            }
+        }
+    }
+
+    /// Compact "label  mean (CI low – high)" row for the summary card.
+    private func groupMetricRow(
+        label: String,
+        mean: Double?,
+        ciLow: Double?,
+        ciHigh: Double?,
+        format: (Double) -> String
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 100, alignment: .leading)
+            if let m = mean {
+                Text(format(m))
+                    .font(.mono(13, weight: .semibold))
+                if let lo = ciLow, let hi = ciHigh {
+                    Text("(\(format(lo))–\(format(hi)))")
+                        .font(.mono(10))
+                        .foregroundStyle(.tertiary)
+                }
+            } else {
+                Text("—")
+                    .font(.mono(13))
+                    .foregroundStyle(.tertiary)
+            }
+            Spacer()
         }
     }
 
