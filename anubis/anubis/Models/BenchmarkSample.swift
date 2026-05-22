@@ -84,7 +84,11 @@ struct BenchmarkSample: Identifiable, Codable, FetchableRecord, MutablePersistab
         self.backendProcessMemoryBytes = metrics.backendProcessMemoryBytes
         self.backendProcessCPUPercent = metrics.backendProcessCPUPercent
 
-        // Compute watts per token: system power / current tok/s
+        // Running J/token estimate at this sample: system power (W)
+        // ÷ cumulative tok/s. Stored as `wattsPerToken` for DB
+        // compatibility; physically the unit is joules/token (W/(tok/s)
+        // = J/tok). Charted as a running efficiency curve — session
+        // aggregate is computed separately in BenchmarkSession.complete.
         if let power = metrics.systemPowerWatts, power > 0,
            let tps = cumulativeTokensPerSecond, tps > 0 {
             self.wattsPerToken = power / tps

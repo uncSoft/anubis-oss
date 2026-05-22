@@ -289,7 +289,7 @@ struct ModelReportView: View {
         HStack(spacing: Spacing.sm) {
             sortableHeaderCell("Model", column: .modelName, flexible: true, alignment: .leading)
             sortableHeaderCell("Avg Tk/s", column: .avgTokensPerSecond, width: 70)
-            sortableHeaderCell("Avg W/Tk", column: .avgWattsPerToken, width: 70)
+            sortableHeaderCell("Avg J/Tk", column: .avgWattsPerToken, width: 70)
             sortableHeaderCell("TTFT", column: .avgTimeToFirstToken, width: 80)
             sortableHeaderCell("Avg Power", column: .avgSystemPowerWatts, width: 80)
             sortableHeaderCell("Peak Mem", column: .peakMemoryBytes, width: 80)
@@ -374,7 +374,7 @@ struct ModelReportView: View {
                 .font(.mono(13, weight: .semibold))
                 .frame(width: 70, alignment: .trailing)
 
-            // W/Tk
+            // J/Tk
             Text(model.avgWattsPerToken.map { String(format: "%.2f", $0) } ?? "—")
                 .font(.mono(13))
                 .foregroundStyle(model.avgWattsPerToken != nil ? .primary : .tertiary)
@@ -426,7 +426,7 @@ struct ModelReportView: View {
             }
             if let eff = mostEfficient {
                 Label {
-                    Text("Most efficient: **\(eff.modelName)** (\(String(format: "%.2f", eff.avgWattsPerToken!)) W/tk)")
+                    Text("Most efficient: **\(eff.modelName)** (\(String(format: "%.2f", eff.avgWattsPerToken!)) J/tk)")
                         .font(.caption)
                 } icon: {
                     Image(systemName: "leaf.fill")

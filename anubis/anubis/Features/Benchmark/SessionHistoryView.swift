@@ -471,8 +471,8 @@ struct SessionDetailView: View {
                     value: session.avgSystemPowerWatts.map { Formatters.watts($0) } ?? "—"
                 )
                 StatCell(
-                    title: "Avg W/Token",
-                    value: session.avgWattsPerToken.map { String(format: "%.2f W/tok", $0) } ?? "—"
+                    title: "Avg J/Token",
+                    value: session.avgWattsPerToken.map { String(format: "%.2f J/tok", $0) } ?? "—"
                 )
                 StatCell(
                     title: "Avg GPU Freq",

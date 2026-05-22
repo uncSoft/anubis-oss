@@ -199,7 +199,7 @@ enum ExportService {
                 report += "Peak System Power: \(String(format: "%.2f", v))W\n"
             }
             if let v = session.avgWattsPerToken {
-                report += "Avg Watts/Token: \(String(format: "%.4f", v)) W/tok\n"
+                report += "Avg Energy/Token: \(String(format: "%.4f", v)) J/tok\n"
             }
             if let v = session.avgGpuFrequencyMHz {
                 report += "Avg GPU Frequency: \(String(format: "%.0f", v)) MHz\n"
@@ -282,7 +282,7 @@ enum ExportService {
         md += "\(chip.gpuCores) GPU · \(chip.unifiedMemoryGB) GB\n\n"
 
         md += "## Models (\(rows.count))\n\n"
-        md += "| Model | Quant | Format | Backend | Avg Tk/s | Avg W/Tk | TTFT | Avg Power | Peak Mem | Runs |\n"
+        md += "| Model | Quant | Format | Backend | Avg Tk/s | Avg J/Tk | TTFT | Avg Power | Peak Mem | Runs |\n"
         md += "|---|---|---|---|---:|---:|---:|---:|---:|---:|\n"
         for row in rows {
             let quant = row.quantization ?? "—"
@@ -306,7 +306,7 @@ enum ExportService {
             if let efficient = rows.filter({ $0.avgWattsPerToken != nil })
                 .min(by: { $0.avgWattsPerToken! < $1.avgWattsPerToken! }) {
                 md += "- **Most efficient:** \(efficient.modelName) — "
-                md += "\(String(format: "%.2f", efficient.avgWattsPerToken!)) W/tk\n"
+                md += "\(String(format: "%.2f", efficient.avgWattsPerToken!)) J/tk\n"
             }
             let totalRuns = rows.reduce(0) { $0 + $1.runCount }
             md += "- **Total:** \(rows.count) models · \(totalRuns) runs\n"

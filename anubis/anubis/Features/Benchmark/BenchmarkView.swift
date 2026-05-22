@@ -540,7 +540,7 @@ struct BenchmarkView: View {
                 .padding(.top, Spacing.xxs)
             } label: {
                 HStack {
-                    Text("Performance")
+                    Text("Performance/Thinking")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if !viewModel.streamResponse
@@ -673,7 +673,7 @@ struct BenchmarkView: View {
             )
 
             CompactMetricsCard(
-                title: "W/Token",
+                title: "J/Token",
                 value: viewModel.currentWattsPerTokenFormatted,
                 icon: "leaf.fill",
                 color: .chartEfficiency,
@@ -829,7 +829,7 @@ struct BenchmarkView: View {
                     color: .anubisMuted
                 )
 
-                // Row 3: Thermal / Peak GPU Power / Avg W/Token / Connection
+                // Row 3: Thermal / Peak GPU Power / Avg J/Token / Connection
                 DetailStatCell(
                     title: "Thermal",
                     value: viewModel.currentMetrics?.thermalState.description ?? "—",
@@ -845,8 +845,8 @@ struct BenchmarkView: View {
                 )
 
                 DetailStatCell(
-                    title: "Avg W/Token",
-                    value: viewModel.currentSession?.avgWattsPerToken.map { String(format: "%.2f W/tok", $0) } ?? "—",
+                    title: "Avg J/Token",
+                    value: viewModel.currentSession?.avgWattsPerToken.map { String(format: "%.2f J/tok", $0) } ?? "—",
                     icon: "leaf.fill",
                     color: .chartEfficiency
                 )
@@ -1343,7 +1343,7 @@ struct ExpandedMetricsView: View {
                             chartHeight: chartHeight
                         )
 
-                        // Row 4: GPU Power | W/Token | GPU Frequency
+                        // Row 4: GPU Power | Energy per Token | GPU Frequency
                         TimelineChart(
                             title: "GPU Power",
                             data: chartData.gpuPower,
@@ -1352,10 +1352,10 @@ struct ExpandedMetricsView: View {
                             chartHeight: chartHeight
                         )
                         TimelineChart(
-                            title: "Watts per Token",
+                            title: "Energy per Token",
                             data: chartData.wattsPerToken,
                             color: .chartEfficiency,
-                            unit: "W/tok",
+                            unit: "J/tok",
                             chartHeight: chartHeight
                         )
                         TimelineChart(
@@ -1515,10 +1515,10 @@ struct ExpandedMetricsView: View {
                     chartHeight: exportHeight
                 )
                 TimelineChart(
-                    title: "Watts per Token",
+                    title: "Energy per Token",
                     data: chartData.wattsPerToken,
                     color: .chartEfficiency,
-                    unit: "W/tok",
+                    unit: "J/tok",
                     chartHeight: exportHeight
                 )
                 TimelineChart(
@@ -1720,7 +1720,7 @@ struct ExpandedMetricsView: View {
             // Row 2: Power
             expandedStat(icon: "bolt.horizontal.fill", label: "GPU Power", value: viewModel.avgGPUPowerFormatted, color: .chartGPUPower, available: viewModel.hasPowerMetrics)
             expandedStat(icon: "powerplug.fill", label: "System Power", value: viewModel.avgSystemPowerFormatted, color: .chartSystemPower, available: viewModel.hasPowerMetrics)
-            expandedStat(icon: "leaf.fill", label: "W/Token", value: viewModel.currentWattsPerTokenFormatted, color: .chartEfficiency, available: viewModel.hasPowerMetrics)
+            expandedStat(icon: "leaf.fill", label: "J/Token", value: viewModel.currentWattsPerTokenFormatted, color: .chartEfficiency, available: viewModel.hasPowerMetrics)
             expandedStat(icon: "gauge.with.dots.needle.67percent", label: "GPU Freq", value: viewModel.currentGPUFrequencyFormatted, color: .chartFrequency, available: viewModel.hasPowerMetrics)
 
             // Row 3: Session details
@@ -1974,10 +1974,10 @@ struct ChartGrid: View {
                 )
 
                 TimelineChart(
-                    title: "Watts per Token",
+                    title: "Energy per Token",
                     data: data.wattsPerToken,
                     color: .chartEfficiency,
-                    unit: "W/tok",
+                    unit: "J/tok",
                     chartHeight: chartHeight
                 )
 

@@ -1576,15 +1576,15 @@ extension BenchmarkViewModel {
         return "—"
     }
 
-    /// Watts per token formatted (avg system power / avg tok/s)
+    /// Energy per token formatted as J/tok (avg system power / avg tok/s).
     var currentWattsPerTokenFormatted: String {
         if let session = currentSession, session.status == .completed,
            let wpt = session.avgWattsPerToken {
-            return String(format: "%.2f W/tok", wpt)
+            return String(format: "%.2f J/tok", wpt)
         }
         guard avgSystemPower > 0, currentTokensPerSecond > 0 else { return "—" }
         let wpt = avgSystemPower / currentTokensPerSecond
-        return String(format: "%.2f W/tok", wpt)
+        return String(format: "%.2f J/tok", wpt)
     }
 
     /// Effective backend memory: compensates when process tree walk misses the model runner.

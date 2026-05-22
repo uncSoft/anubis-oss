@@ -190,7 +190,15 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
             self.peakSystemPowerWatts = power.peakSystemPowerWatts
             self.avgGpuFrequencyMHz = power.avgGpuFrequencyMHz
             self.peakGpuFrequencyMHz = power.peakGpuFrequencyMHz
-            self.avgWattsPerToken = power.avgWattsPerToken
+            // Energy per token (J/tok) = avg power (W) / avg tok/s.
+            // Computed from session aggregates rather than averaging
+            // per-sample ratios — the per-sample value divides by a
+            // ramp-up cumulative tok/s, which biases the mean high.
+            if let avgP = power.avgSystemPowerWatts, stats.tokensPerSecond > 0 {
+                self.avgWattsPerToken = avgP / stats.tokensPerSecond
+            } else {
+                self.avgWattsPerToken = nil
+            }
         }
         self.backendProcessName = backendProcessName
     }

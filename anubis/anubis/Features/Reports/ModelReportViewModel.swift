@@ -29,7 +29,7 @@ struct ModelReportRow: Identifiable {
 enum ReportSortColumn: String, CaseIterable {
     case modelName = "Model"
     case avgTokensPerSecond = "Avg Tk/s"
-    case avgWattsPerToken = "Avg W/Tk"
+    case avgWattsPerToken = "Avg J/Tk"
     case avgTimeToFirstToken = "TTFT"
     case avgSystemPowerWatts = "Avg Power"
     case peakMemoryBytes = "Peak Mem"
