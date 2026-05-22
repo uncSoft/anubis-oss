@@ -61,6 +61,11 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     var reasoningTokens: Int?
     var reasoningDuration: Double?
 
+    // v8: optional foreign key linking this session to a BenchmarkRunGroup
+    // (N-repetitions group). NULL for ad-hoc single runs and for sessions
+    // logged before the run-group feature.
+    var runGroupId: Int64?
+
     enum CodingKeys: String, CodingKey, ColumnExpression {
         case id
         case modelId = "model_id"
@@ -96,6 +101,7 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         case chipInfoJSON = "chip_info_json"
         case reasoningTokens = "reasoning_tokens"
         case reasoningDuration = "reasoning_duration"
+        case runGroupId = "run_group_id"
     }
 
     /// Create a new benchmark session
@@ -141,6 +147,7 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         self.backendProcessName = nil
         self.reasoningTokens = nil
         self.reasoningDuration = nil
+        self.runGroupId = nil
 
         // Snapshot chip info as JSON
         if let data = try? JSONEncoder().encode(ChipInfo.current),

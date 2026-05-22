@@ -361,6 +361,77 @@ final class DatabaseManager {
                 """)
         }
 
+        // Migration v8: Run groups — N repetitions sharing the same
+        // benchmark configuration. Sessions get an optional foreign key
+        // to their group; a new table holds the per-metric aggregate
+        // stats (mean, stdev, 95% bootstrap CI) computed once at group
+        // completion. Sessions without a group (legacy + ad-hoc single
+        // runs) retain NULL run_group_id and are treated as N=1.
+        migrator.registerMigration("v8") { db in
+            try db.create(table: "benchmark_run_group") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("created_at", .datetime).notNull()
+                t.column("completed_at", .datetime)
+                t.column("status", .text).notNull()
+
+                // Config snapshot
+                t.column("model_id", .text).notNull()
+                t.column("model_name", .text).notNull()
+                t.column("model_quantization", .text)
+                t.column("model_format", .text)
+                t.column("backend", .text).notNull()
+                t.column("prompt", .text).notNull()
+                t.column("temperature", .double).notNull()
+                t.column("top_p", .double).notNull()
+                t.column("max_tokens", .integer).notNull()
+                t.column("seed_strategy", .text).notNull()
+                t.column("fixed_seed", .integer)
+                t.column("repetitions", .integer).notNull()
+                t.column("completed_repetitions", .integer).notNull().defaults(to: 0)
+
+                // Aggregate stats — nullable, populated at group completion
+                t.column("sample_count", .integer)
+
+                t.column("mean_tokens_per_second", .double)
+                t.column("stdev_tokens_per_second", .double)
+                t.column("ci_low_tokens_per_second", .double)
+                t.column("ci_high_tokens_per_second", .double)
+
+                t.column("mean_time_to_first_token", .double)
+                t.column("stdev_time_to_first_token", .double)
+                t.column("ci_low_time_to_first_token", .double)
+                t.column("ci_high_time_to_first_token", .double)
+
+                t.column("mean_watts_per_token", .double)
+                t.column("stdev_watts_per_token", .double)
+                t.column("ci_low_watts_per_token", .double)
+                t.column("ci_high_watts_per_token", .double)
+
+                t.column("mean_system_power_watts", .double)
+                t.column("stdev_system_power_watts", .double)
+                t.column("ci_low_system_power_watts", .double)
+                t.column("ci_high_system_power_watts", .double)
+
+                t.column("mean_peak_memory_bytes", .double)
+                t.column("stdev_peak_memory_bytes", .double)
+                t.column("ci_low_peak_memory_bytes", .double)
+                t.column("ci_high_peak_memory_bytes", .double)
+            }
+
+            // Link sessions to their group (NULL for legacy / single runs).
+            try db.alter(table: "benchmark_session") { t in
+                t.add(column: "run_group_id", .integer)
+                    .references("benchmark_run_group", onDelete: .setNull)
+            }
+
+            // Index for fast "all sessions in this group" lookups.
+            try db.create(
+                index: "idx_benchmark_session_run_group_id",
+                on: "benchmark_session",
+                columns: ["run_group_id"]
+            )
+        }
+
         try migrator.migrate(queue)
     }
 
