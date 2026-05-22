@@ -200,6 +200,13 @@ struct InferenceRequest: Sendable {
     /// Ollama-only: control the `think` request parameter. Ignored by other backends.
     let ollamaThinkMode: OllamaThinkMode
 
+    /// Optional sampler seed. When set, both Ollama and OpenAI-compatible
+    /// backends are asked to use it for reproducible sampling. Used by
+    /// run groups: random seeds per rep (default) capture sampler noise
+    /// in the bootstrap CI; a fixed seed across reps isolates hardware
+    /// variance only.
+    let seed: Int64?
+
     init(
         model: String,
         prompt: String,
@@ -208,7 +215,8 @@ struct InferenceRequest: Sendable {
         temperature: Double? = nil,
         topP: Double? = nil,
         stopSequences: [String]? = nil,
-        ollamaThinkMode: OllamaThinkMode = .auto
+        ollamaThinkMode: OllamaThinkMode = .auto,
+        seed: Int64? = nil
     ) {
         self.model = model
         self.prompt = prompt
@@ -218,6 +226,7 @@ struct InferenceRequest: Sendable {
         self.topP = topP
         self.stopSequences = stopSequences
         self.ollamaThinkMode = ollamaThinkMode
+        self.seed = seed
     }
 }
 

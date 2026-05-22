@@ -117,11 +117,36 @@ struct GPUDetailData {
 final class BenchmarkViewModel: ObservableObject {
     // MARK: - Published State
 
-    /// Current benchmark session (if running or just completed)
+    /// Current benchmark session (if running or just completed). When
+    /// running as part of a run group, this is the current repetition.
     @Published private(set) var currentSession: BenchmarkSession?
 
-    /// Whether a benchmark is currently running
+    /// Whether a benchmark is currently running (single or group).
     @Published private(set) var isRunning = false
+
+    // MARK: - Run Group (Phase 1.2)
+
+    /// Target number of repetitions for a benchmark group. Default 1
+    /// (single-run, no group object created). Values > 1 create a
+    /// BenchmarkRunGroup, run N sessions sequentially, and aggregate
+    /// stats as mean ± 95% bootstrap CI.
+    @Published var repetitions: Int = 1
+
+    /// Per-rep seed strategy. `random` (default) generates a fresh seed
+    /// per rep so the CI captures both hardware and sampler noise;
+    /// `fixed` reuses `fixedSeed` for byte-identical output across reps
+    /// and an isolated hardware-only CI.
+    @Published var seedStrategy: SeedStrategy = .random
+
+    /// Used only when `seedStrategy == .fixed`.
+    @Published var fixedSeed: Int64 = 42
+
+    /// Current run group (nil for single-run benchmarks).
+    @Published private(set) var currentRunGroup: BenchmarkRunGroup?
+
+    /// 1-based index of the current repetition within a group;
+    /// 0 means not currently inside a group.
+    @Published private(set) var currentRepetitionIndex: Int = 0
 
     /// Current real-time metrics during benchmark
     @Published private(set) var currentMetrics: SystemMetrics?
@@ -446,15 +471,9 @@ final class BenchmarkViewModel: ObservableObject {
         }
     }
 
-    /// Start a benchmark session
-    func startBenchmark() {
-        guard !isRunning else { return }
-        guard let model = selectedModel else {
-            error = .modelLoadFailed(modelId: "none", reason: "No model selected")
-            return
-        }
-
-        // Reset state
+    /// Reset per-repetition state. Called at the top of every rep
+    /// (both single-run and group runs) so each rep starts clean.
+    private func resetPerRepState() {
         responseText = ""
         responseTextStore.reset()
         tokensGenerated = 0
@@ -479,7 +498,6 @@ final class BenchmarkViewModel: ObservableObject {
         latestPerCoreSnapshot = []
         gpuDetailData = .empty
 
-        // Reset stream buffers
         streamLock.withLock { $0 = StreamBuffers() }
         gpuPowerSum = 0
         systemPowerSum = 0
@@ -489,26 +507,38 @@ final class BenchmarkViewModel: ObservableObject {
         lastChartUpdate = .distantPast
         pendingDBSamples = []
         lastDBFlush = .distantPast
+    }
 
-        // Create session with connection name and model metadata
-        var session = BenchmarkSession(
-            modelId: model.id,
-            modelName: model.name,
-            backend: selectedBackend,
-            connectionName: connectionName,
-            prompt: promptText,
-            modelQuantization: model.quantization,
-            modelFormat: model.modelFormat?.rawValue
-        )
+    /// Seed for repetition `index` (0-based) given the current
+    /// `seedStrategy` and `fixedSeed`.
+    private func seedForRep(_ index: Int) -> Int64? {
+        switch seedStrategy {
+        case .fixed:
+            return fixedSeed
+        case .random:
+            return Int64.random(in: 1...Int64.max)
+        }
+    }
 
+    /// Start a benchmark session
+    func startBenchmark() {
+        guard !isRunning else { return }
+        guard let model = selectedModel else {
+            error = .modelLoadFailed(modelId: "none", reason: "No model selected")
+            return
+        }
+
+        resetPerRepState()
+
+        // Group-level state setup — happens once whether we run a
+        // single rep or N reps in a group. The per-rep work (session
+        // create, inference, completion) lives in runOneRep below.
         isRunning = true
         benchmarkStartTime = Date()
-        currentSession = session
+        currentRunGroup = nil
+        currentRepetitionIndex = 0
 
-        // Start metrics collection
         metricsService.startCollecting()
-
-        // Auto-detect backend process by port (more reliable than path matching)
         if !isCustomProcessActive {
             Task {
                 if let port = extractPort(from: connectionURL) {
@@ -518,211 +548,308 @@ final class BenchmarkViewModel: ObservableObject {
                 }
             }
         }
-
-        // Start elapsed timer
         startElapsedTimer()
-
-        // Start UI update timer for batched updates
         startUIUpdateTimer()
-
-        // Set the backend on inference service
         inferenceService.setBackend(selectedBackend)
 
-        // Run inference
         benchmarkTask = Task {
-            do {
-                // Save session to get ID
-                try await databaseManager.queue.write { db in
-                    try session.insert(db)
+            if repetitions > 1 {
+                await runGroup(model: model)
+            } else {
+                do {
+                    _ = try await runOneRep(model: model, runGroupId: nil, seed: nil)
+                } catch is CancellationError {
+                    // runOneRep already marked the session cancelled
+                } catch let anubisError as AnubisError {
+                    self.error = anubisError
+                } catch {
+                    if elapsedTime < 1.0 {
+                        self.error = .invalidResponse(details: error.localizedDescription)
+                    } else {
+                        self.error = .streamingError(reason: error.localizedDescription)
+                    }
                 }
-                currentSession = session
+            }
+            await finishBenchmark()
+        }
+    }
 
-                let request = InferenceRequest(
-                    model: model.id,
-                    prompt: promptText,
-                    systemPrompt: systemPrompt.isEmpty ? nil : systemPrompt,
-                    maxTokens: maxTokens,
-                    temperature: temperature,
-                    topP: topP,
-                    ollamaThinkMode: ollamaThinkMode
-                )
+    /// Run a single repetition: create session, stream inference,
+    /// complete (or mark cancelled/failed), persist. Returns the
+    /// finalised session. Throws CancellationError when the surrounding
+    /// task is cancelled; throws other errors so the caller can decide
+    /// whether to surface them or continue a group loop.
+    private func runOneRep(model: ModelInfo, runGroupId: Int64?, seed: Int64?) async throws -> BenchmarkSession {
+        var session = BenchmarkSession(
+            modelId: model.id,
+            modelName: model.name,
+            backend: selectedBackend,
+            connectionName: connectionName,
+            prompt: promptText,
+            modelQuantization: model.quantization,
+            modelFormat: model.modelFormat?.rawValue
+        )
+        session.runGroupId = runGroupId
+        currentSession = session
 
-                // Initialize debug state
-                self.debugState.backendType = self.selectedBackend
-                self.debugState.endpointURL = self.connectionURL
-                self.debugState.modelId = model.id
-                self.debugState.requestTimestamp = Date()
-                self.debugState.promptSnippet = String(self.promptText.prefix(200))
-                self.debugState.systemPrompt = self.systemPrompt.isEmpty ? nil : self.systemPrompt
-                self.debugState.maxTokens = self.maxTokens
-                self.debugState.temperature = self.temperature
-                self.debugState.topP = self.topP
-                self.debugState.phase = .connecting
-                self.debugState.requestJSON = DebugInspectorState.buildRequestJSON(
-                    backend: self.selectedBackend, model: model.id, prompt: self.promptText,
-                    systemPrompt: self.systemPrompt.isEmpty ? nil : self.systemPrompt,
-                    maxTokens: self.maxTokens, temperature: self.temperature, topP: self.topP
-                )
+        do {
+            try await databaseManager.queue.write { db in
+                try session.insert(db)
+            }
+            currentSession = session
 
-                // Reset stream buffers and launch off-MainActor consumer
-                self.streamLock.withLock { $0 = StreamBuffers() }
+            let request = InferenceRequest(
+                model: model.id,
+                prompt: promptText,
+                systemPrompt: systemPrompt.isEmpty ? nil : systemPrompt,
+                maxTokens: maxTokens,
+                temperature: temperature,
+                topP: topP,
+                ollamaThinkMode: ollamaThinkMode,
+                seed: seed
+            )
 
-                let stream = await inferenceService.generate(request: request)
-                let startTime = Date()
-                self.streamLock.withLock { $0.startTime = startTime }
-                let instantaneousSampleInterval: TimeInterval = 0.25
+            self.debugState.backendType = self.selectedBackend
+            self.debugState.endpointURL = self.connectionURL
+            self.debugState.modelId = model.id
+            self.debugState.requestTimestamp = Date()
+            self.debugState.promptSnippet = String(self.promptText.prefix(200))
+            self.debugState.systemPrompt = self.systemPrompt.isEmpty ? nil : self.systemPrompt
+            self.debugState.maxTokens = self.maxTokens
+            self.debugState.temperature = self.temperature
+            self.debugState.topP = self.topP
+            self.debugState.phase = .connecting
+            self.debugState.requestJSON = DebugInspectorState.buildRequestJSON(
+                backend: self.selectedBackend, model: model.id, prompt: self.promptText,
+                systemPrompt: self.systemPrompt.isEmpty ? nil : self.systemPrompt,
+                maxTokens: self.maxTokens, temperature: self.temperature, topP: self.topP
+            )
 
-                // Start sample collection now that the stream is established
-                if let sessionId = session.id {
-                    startSampleCollection(sessionId: sessionId)
-                }
+            self.streamLock.withLock { $0 = StreamBuffers() }
 
-                // Drain stream at network speed — no MainActor contention
-                let lock = self.streamLock
-                self.consumeTask = Task.detached { [lock] in
-                    for try await chunk in stream {
-                        if Task.isCancelled { break }
-                        lock.withLock { buf in
-                            buf.text += chunk.text
-                            buf.tokenCount += 1
-                            buf.chunkCount += 1
-                            buf.bytesReceived += chunk.text.utf8.count
+            let stream = await inferenceService.generate(request: request)
+            let startTime = Date()
+            self.streamLock.withLock { $0.startTime = startTime }
+            let instantaneousSampleInterval: TimeInterval = 0.25
 
-                            let now = Date()
+            if let sessionId = session.id {
+                startSampleCollection(sessionId: sessionId)
+            }
 
-                            // Instantaneous peak tracking
-                            if buf.lastSampleTime == .distantPast {
+            let lock = self.streamLock
+            self.consumeTask = Task.detached { [lock] in
+                for try await chunk in stream {
+                    if Task.isCancelled { break }
+                    lock.withLock { buf in
+                        buf.text += chunk.text
+                        buf.tokenCount += 1
+                        buf.chunkCount += 1
+                        buf.bytesReceived += chunk.text.utf8.count
+
+                        let now = Date()
+                        if buf.lastSampleTime == .distantPast {
+                            buf.lastSampleTime = now
+                            buf.lastSampleTokens = buf.tokenCount
+                        } else {
+                            let delta = now.timeIntervalSince(buf.lastSampleTime)
+                            if delta >= instantaneousSampleInterval {
+                                let rate = Double(buf.tokenCount - buf.lastSampleTokens) / delta
+                                buf.peakTps = max(buf.peakTps, rate)
                                 buf.lastSampleTime = now
                                 buf.lastSampleTokens = buf.tokenCount
-                            } else {
-                                let delta = now.timeIntervalSince(buf.lastSampleTime)
-                                if delta >= instantaneousSampleInterval {
-                                    let rate = Double(buf.tokenCount - buf.lastSampleTokens) / delta
-                                    buf.peakTps = max(buf.peakTps, rate)
-                                    buf.lastSampleTime = now
-                                    buf.lastSampleTokens = buf.tokenCount
-                                }
                             }
-
-                            if buf.firstTokenTime == nil && !chunk.text.isEmpty {
-                                buf.firstTokenTime = now
-                            }
-                            if chunk.done, let s = chunk.stats { buf.stats = s }
                         }
+
+                        if buf.firstTokenTime == nil && !chunk.text.isEmpty {
+                            buf.firstTokenTime = now
+                        }
+                        if chunk.done, let s = chunk.stats { buf.stats = s }
                     }
                 }
+            }
 
-                // Wait for stream to finish (suspends on MainActor cheaply — no work)
-                do {
-                    try await consumeTask!.value
-                } catch is CancellationError {
-                    // handled below via Task.isCancelled
-                } catch {
-                    throw error
-                }
-                self.consumeTask = nil
-                self.inferenceService.clearGenerating()
-
-                // Read final buffer state
-                let finalBuf = streamLock.withLock { $0 }
-
-                // Final flush of any remaining buffered content
-                flushTextOnly()
-                flushMetricUpdates()
-
-                // Calculate TTFT
-                let ttft: TimeInterval? = finalBuf.firstTokenTime.map { $0.timeIntervalSince(startTime) }
-
-                // Compute power summary from collected samples
-                let powerSummary = BenchmarkSample.computePowerSummary(from: self.currentSamplesInternal)
-                let backendName = self.metricsService.latestMetrics?.backendProcessName
-
-                // Complete session
-                if let finalStats = finalBuf.stats {
-                    session.complete(
-                        with: finalStats,
-                        response: responseText,
-                        timeToFirstToken: ttft,
-                        peakMemoryBytes: currentPeakMemory > 0 ? currentPeakMemory : nil,
-                        powerSummary: powerSummary,
-                        backendProcessName: backendName
-                    )
-                } else {
-                    // Create stats from our tracking
-                    let duration = Date().timeIntervalSince(startTime)
-                    let manualStats = InferenceStats(
-                        totalTokens: finalBuf.tokenCount,
-                        promptTokens: 0,
-                        completionTokens: finalBuf.tokenCount,
-                        totalDuration: duration,
-                        promptEvalDuration: 0,
-                        evalDuration: duration,
-                        loadDuration: 0,
-                        contextLength: 0
-                    )
-                    session.complete(
-                        with: manualStats,
-                        response: responseText,
-                        timeToFirstToken: ttft,
-                        peakMemoryBytes: currentPeakMemory > 0 ? currentPeakMemory : nil,
-                        powerSummary: powerSummary,
-                        backendProcessName: backendName
-                    )
-                }
-
-                // Update session in database
-                try await databaseManager.queue.write { db in
-                    try session.update(db)
-                }
-
-                currentSession = session
-                self.debugState.phase = .complete
-                self.debugState.completedAt = Date()
-                if let finalStats = finalBuf.stats {
-                    self.debugState.finalTokensPerSecond = finalStats.tokensPerSecond
-                    self.debugState.finalTotalTokens = finalStats.totalTokens
-                    if finalStats.promptProcessingSpeed > 0 {
-                        self.prefillTokensPerSecond = finalStats.promptProcessingSpeed
-                    }
-                }
-                await finishBenchmark()
-
+            do {
+                try await consumeTask!.value
             } catch is CancellationError {
-                self.inferenceService.clearGenerating()
-                session.cancel()
-                try? await databaseManager.queue.write { db in
-                    try session.update(db)
-                }
-                currentSession = session
-                await finishBenchmark()
-
+                // handled below via Task.isCancelled
             } catch {
-                self.inferenceService.clearGenerating()
-                session.fail()
-                try? await databaseManager.queue.write { db in
-                    try session.update(db)
-                }
-                currentSession = session
-                self.debugState.phase = .error
-                self.debugState.errorMessage = error.localizedDescription
-                self.debugState.completedAt = Date()
+                throw error
+            }
+            self.consumeTask = nil
+            self.inferenceService.clearGenerating()
 
-                // Surface the actual error rather than masquerading every failure
-                // as an inference timeout (which yields the misleading "timed out
-                // after 0 seconds" message when the request fails immediately).
-                #if DEBUG
-                print("[Benchmark] inference failed after \(String(format: "%.2f", elapsedTime))s: \(error)")
-                #endif
-                if let anubisError = error as? AnubisError {
-                    self.error = anubisError
-                } else if elapsedTime < 1.0 {
-                    self.error = .invalidResponse(details: error.localizedDescription)
-                } else {
-                    self.error = .streamingError(reason: error.localizedDescription)
+            let finalBuf = streamLock.withLock { $0 }
+            flushTextOnly()
+            flushMetricUpdates()
+
+            // Flush per-sample data so it's in the DB before the
+            // group orchestrator re-aggregates session-level fields.
+            await flushSamplesToDatabase()
+
+            let ttft: TimeInterval? = finalBuf.firstTokenTime.map { $0.timeIntervalSince(startTime) }
+            let powerSummary = BenchmarkSample.computePowerSummary(from: self.currentSamplesInternal)
+            let backendName = self.metricsService.latestMetrics?.backendProcessName
+
+            if let finalStats = finalBuf.stats {
+                session.complete(
+                    with: finalStats,
+                    response: responseText,
+                    timeToFirstToken: ttft,
+                    peakMemoryBytes: currentPeakMemory > 0 ? currentPeakMemory : nil,
+                    powerSummary: powerSummary,
+                    backendProcessName: backendName
+                )
+            } else {
+                let duration = Date().timeIntervalSince(startTime)
+                let manualStats = InferenceStats(
+                    totalTokens: finalBuf.tokenCount,
+                    promptTokens: 0,
+                    completionTokens: finalBuf.tokenCount,
+                    totalDuration: duration,
+                    promptEvalDuration: 0,
+                    evalDuration: duration,
+                    loadDuration: 0,
+                    contextLength: 0
+                )
+                session.complete(
+                    with: manualStats,
+                    response: responseText,
+                    timeToFirstToken: ttft,
+                    peakMemoryBytes: currentPeakMemory > 0 ? currentPeakMemory : nil,
+                    powerSummary: powerSummary,
+                    backendProcessName: backendName
+                )
+            }
+
+            try await databaseManager.queue.write { db in
+                try session.update(db)
+            }
+
+            currentSession = session
+            self.debugState.phase = .complete
+            self.debugState.completedAt = Date()
+            if let finalStats = finalBuf.stats {
+                self.debugState.finalTokensPerSecond = finalStats.tokensPerSecond
+                self.debugState.finalTotalTokens = finalStats.totalTokens
+                if finalStats.promptProcessingSpeed > 0 {
+                    self.prefillTokensPerSecond = finalStats.promptProcessingSpeed
                 }
-                await finishBenchmark()
+            }
+
+            return session
+
+        } catch is CancellationError {
+            self.inferenceService.clearGenerating()
+            session.cancel()
+            try? await databaseManager.queue.write { db in
+                try session.update(db)
+            }
+            currentSession = session
+            throw CancellationError()
+
+        } catch {
+            self.inferenceService.clearGenerating()
+            session.fail()
+            try? await databaseManager.queue.write { db in
+                try session.update(db)
+            }
+            currentSession = session
+            self.debugState.phase = .error
+            self.debugState.errorMessage = error.localizedDescription
+            self.debugState.completedAt = Date()
+
+            #if DEBUG
+            print("[Benchmark] inference failed after \(String(format: "%.2f", elapsedTime))s: \(error)")
+            #endif
+            throw error
+        }
+    }
+
+    /// Orchestrate an N-rep run group. Creates the group, loops calling
+    /// runOneRep with per-rep seeds and the group's id, aggregates
+    /// stats from completed sessions, finalises the group state.
+    private func runGroup(model: ModelInfo) async {
+        var group = BenchmarkRunGroup(
+            modelId: model.id,
+            modelName: model.name,
+            backend: selectedBackend,
+            prompt: promptText,
+            modelQuantization: model.quantization,
+            modelFormat: model.modelFormat?.rawValue,
+            temperature: temperature,
+            topP: topP,
+            maxTokens: maxTokens,
+            seedStrategy: seedStrategy,
+            fixedSeed: seedStrategy == .fixed ? fixedSeed : nil,
+            repetitions: repetitions
+        )
+
+        do {
+            try await databaseManager.queue.write { db in
+                try group.insert(db)
+            }
+            currentRunGroup = group
+        } catch {
+            Log.benchmark.error("Failed to create run group: \(error.localizedDescription)")
+            return
+        }
+
+        var completedSessions: [BenchmarkSession] = []
+        var cancelled = false
+
+        for repIdx in 0..<repetitions {
+            if Task.isCancelled { cancelled = true; break }
+
+            currentRepetitionIndex = repIdx + 1
+
+            // Reset per-rep state for repetitions after the first
+            // (the first rep was reset in startBenchmark).
+            if repIdx > 0 {
+                resetPerRepState()
+            }
+
+            let seed = seedForRep(repIdx)
+            do {
+                let session = try await runOneRep(
+                    model: model,
+                    runGroupId: group.id,
+                    seed: seed
+                )
+                if session.status == .completed {
+                    completedSessions.append(session)
+                    group.completedRepetitions += 1
+                    try? await databaseManager.queue.write { db in
+                        try group.update(db)
+                    }
+                    currentRunGroup = group
+                }
+            } catch is CancellationError {
+                cancelled = true
+                break
+            } catch {
+                // Single rep failed — log and continue with the next.
+                // Surfacing the error would let the user retry the group,
+                // but for now we just record the failed session and
+                // keep going so partial results survive.
+                Log.benchmark.error("Run group rep \(repIdx + 1)/\(self.repetitions) failed: \(error.localizedDescription)")
             }
         }
+
+        group.recomputeAggregates(from: completedSessions)
+        group.completedAt = Date()
+        if cancelled {
+            group.status = .cancelled
+        } else if completedSessions.isEmpty {
+            group.status = .failed
+        } else {
+            group.status = .completed
+        }
+
+        try? await databaseManager.queue.write { db in
+            try group.update(db)
+        }
+        currentRunGroup = group
+        currentRepetitionIndex = 0
     }
 
     /// Stop the current benchmark

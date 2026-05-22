@@ -228,7 +228,8 @@ actor OpenAICompatibleClient: InferenceBackend {
             maxTokens: request.maxTokens,
             temperature: request.temperature,
             topP: request.topP,
-            stop: request.stopSequences
+            stop: request.stopSequences,
+            seed: request.seed
         )
 
         urlRequest.httpBody = try JSONEncoder().encode(body)
@@ -760,9 +761,10 @@ private struct OpenAIChatRequest: Codable {
     let temperature: Double?
     let topP: Double?
     let stop: [String]?
+    let seed: Int64?
 
     enum CodingKeys: String, CodingKey {
-        case model, messages, stream, temperature, stop
+        case model, messages, stream, temperature, stop, seed
         case streamOptions = "stream_options"
         case maxTokens = "max_tokens"
         case topP = "top_p"

@@ -121,7 +121,8 @@ actor OllamaClient: InferenceBackend {
                 numPredict: request.maxTokens,
                 temperature: request.temperature,
                 topP: request.topP,
-                stop: request.stopSequences
+                stop: request.stopSequences,
+                seed: request.seed
             )
         )
 
@@ -239,7 +240,8 @@ actor OllamaClient: InferenceBackend {
                 numPredict: request.maxTokens,
                 temperature: request.temperature,
                 topP: request.topP,
-                stop: request.stopSequences
+                stop: request.stopSequences,
+                seed: request.seed
             )
         )
 
@@ -711,12 +713,14 @@ private struct OllamaOptions: Codable {
     let temperature: Double?
     let topP: Double?
     let stop: [String]?
+    let seed: Int64?
 
     enum CodingKeys: String, CodingKey {
         case numPredict = "num_predict"
         case temperature
         case topP = "top_p"
         case stop
+        case seed
     }
 }
 
