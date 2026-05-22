@@ -251,7 +251,7 @@
 
 <header>
   <h1>Methodology</h1>
-  <p>How every number Anubis displays is computed, with the source code that produces it. If a measurement isn&rsquo;t clearly defined, it isn&rsquo;t trustworthy &mdash; so this page lists the formula, the units, and the caveats for each metric, and links to the exact file and line in the open-source repo.</p>
+  <p>How every number Anubis displays is computed, with the source code that produces it. If a measurement isn&rsquo;t clearly defined, it isn&rsquo;t trustworthy - so this page lists the formula, the units, and the caveats for each metric, and links to the exact file and line in the open-source repo.</p>
   <div class="site-footer-links" style="margin-top: 16px;">
     <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
     <a href="https://uncsoft.github.io/anubis-oss/analysis.html">Analysis</a>
@@ -299,23 +299,23 @@ output_tokens_per_second = <span class="var">outputTokens</span> <span class="op
 
     <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/InferenceChunk.swift#L114">InferenceChunk.swift:114</a></div>
 
-    <div class="caveat"><strong>Caveat &mdash;</strong> backends report token counts and durations differently. Ollama&rsquo;s <code class="inline">eval_count</code> / <code class="inline">eval_duration</code> from <code class="inline">/api/chat</code> is the source of truth when available. OpenAI-compatible endpoints don&rsquo;t always return token counts, in which case Anubis falls back to counting streamed chunks and measuring wall time client-side, which slightly underestimates true tok/s due to network round-trip overhead.</div>
+    <div class="caveat"><strong>Caveat -</strong> backends report token counts and durations differently. Ollama&rsquo;s <code class="inline">eval_count</code> / <code class="inline">eval_duration</code> from <code class="inline">/api/chat</code> is the source of truth when available. OpenAI-compatible endpoints don&rsquo;t always return token counts, in which case Anubis falls back to counting streamed chunks and measuring wall time client-side, which slightly underestimates true tok/s due to network round-trip overhead.</div>
   </div>
 
   <!-- ============================================================ -->
   <div class="section">
     <h2 id="tps-prefill">Prefill tokens/second <a href="#tps-prefill" class="anchor">#</a></h2>
-    <div class="subtitle">How fast the model ingests the input prompt &mdash; usually the bottleneck on long contexts.</div>
+    <div class="subtitle">How fast the model ingests the input prompt - usually the bottleneck on long contexts.</div>
 
     <div class="formula">
 prefill_tokens_per_second = <span class="var">promptTokens</span> <span class="op">/</span> <span class="var">promptEvalDuration</span>
     </div>
 
-    <p>Reported separately from output tok/s because the two phases have wildly different characteristics on Apple Silicon: prefill is compute-bound and benefits from wide GPU arrays, while generation is memory-bandwidth-bound. A chip that decodes at 30 tok/s might prefill at 1,000+ tok/s &mdash; or vice versa.</p>
+    <p>Reported separately from output tok/s because the two phases have wildly different characteristics on Apple Silicon: prefill is compute-bound and benefits from wide GPU arrays, while generation is memory-bandwidth-bound. A chip that decodes at 30 tok/s might prefill at 1,000+ tok/s - or vice versa.</p>
 
     <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/InferenceChunk.swift#L128">InferenceChunk.swift:128</a></div>
 
-    <div class="caveat"><strong>Caveat &mdash;</strong> prefill rate depends heavily on prompt length and on whether the backend has a KV cache hit. A 100-token prompt and a 100,000-token prompt won&rsquo;t produce comparable prefill rates. The <a href="https://uncsoft.github.io/anubis-oss/analysis.html">analysis page</a> reports the top prefill rates as observed but they should be read alongside the prompt length, which varies per submission. A dedicated prefill-curve mode (sweeping context length) is on the <a href="https://github.com/uncSoft/anubis-oss">roadmap</a>.</div>
+    <div class="caveat"><strong>Caveat -</strong> prefill rate depends heavily on prompt length and on whether the backend has a KV cache hit. A 100-token prompt and a 100,000-token prompt won&rsquo;t produce comparable prefill rates. The <a href="https://uncsoft.github.io/anubis-oss/analysis.html">analysis page</a> reports the top prefill rates as observed but they should be read alongside the prompt length, which varies per submission. A dedicated prefill-curve mode (sweeping context length) is on the <a href="https://github.com/uncSoft/anubis-oss">roadmap</a>.</div>
   </div>
 
   <!-- ============================================================ -->
@@ -328,9 +328,9 @@ TTFT = <span class="var">first_chunk_arrival_time</span> <span class="op">-</spa
      <span class="comment">// measured client-side, in the Anubis app process</span>
     </div>
 
-    <p>TTFT is end-to-end from the user&rsquo;s perspective: it includes everything &mdash; tokenisation, KV cache setup, prefill, and any network round-trip to the local backend on its loopback port. A high TTFT on a long prompt is mostly prefill; on a short prompt it&rsquo;s mostly model load + cache setup.</p>
+    <p>TTFT is end-to-end from the user&rsquo;s perspective: it includes everything - tokenisation, KV cache setup, prefill, and any network round-trip to the local backend on its loopback port. A high TTFT on a long prompt is mostly prefill; on a short prompt it&rsquo;s mostly model load + cache setup.</p>
 
-    <p>For reasoning models, TTFT is the time to the <em>first visible</em> output chunk &mdash; not the first thinking token. If a model thinks for 30 seconds before producing visible output, that 30 seconds is in the TTFT.</p>
+    <p>For reasoning models, TTFT is the time to the <em>first visible</em> output chunk - not the first thinking token. If a model thinks for 30 seconds before producing visible output, that 30 seconds is in the TTFT.</p>
 
     <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/BenchmarkSession.swift#L43">BenchmarkSession.swift:43</a> (field), captured in <code class="inline">BenchmarkViewModel</code> at the moment the first <code class="inline">InferenceChunk</code> with visible content arrives.</div>
   </div>
@@ -362,15 +362,15 @@ J_per_token = <span class="var">avgSystemPowerWatts</span> <span class="op">/</s
   <span class="comment">// W &divide; (tok/s) = (J/s) &divide; (tok/s) = J/tok</span>
     </div>
 
-    <p>System power is the all-domain SoC reading from IOReport (GPU + CPU clusters + ANE + DRAM + uncore). <code class="inline">tokensPerSecond</code> is the session-level output rate from the formula above &mdash; thinking phase excluded.</p>
+    <p>System power is the all-domain SoC reading from IOReport (GPU + CPU clusters + ANE + DRAM + uncore). <code class="inline">tokensPerSecond</code> is the session-level output rate from the formula above - thinking phase excluded.</p>
 
     <p>Computed once at session completion from the two session-level aggregates, <em>not</em> by averaging per-sample power/tps ratios. Per-sample averaging biases the result high because each sample divides by a cumulative tok/s that is artificially low early in generation (the warm-up samples dominate the arithmetic mean). See changelog entry for issue #22 below for the full story.</p>
 
     <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/BenchmarkSession.swift#L193">BenchmarkSession.swift:193</a></div>
 
-    <div class="caveat green"><strong>Note &mdash;</strong> the per-sample running J/tok estimate is still computed and stored for the time-series chart (it&rsquo;s genuinely useful to see efficiency evolve during generation). But the session aggregate that goes on the leaderboard uses the principled formula above.</div>
+    <div class="caveat green"><strong>Note -</strong> the per-sample running J/tok estimate is still computed and stored for the time-series chart (it&rsquo;s genuinely useful to see efficiency evolve during generation). But the session aggregate that goes on the leaderboard uses the principled formula above.</div>
 
-    <div class="caveat"><strong>Caveat &mdash;</strong> system power includes the cost of whatever else the Mac is doing while the benchmark runs &mdash; background indexing, browser tabs, Bluetooth, the display. To minimise this, run benchmarks with other apps closed and the display dimmed. The leaderboard reflects measured power, not idealised power.</div>
+    <div class="caveat"><strong>Caveat -</strong> system power includes the cost of whatever else the Mac is doing while the benchmark runs - background indexing, browser tabs, Bluetooth, the display. To minimise this, run benchmarks with other apps closed and the display dimmed. The leaderboard reflects measured power, not idealised power.</div>
   </div>
 
   <!-- ============================================================ -->
@@ -378,22 +378,22 @@ J_per_token = <span class="var">avgSystemPowerWatts</span> <span class="op">/</s
     <h2 id="power">Power sampling (IOReport) <a href="#power" class="anchor">#</a></h2>
     <div class="subtitle">Per-component watts via Apple&rsquo;s private IOReport API.</div>
 
-    <p>Anubis subscribes to two IOReport channel groups: <strong>Energy Model</strong> (per-component power) and <strong>GPU Stats / GPU Performance States</strong> (frequency residency). The API is private but stable across recent macOS versions, loaded via <code class="inline">dlsym</code> against <code class="inline">/usr/lib/libIOReport.dylib</code> &mdash; the same approach used by asitop, mactop, and macmon.</p>
+    <p>Anubis subscribes to two IOReport channel groups: <strong>Energy Model</strong> (per-component power) and <strong>GPU Stats / GPU Performance States</strong> (frequency residency). The API is private but stable across recent macOS versions, loaded via <code class="inline">dlsym</code> against <code class="inline">/usr/lib/libIOReport.dylib</code> - the same approach used by asitop, mactop, and macmon.</p>
 
     <p>Power channels exposed:</p>
     <ul>
-      <li><strong>GPU</strong> &mdash; graphics cluster power (W)</li>
-      <li><strong>CPU</strong> &mdash; aggregated P-cluster + E-cluster power (W)</li>
-      <li><strong>ANE</strong> &mdash; Neural Engine power (W; typically near zero for LLMs, which run on GPU)</li>
-      <li><strong>DRAM</strong> &mdash; memory subsystem power (W)</li>
-      <li><strong>System</strong> &mdash; total SoC power summed across the channels above (W)</li>
+      <li><strong>GPU</strong> - graphics cluster power (W)</li>
+      <li><strong>CPU</strong> - aggregated P-cluster + E-cluster power (W)</li>
+      <li><strong>ANE</strong> - Neural Engine power (W; typically near zero for LLMs, which run on GPU)</li>
+      <li><strong>DRAM</strong> - memory subsystem power (W)</li>
+      <li><strong>System</strong> - total SoC power summed across the channels above (W)</li>
     </ul>
 
-    <p><strong>Sample cadence:</strong> 2 Hz default (500 ms), reduced to 1 Hz when the app is idle (no active benchmark) to save battery. Each sample is a delta over the previous one &mdash; the IOReport API returns cumulative energy counters which Anubis differences to derive instantaneous power.</p>
+    <p><strong>Sample cadence:</strong> 2 Hz default (500 ms), reduced to 1 Hz when the app is idle (no active benchmark) to save battery. Each sample is a delta over the previous one - the IOReport API returns cumulative energy counters which Anubis differences to derive instantaneous power.</p>
 
     <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Integrations/IOReportBridge.swift">IOReportBridge.swift</a> (subscription + sampling), <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Services/MetricsService.swift#L212">MetricsService.swift:212</a> (cadence)</div>
 
-    <div class="caveat"><strong>Caveat &mdash;</strong> IOReport readings are what the SoC fabric reports, not external wall-meter measurements. They&rsquo;re accurate for relative comparisons across runs on the same machine, and consistent across machines of the same chip generation, but should not be treated as calibrated absolute wall-power. Display, fans, and Thunderbolt accessories are not included.</div>
+    <div class="caveat"><strong>Caveat -</strong> IOReport readings are what the SoC fabric reports, not external wall-meter measurements. They&rsquo;re accurate for relative comparisons across runs on the same machine, and consistent across machines of the same chip generation, but should not be treated as calibrated absolute wall-power. Display, fans, and Thunderbolt accessories are not included.</div>
   </div>
 
   <!-- ============================================================ -->
@@ -407,7 +407,7 @@ J_per_token = <span class="var">avgSystemPowerWatts</span> <span class="op">/</s
 effective_freq = &Sigma; (<span class="var">freq[i]</span> &times; <span class="var">residency[i]</span>) <span class="op">/</span> &Sigma; <span class="var">residency[i]</span>
     </div>
 
-    <p>The full per-state distribution is captured per sample &mdash; you can see whether the GPU is sitting in its highest P-state under load (good) or bouncing between mid states (thermally constrained or memory-stalled).</p>
+    <p>The full per-state distribution is captured per sample - you can see whether the GPU is sitting in its highest P-state under load (good) or bouncing between mid states (thermally constrained or memory-stalled).</p>
 
     <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Integrations/IOReportBridge.swift#L115">IOReportBridge.swift:115</a> (channel setup), <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/SystemMetrics.swift#L83">SystemMetrics.swift</a> (P-state distribution field)</div>
   </div>
@@ -437,8 +437,8 @@ utilization = (<span class="var">&Delta;user</span> <span class="op">+</span> <s
 
     <p>For backends that span multiple processes (LM Studio is an Electron app with many Node helpers; Ollama runs a parent <code class="inline">ollama</code> plus a worker per model), Anubis aggregates two ways:</p>
     <ol>
-      <li><strong>App-bundle aggregation</strong> &mdash; if the backend lives inside a <code class="inline">.app</code> bundle, sum <code class="inline">phys_footprint</code> across <em>every</em> running process whose path is under that bundle. Catches scattered Electron helpers and embedded servers regardless of parent-child relationship.</li>
-      <li><strong>Descendant walk</strong> &mdash; for CLI-style backends (raw <code class="inline">llama.cpp</code>, Python servers), recursively walk descendants from the root PID and sum <code class="inline">phys_footprint</code>.</li>
+      <li><strong>App-bundle aggregation</strong> - if the backend lives inside a <code class="inline">.app</code> bundle, sum <code class="inline">phys_footprint</code> across <em>every</em> running process whose path is under that bundle. Catches scattered Electron helpers and embedded servers regardless of parent-child relationship.</li>
+      <li><strong>Descendant walk</strong> - for CLI-style backends (raw <code class="inline">llama.cpp</code>, Python servers), recursively walk descendants from the root PID and sum <code class="inline">phys_footprint</code>.</li>
     </ol>
 
     <p><strong>System-wide memory</strong> is reported separately, via <code class="inline">host_statistics64(HOST_VM_INFO64)</code> as <code class="inline">(active + wired + compressed) &times; page_size</code>. This matches Activity Monitor&rsquo;s &ldquo;Memory Used&rdquo; figure and represents pressure on the entire machine, not just the backend.</p>
@@ -470,7 +470,7 @@ utilization = (<span class="var">&Delta;user</span> <span class="op">+</span> <s
     <div class="subtitle">Honesty about the edges. These are known gaps.</div>
 
     <ul>
-      <li><strong>Output quality.</strong> Anubis measures speed, energy, and resource cost &mdash; not whether the model&rsquo;s answer is correct. For quality, use <a href="https://github.com/EleutherAI/lm-evaluation-harness"><code class="inline">lm-evaluation-harness</code></a> alongside.</li>
+      <li><strong>Output quality.</strong> Anubis measures speed, energy, and resource cost - not whether the model&rsquo;s answer is correct. For quality, use <a href="https://github.com/EleutherAI/lm-evaluation-harness"><code class="inline">lm-evaluation-harness</code></a> alongside.</li>
       <li><strong>Statistical rigor on single runs.</strong> One run = one number, no confidence interval. The leaderboard is a population of individual runs, not a multi-run aggregate per submission. N-runs-with-CI mode is on the roadmap.</li>
       <li><strong>Speculative decoding details.</strong> When a backend uses spec-decoding internally, Anubis sees the effective tok/s but not the draft acceptance rate. Native A/B mode planned.</li>
       <li><strong>Wall-meter power.</strong> IOReport reports SoC fabric power; display, fans, and Thunderbolt accessories aren&rsquo;t included.</li>
@@ -499,7 +499,7 @@ utilization = (<span class="var">&Delta;user</span> <span class="op">+</span> <s
 </div>
 
 <div class="site-footer">
-  <p>Anubis OSS &mdash; open-source LLM benchmark for Apple Silicon &middot; <a href="https://github.com/uncSoft/anubis-oss">GitHub</a></p>
+  <p>Anubis OSS - open-source LLM benchmark for Apple Silicon &middot; <a href="https://github.com/uncSoft/anubis-oss">GitHub</a></p>
 </div>
 
 </body>
