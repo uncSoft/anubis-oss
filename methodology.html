@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Methodology — How Anubis Measures Things</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --orange: #d29922;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --pink: #f778ba;
+    --code-bg: #0d1117;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    background: var(--bg);
+    background-image:
+      linear-gradient(rgba(108,180,238,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(108,180,238,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+  header {
+    text-align: center;
+    padding: 40px 20px 30px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 30px;
+  }
+  header h1 {
+    font-size: 2.2em;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  header p { color: var(--text-muted); font-size: 1.05em; max-width: 640px; margin: 0 auto; }
+
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 28px;
+    font-size: 0.92em;
+  }
+  .toc h3 {
+    font-size: 0.78em;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+  .toc ul { list-style: none; columns: 2; column-gap: 24px; }
+  .toc li { margin-bottom: 4px; break-inside: avoid; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  @media (max-width: 600px) { .toc ul { columns: 1; } }
+
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .section h2 {
+    font-size: 1.35em;
+    margin-bottom: 6px;
+    color: var(--text);
+    scroll-margin-top: 24px;
+  }
+  .section h2 .anchor {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-weight: 400;
+    font-size: 0.85em;
+    opacity: 0;
+    margin-left: 8px;
+    transition: opacity 0.15s;
+  }
+  .section h2:hover .anchor { opacity: 1; }
+  .section .subtitle {
+    color: var(--text-muted);
+    font-size: 0.92em;
+    margin-bottom: 14px;
+  }
+  .section p { margin-bottom: 12px; color: var(--text); }
+  .section p:last-child { margin-bottom: 0; }
+  .section ul, .section ol { margin-left: 22px; margin-bottom: 12px; color: var(--text); }
+  .section li { margin-bottom: 4px; }
+  .section a { color: var(--accent); text-decoration: none; }
+  .section a:hover { text-decoration: underline; }
+
+  .formula {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 14px 0;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.92em;
+    color: var(--text);
+    overflow-x: auto;
+    line-height: 1.5;
+  }
+  .formula .var { color: var(--accent); }
+  .formula .op { color: var(--text-muted); }
+  .formula .unit { color: var(--green); }
+  .formula .comment { color: var(--text-muted); font-style: italic; }
+
+  .source {
+    font-size: 0.82em;
+    color: var(--text-muted);
+    margin-top: 10px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+  }
+  .source a {
+    color: var(--text-muted);
+    text-decoration: none;
+    border-bottom: 1px dashed var(--text-muted);
+  }
+  .source a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .caveat {
+    background: rgba(210, 153, 34, 0.06);
+    border-left: 3px solid var(--orange);
+    padding: 10px 14px;
+    margin: 14px 0;
+    border-radius: 0 8px 8px 0;
+    font-size: 0.93em;
+  }
+  .caveat strong { color: var(--orange); }
+  .caveat.green {
+    background: rgba(63, 185, 80, 0.06);
+    border-left-color: var(--green);
+  }
+  .caveat.green strong { color: var(--green); }
+
+  code.inline {
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    color: var(--accent);
+  }
+
+  /* Changelog */
+  .changelog-entry {
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .changelog-entry:last-child { border-bottom: none; }
+  .changelog-date {
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.82em;
+    color: var(--text-muted);
+    margin-right: 10px;
+  }
+  .changelog-title {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  /* Site chrome — matches analysis.html */
+  .site-nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 16px 24px;
+    border-bottom: 1px solid rgba(108,180,238,0.06);
+    flex-wrap: wrap;
+  }
+  .site-nav a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #aaa;
+    text-decoration: none;
+    border: 1px solid transparent;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .site-nav a:hover {
+    border-color: rgba(108,180,238,0.2);
+    color: #6cb4ee;
+  }
+  .site-nav .nav-brand {
+    font-weight: 700;
+    color: #fff;
+    font-size: 15px;
+    margin-right: 8px;
+  }
+  .site-nav .nav-brand .accent { color: #6cb4ee; }
+  .site-nav .nav-brand:hover { border-color: transparent; color: #fff; }
+  .site-nav-icon {
+    width: 24px;
+    height: 28px;
+    filter: drop-shadow(0 0 8px rgba(108,180,238,0.3));
+    vertical-align: middle;
+    margin-right: 4px;
+  }
+  .site-footer {
+    text-align: center;
+    padding: 32px 24px;
+    border-top: 1px solid rgba(108,180,238,0.06);
+    font-size: 13px;
+    color: #444;
+    margin-top: 20px;
+  }
+  .site-footer a { color: #555; text-decoration: none; }
+  .site-footer a:hover { color: #6cb4ee; }
+  header .site-footer-links a { color: #8b949e; }
+  header .site-footer-links a:hover { color: #6cb4ee; }
+  .site-footer-links {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<nav class="site-nav">
+  <a href="https://devpadapp.com/anubis-oss.html" class="nav-brand"><img src="https://github.com/user-attachments/assets/4369ce8d-8f3a-4502-9c49-6f3a82372e00" alt="Anubis" class="site-nav-icon"><span class="accent">Anubis</span> OSS</a>
+  <a href="https://github.com/uncSoft/anubis-oss/releases/latest">Download</a>
+  <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+  <a href="https://devpadapp.com/leaderboard.html">Leaderboard</a>
+  <a href="https://uncsoft.github.io/anubis-oss/analysis.html">Analysis</a>
+  <a href="https://ko-fi.com/jtatuncsoft/tip">Support</a>
+</nav>
+
+<header>
+  <h1>Methodology</h1>
+  <p>How every number Anubis displays is computed, with the source code that produces it. If a measurement isn&rsquo;t clearly defined, it isn&rsquo;t trustworthy &mdash; so this page lists the formula, the units, and the caveats for each metric, and links to the exact file and line in the open-source repo.</p>
+  <div class="site-footer-links" style="margin-top: 16px;">
+    <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+    <a href="https://uncsoft.github.io/anubis-oss/analysis.html">Analysis</a>
+    <a href="https://devpadapp.com/leaderboard.html">Leaderboard</a>
+    <a href="#changelog">Changelog</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="toc">
+    <h3>Contents</h3>
+    <ul>
+      <li><a href="#tps-output">Output tok/s</a></li>
+      <li><a href="#tps-prefill">Prefill tok/s</a></li>
+      <li><a href="#ttft">Time to first token</a></li>
+      <li><a href="#reasoning">Reasoning / thinking split</a></li>
+      <li><a href="#energy">Energy per token (J/tok)</a></li>
+      <li><a href="#power">Power sampling (IOReport)</a></li>
+      <li><a href="#gpu-freq">GPU frequency + P-state residency</a></li>
+      <li><a href="#cpu">CPU utilization (E/P split)</a></li>
+      <li><a href="#memory">Memory accounting</a></li>
+      <li><a href="#chip">Chip + Mac model detection</a></li>
+      <li><a href="#not-measured">What we don&rsquo;t measure</a></li>
+      <li><a href="#changelog">Changelog</a></li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="tps-output">Output tokens/second <a href="#tps-output" class="anchor">#</a></h2>
+    <div class="subtitle">The headline number. How fast the model emits visible output tokens.</div>
+
+    <div class="formula">
+<span class="comment">// generation tok/s, excluding any thinking/reasoning phase</span>
+output_tokens_per_second = <span class="var">outputTokens</span> <span class="op">/</span> <span class="var">outputEvalDuration</span>
+
+<span class="var">outputTokens</span>       = max(0, <span class="var">completionTokens</span> - <span class="var">reasoningTokens</span>)
+<span class="var">outputEvalDuration</span>  = max(0, <span class="var">evalDuration</span>    - <span class="var">reasoningDuration</span>)
+    </div>
+
+    <p>For reasoning-capable models (DeepSeek-R1, Qwen3-thinking, etc.), thinking tokens and the time spent producing them are subtracted from the denominator and numerator. The displayed tok/s is the rate of <em>visible</em> output, which is what users actually wait for.</p>
+
+    <p>For non-reasoning models, <code class="inline">reasoningTokens</code> is 0 and <code class="inline">reasoningDuration</code> is 0, so the formula reduces to the conventional <code class="inline">completionTokens / evalDuration</code>.</p>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/InferenceChunk.swift#L114">InferenceChunk.swift:114</a></div>
+
+    <div class="caveat"><strong>Caveat &mdash;</strong> backends report token counts and durations differently. Ollama&rsquo;s <code class="inline">eval_count</code> / <code class="inline">eval_duration</code> from <code class="inline">/api/chat</code> is the source of truth when available. OpenAI-compatible endpoints don&rsquo;t always return token counts, in which case Anubis falls back to counting streamed chunks and measuring wall time client-side, which slightly underestimates true tok/s due to network round-trip overhead.</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="tps-prefill">Prefill tokens/second <a href="#tps-prefill" class="anchor">#</a></h2>
+    <div class="subtitle">How fast the model ingests the input prompt &mdash; usually the bottleneck on long contexts.</div>
+
+    <div class="formula">
+prefill_tokens_per_second = <span class="var">promptTokens</span> <span class="op">/</span> <span class="var">promptEvalDuration</span>
+    </div>
+
+    <p>Reported separately from output tok/s because the two phases have wildly different characteristics on Apple Silicon: prefill is compute-bound and benefits from wide GPU arrays, while generation is memory-bandwidth-bound. A chip that decodes at 30 tok/s might prefill at 1,000+ tok/s &mdash; or vice versa.</p>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/InferenceChunk.swift#L128">InferenceChunk.swift:128</a></div>
+
+    <div class="caveat"><strong>Caveat &mdash;</strong> prefill rate depends heavily on prompt length and on whether the backend has a KV cache hit. A 100-token prompt and a 100,000-token prompt won&rsquo;t produce comparable prefill rates. The <a href="https://uncsoft.github.io/anubis-oss/analysis.html">analysis page</a> reports the top prefill rates as observed but they should be read alongside the prompt length, which varies per submission. A dedicated prefill-curve mode (sweeping context length) is on the <a href="https://github.com/uncSoft/anubis-oss">roadmap</a>.</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="ttft">Time to first token (TTFT) <a href="#ttft" class="anchor">#</a></h2>
+    <div class="subtitle">Wall-clock seconds from request send to first output chunk arrival.</div>
+
+    <div class="formula">
+TTFT = <span class="var">first_chunk_arrival_time</span> <span class="op">-</span> <span class="var">request_send_time</span>
+     <span class="comment">// measured client-side, in the Anubis app process</span>
+    </div>
+
+    <p>TTFT is end-to-end from the user&rsquo;s perspective: it includes everything &mdash; tokenisation, KV cache setup, prefill, and any network round-trip to the local backend on its loopback port. A high TTFT on a long prompt is mostly prefill; on a short prompt it&rsquo;s mostly model load + cache setup.</p>
+
+    <p>For reasoning models, TTFT is the time to the <em>first visible</em> output chunk &mdash; not the first thinking token. If a model thinks for 30 seconds before producing visible output, that 30 seconds is in the TTFT.</p>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/BenchmarkSession.swift#L43">BenchmarkSession.swift:43</a> (field), captured in <code class="inline">BenchmarkViewModel</code> at the moment the first <code class="inline">InferenceChunk</code> with visible content arrives.</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="reasoning">Reasoning / thinking split <a href="#reasoning" class="anchor">#</a></h2>
+    <div class="subtitle">For models that emit a separate thinking phase before visible output.</div>
+
+    <div class="formula">
+reasoning_tokens_per_second = <span class="var">reasoningTokens</span> <span class="op">/</span> <span class="var">reasoningDuration</span>
+    </div>
+
+    <p>Thinking tokens are accounted separately so a model that thinks for 30 seconds then emits 100 visible tokens isn&rsquo;t penalised in the output tok/s figure. Three rates are tracked: <strong>prefill</strong> (input ingestion), <strong>reasoning</strong> (thinking phase, if any), and <strong>output</strong> (visible generation).</p>
+
+    <p>Detection depends on the backend exposing a thinking signal. For Ollama, the <code class="inline">thinking</code> field on the chunk and the <code class="inline">think</code> request parameter are used. For OpenAI-compatible endpoints, only models that surface thinking via a structured field (e.g. <code class="inline">reasoning_content</code>) are split.</p>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/InferenceChunk.swift#L105">InferenceChunk.swift:105</a> (split formulas), <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/BenchmarkSession.swift#L180">BenchmarkSession.swift:180</a> (only populated when reasoning is non-zero).</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="energy">Energy per token (J/tok) <a href="#energy" class="anchor">#</a></h2>
+    <div class="subtitle">Joules of system power consumed per visible output token. Anubis&rsquo;s efficiency headline.</div>
+
+    <div class="formula">
+J_per_token = <span class="var">avgSystemPowerWatts</span> <span class="op">/</span> <span class="var">tokensPerSecond</span>
+
+  <span class="comment">// W &divide; (tok/s) = (J/s) &divide; (tok/s) = J/tok</span>
+    </div>
+
+    <p>System power is the all-domain SoC reading from IOReport (GPU + CPU clusters + ANE + DRAM + uncore). <code class="inline">tokensPerSecond</code> is the session-level output rate from the formula above &mdash; thinking phase excluded.</p>
+
+    <p>Computed once at session completion from the two session-level aggregates, <em>not</em> by averaging per-sample power/tps ratios. Per-sample averaging biases the result high because each sample divides by a cumulative tok/s that is artificially low early in generation (the warm-up samples dominate the arithmetic mean). See changelog entry for issue #22 below for the full story.</p>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/BenchmarkSession.swift#L193">BenchmarkSession.swift:193</a></div>
+
+    <div class="caveat green"><strong>Note &mdash;</strong> the per-sample running J/tok estimate is still computed and stored for the time-series chart (it&rsquo;s genuinely useful to see efficiency evolve during generation). But the session aggregate that goes on the leaderboard uses the principled formula above.</div>
+
+    <div class="caveat"><strong>Caveat &mdash;</strong> system power includes the cost of whatever else the Mac is doing while the benchmark runs &mdash; background indexing, browser tabs, Bluetooth, the display. To minimise this, run benchmarks with other apps closed and the display dimmed. The leaderboard reflects measured power, not idealised power.</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="power">Power sampling (IOReport) <a href="#power" class="anchor">#</a></h2>
+    <div class="subtitle">Per-component watts via Apple&rsquo;s private IOReport API.</div>
+
+    <p>Anubis subscribes to two IOReport channel groups: <strong>Energy Model</strong> (per-component power) and <strong>GPU Stats / GPU Performance States</strong> (frequency residency). The API is private but stable across recent macOS versions, loaded via <code class="inline">dlsym</code> against <code class="inline">/usr/lib/libIOReport.dylib</code> &mdash; the same approach used by asitop, mactop, and macmon.</p>
+
+    <p>Power channels exposed:</p>
+    <ul>
+      <li><strong>GPU</strong> &mdash; graphics cluster power (W)</li>
+      <li><strong>CPU</strong> &mdash; aggregated P-cluster + E-cluster power (W)</li>
+      <li><strong>ANE</strong> &mdash; Neural Engine power (W; typically near zero for LLMs, which run on GPU)</li>
+      <li><strong>DRAM</strong> &mdash; memory subsystem power (W)</li>
+      <li><strong>System</strong> &mdash; total SoC power summed across the channels above (W)</li>
+    </ul>
+
+    <p><strong>Sample cadence:</strong> 2 Hz default (500 ms), reduced to 1 Hz when the app is idle (no active benchmark) to save battery. Each sample is a delta over the previous one &mdash; the IOReport API returns cumulative energy counters which Anubis differences to derive instantaneous power.</p>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Integrations/IOReportBridge.swift">IOReportBridge.swift</a> (subscription + sampling), <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Services/MetricsService.swift#L212">MetricsService.swift:212</a> (cadence)</div>
+
+    <div class="caveat"><strong>Caveat &mdash;</strong> IOReport readings are what the SoC fabric reports, not external wall-meter measurements. They&rsquo;re accurate for relative comparisons across runs on the same machine, and consistent across machines of the same chip generation, but should not be treated as calibrated absolute wall-power. Display, fans, and Thunderbolt accessories are not included.</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="gpu-freq">GPU frequency + P-state residency <a href="#gpu-freq" class="anchor">#</a></h2>
+    <div class="subtitle">Effective GPU clock and time spent in each performance state.</div>
+
+    <p>The GPU runs at one of N discrete frequencies (P-states), set dynamically by the SoC. Anubis reads the residency counter for each state from the IOReport <strong>GPU Stats</strong> channel (channel name <code class="inline">GPUPH</code>), and the frequency table from IORegistry. Effective GPU frequency over a sample window is the residency-weighted mean:</p>
+
+    <div class="formula">
+effective_freq = &Sigma; (<span class="var">freq[i]</span> &times; <span class="var">residency[i]</span>) <span class="op">/</span> &Sigma; <span class="var">residency[i]</span>
+    </div>
+
+    <p>The full per-state distribution is captured per sample &mdash; you can see whether the GPU is sitting in its highest P-state under load (good) or bouncing between mid states (thermally constrained or memory-stalled).</p>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Integrations/IOReportBridge.swift#L115">IOReportBridge.swift:115</a> (channel setup), <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/SystemMetrics.swift#L83">SystemMetrics.swift</a> (P-state distribution field)</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="cpu">CPU utilization (E/P split) <a href="#cpu" class="anchor">#</a></h2>
+    <div class="subtitle">Per-core utilization with E-core / P-core differentiation.</div>
+
+    <p>Per-core ticks are read via <code class="inline">host_processor_info(PROCESSOR_CPU_LOAD_INFO)</code>. Utilization for each core over a sample window is:</p>
+
+    <div class="formula">
+utilization = (<span class="var">&Delta;user</span> <span class="op">+</span> <span class="var">&Delta;system</span> <span class="op">+</span> <span class="var">&Delta;nice</span>) <span class="op">/</span> (<span class="var">&Delta;user</span> <span class="op">+</span> <span class="var">&Delta;system</span> <span class="op">+</span> <span class="var">&Delta;idle</span> <span class="op">+</span> <span class="var">&Delta;nice</span>)
+    </div>
+
+    <p>Cores are classified as <strong>efficiency</strong> or <strong>performance</strong> using the chip&rsquo;s reported <code class="inline">hw.perflevel0.logicalcpu</code> and <code class="inline">hw.perflevel1.logicalcpu</code> from <code class="inline">sysctl</code>. On Apple Silicon the convention is E-cores first (indices 0&hellip;eCores-1), then P-cores.</p>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Services/MetricsService.swift#L117">MetricsService.swift:117</a></div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="memory">Memory accounting <a href="#memory" class="anchor">#</a></h2>
+    <div class="subtitle">Two figures are tracked separately: backend-process memory and system-wide memory.</div>
+
+    <p><strong>Backend process memory</strong> uses <code class="inline">phys_footprint</code> via <code class="inline">proc_pid_rusage</code>, which matches the &ldquo;Memory&rdquo; column in Activity Monitor and crucially <em>includes</em> Metal GPU buffer allocations. The basic <code class="inline">pti_resident_size</code> alternative undercounts because GPU buffers are mapped out of the process&rsquo;s resident set.</p>
+
+    <p>For backends that span multiple processes (LM Studio is an Electron app with many Node helpers; Ollama runs a parent <code class="inline">ollama</code> plus a worker per model), Anubis aggregates two ways:</p>
+    <ol>
+      <li><strong>App-bundle aggregation</strong> &mdash; if the backend lives inside a <code class="inline">.app</code> bundle, sum <code class="inline">phys_footprint</code> across <em>every</em> running process whose path is under that bundle. Catches scattered Electron helpers and embedded servers regardless of parent-child relationship.</li>
+      <li><strong>Descendant walk</strong> &mdash; for CLI-style backends (raw <code class="inline">llama.cpp</code>, Python servers), recursively walk descendants from the root PID and sum <code class="inline">phys_footprint</code>.</li>
+    </ol>
+
+    <p><strong>System-wide memory</strong> is reported separately, via <code class="inline">host_statistics64(HOST_VM_INFO64)</code> as <code class="inline">(active + wired + compressed) &times; page_size</code>. This matches Activity Monitor&rsquo;s &ldquo;Memory Used&rdquo; figure and represents pressure on the entire machine, not just the backend.</p>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Integrations/ProcessMonitor.swift#L695">ProcessMonitor.swift:695</a> (per-process), <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Services/MetricsService.swift#L101">MetricsService.swift:101</a> (system-wide)</div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="chip">Chip + Mac model detection <a href="#chip" class="anchor">#</a></h2>
+    <div class="subtitle">How the leaderboard knows what machine ran a benchmark.</div>
+
+    <p>Chip metadata comes from <code class="inline">sysctl</code>: brand string (<code class="inline">machdep.cpu.brand_string</code>), performance-core count (<code class="inline">hw.perflevel0.logicalcpu</code>), efficiency-core count (<code class="inline">hw.perflevel1.logicalcpu</code>), and total RAM (<code class="inline">ProcessInfo.processInfo.physicalMemory</code>). GPU core count is detected via IOKit. ANE core count and memory bandwidth come from a chip-name lookup table (architectural values that aren&rsquo;t exposed by any API).</p>
+
+    <p>The Mac model marketing name (e.g. &ldquo;MacBook Pro (14-inch, M4, Nov 2024)&rdquo;) is resolved from <code class="inline">hw.model</code> (e.g. <code class="inline">Mac16,1</code>) via a four-tier lookup:</p>
+    <ol>
+      <li>Local hardcoded table (sourced from <a href="https://github.com/TelemetryDeck/AppleModelNames">TelemetryDeck/AppleModelNames</a>, updated each Mac release).</li>
+      <li>Cached remote lookup (disk cache of a previous remote fetch).</li>
+      <li>One-shot remote fetch on first launch for an unknown model (TelemetryDeck dataset).</li>
+      <li>Fallback to IORegistry <code class="inline">product-name</code>, then the raw <code class="inline">hw.model</code> identifier.</li>
+    </ol>
+
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/SystemMetrics.swift#L234">SystemMetrics.swift:234</a></div>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="not-measured">What we don&rsquo;t measure (yet) <a href="#not-measured" class="anchor">#</a></h2>
+    <div class="subtitle">Honesty about the edges. These are known gaps.</div>
+
+    <ul>
+      <li><strong>Output quality.</strong> Anubis measures speed, energy, and resource cost &mdash; not whether the model&rsquo;s answer is correct. For quality, use <a href="https://github.com/EleutherAI/lm-evaluation-harness"><code class="inline">lm-evaluation-harness</code></a> alongside.</li>
+      <li><strong>Statistical rigor on single runs.</strong> One run = one number, no confidence interval. The leaderboard is a population of individual runs, not a multi-run aggregate per submission. N-runs-with-CI mode is on the roadmap.</li>
+      <li><strong>Speculative decoding details.</strong> When a backend uses spec-decoding internally, Anubis sees the effective tok/s but not the draft acceptance rate. Native A/B mode planned.</li>
+      <li><strong>Wall-meter power.</strong> IOReport reports SoC fabric power; display, fans, and Thunderbolt accessories aren&rsquo;t included.</li>
+      <li><strong>Network costs.</strong> When the backend is over the network rather than localhost, TTFT and tok/s include round-trip overhead. Anubis doesn&rsquo;t separate them.</li>
+      <li><strong>Cross-run determinism.</strong> Default sampler params include non-zero temperature, so two runs of the same prompt produce different output. Set temperature to 0 and pin a seed if you need byte-identical runs (manifest support planned).</li>
+    </ul>
+  </div>
+
+  <!-- ============================================================ -->
+  <div class="section">
+    <h2 id="changelog">Changelog <a href="#changelog" class="anchor">#</a></h2>
+    <div class="subtitle">Material changes to how metrics are computed are listed here. If you&rsquo;ve cited an Anubis number in a video, blog post, or paper, this is where to check whether the definition has drifted.</div>
+
+    <div class="changelog-entry">
+      <div><span class="changelog-date">2026-05-21</span> <span class="changelog-title">Energy-per-token bias fix (issue <a href="https://github.com/uncSoft/anubis-oss/issues/22">#22</a>)</span></div>
+      <p style="margin-top: 8px;">Two related corrections shipped together (commit <a href="https://github.com/uncSoft/anubis-oss/commit/b904914"><code class="inline">b904914</code></a>):</p>
+      <ol style="margin-top: 8px;">
+        <li><strong>Unit label.</strong> The value <code class="inline">power &divide; tok/s</code> was displayed as &ldquo;W/Tk&rdquo; throughout the UI, reports, and exports. Dimensional analysis: W &divide; (tok/s) = (J/s) &divide; (tok/s) = <strong>J/tok</strong>, not W/tok. All user-facing labels corrected to J/Tk / J/tok / Energy per Token. Database column names (<code class="inline">watts_per_token</code>, <code class="inline">avg_watts_per_token</code>) and CSV/JSON export keys are unchanged for downstream compatibility with prior submissions.</li>
+        <li><strong>Aggregate formula.</strong> Previously, the session-level energy-per-token figure was the arithmetic mean of per-sample ratios, where each sample divided <code class="inline">systemPower</code> by <code class="inline">cumulativeTokensPerSecond</code>. Early-generation samples have an artificially low cumulative tok/s (still ramping up), inflating their per-sample ratio. Averaging biased the session aggregate roughly 40% high. Now computed as <code class="inline">avgSystemPower &divide; tokensPerSecond</code> directly from session-level aggregates, which matches the physically meaningful J/tok and the value users can derive from the displayed avg power and avg tok/s.</li>
+      </ol>
+      <p style="margin-top: 8px;"><strong>Impact:</strong> sessions logged before this fix retain their previously-stored (inflated) J/tok value in the local DB; new runs use the corrected formula. Leaderboard rows from prior versions will gradually be displaced by corrected entries as users re-run. The leaderboard does not retroactively rewrite history.</p>
+      <p style="margin-top: 8px;">Credit to <a href="https://github.com/taozhiyuai">@taozhiyuai</a> for the thorough bug report including the dimensional analysis and a 44% reproducible discrepancy.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="site-footer">
+  <p>Anubis OSS &mdash; open-source LLM benchmark for Apple Silicon &middot; <a href="https://github.com/uncSoft/anubis-oss">GitHub</a></p>
+</div>
+
+</body>
+</html>

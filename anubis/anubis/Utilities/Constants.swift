@@ -18,6 +18,7 @@ enum Constants {
         static let website = URL(string: "https://devpadapp.com/anubis-oss.html")!
         static let leaderboardAPI = URL(string: "https://devpadapp.com/anubis/api/")!
         static let leaderboardPage = URL(string: "https://devpadapp.com/leaderboard.html")!
+        static let methodology = URL(string: "https://uncsoft.github.io/anubis-oss/methodology.html")!
 
         /// Safely parse a URL string with a fallback
         static func parse(_ string: String, fallback: URL) -> URL {

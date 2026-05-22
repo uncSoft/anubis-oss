@@ -596,6 +596,12 @@ struct SettingsView: View {
                 }
 
                 Button {
+                    NSWorkspace.shared.open(Constants.URLs.methodology)
+                } label: {
+                    Label("How Metrics Are Computed", systemImage: "function")
+                }
+
+                Button {
                     showContact = true
                 } label: {
                     Label("Report a Bug", systemImage: "ladybug")
