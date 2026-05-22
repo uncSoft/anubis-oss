@@ -134,7 +134,18 @@ struct BenchmarkView: View {
         }
         .sheet(isPresented: $showLeaderboardUpload) {
             if let session = viewModel.currentSession {
-                LeaderboardUploadView(session: session)
+                LeaderboardUploadView(
+                    session: session,
+                    group: viewModel.currentRunGroup,
+                    // While the group is mid-run, currentRepetitionIndex
+                    // is the 1-based active rep. After completion it's
+                    // reset to 0, in which case currentSession is the
+                    // most recent (last) rep — use completedRepetitions
+                    // for that index.
+                    repetitionIndex: viewModel.currentRepetitionIndex > 0
+                        ? viewModel.currentRepetitionIndex
+                        : viewModel.currentRunGroup?.completedRepetitions
+                )
             }
         }
         .sheet(isPresented: $viewModel.showPullSheet) {
@@ -1667,7 +1678,18 @@ struct ExpandedMetricsView: View {
         }
         .sheet(isPresented: $showLeaderboardUpload) {
             if let session = viewModel.currentSession {
-                LeaderboardUploadView(session: session)
+                LeaderboardUploadView(
+                    session: session,
+                    group: viewModel.currentRunGroup,
+                    // While the group is mid-run, currentRepetitionIndex
+                    // is the 1-based active rep. After completion it's
+                    // reset to 0, in which case currentSession is the
+                    // most recent (last) rep — use completedRepetitions
+                    // for that index.
+                    repetitionIndex: viewModel.currentRepetitionIndex > 0
+                        ? viewModel.currentRepetitionIndex
+                        : viewModel.currentRunGroup?.completedRepetitions
+                )
             }
         }
     }

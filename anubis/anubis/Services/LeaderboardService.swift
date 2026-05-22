@@ -89,6 +89,29 @@ struct LeaderboardSubmission: Codable {
     ///   true SoC energy per token.
     let methodologyVersion: Int
 
+    // MARK: - Run-group context (Phase 1.2)
+    //
+    // Optional metadata attached to a submission when the session is part
+    // of an N-rep group. The server is free to ignore these fields today
+    // — JSON decoders skip unknown keys — but the data ships now so once
+    // server-side aggregation lands, historical submissions already carry
+    // their group context. `runGroupId` + `machineId` together uniquely
+    // identify a group across the leaderboard population.
+    let runGroupId: Int64?
+    let groupSampleCount: Int?
+    let groupRepetitionIndex: Int?      // 1-based position of this rep
+    let groupSeedStrategy: String?      // "random" | "fixed"
+    let groupMeanTokensPerSecond: Double?
+    let groupStdevTokensPerSecond: Double?
+    let groupCiLowTokensPerSecond: Double?
+    let groupCiHighTokensPerSecond: Double?
+    let groupMeanTimeToFirstToken: Double?
+    let groupCiLowTimeToFirstToken: Double?
+    let groupCiHighTimeToFirstToken: Double?
+    let groupMeanWattsPerToken: Double?
+    let groupCiLowWattsPerToken: Double?
+    let groupCiHighWattsPerToken: Double?
+
     enum CodingKeys: String, CodingKey {
         case machineId = "machine_id"
         case displayName = "display_name"
@@ -135,6 +158,20 @@ struct LeaderboardSubmission: Codable {
         case chipMacModel = "chip_mac_model"
         case chipMacModelId = "chip_mac_model_id"
         case methodologyVersion = "methodology_version"
+        case runGroupId = "run_group_id"
+        case groupSampleCount = "group_sample_count"
+        case groupRepetitionIndex = "group_repetition_index"
+        case groupSeedStrategy = "group_seed_strategy"
+        case groupMeanTokensPerSecond = "group_mean_tokens_per_second"
+        case groupStdevTokensPerSecond = "group_stdev_tokens_per_second"
+        case groupCiLowTokensPerSecond = "group_ci_low_tokens_per_second"
+        case groupCiHighTokensPerSecond = "group_ci_high_tokens_per_second"
+        case groupMeanTimeToFirstToken = "group_mean_time_to_first_token"
+        case groupCiLowTimeToFirstToken = "group_ci_low_time_to_first_token"
+        case groupCiHighTimeToFirstToken = "group_ci_high_time_to_first_token"
+        case groupMeanWattsPerToken = "group_mean_watts_per_token"
+        case groupCiLowWattsPerToken = "group_ci_low_watts_per_token"
+        case groupCiHighWattsPerToken = "group_ci_high_watts_per_token"
     }
 }
 
@@ -229,7 +266,12 @@ actor LeaderboardService {
 
     // MARK: - Submit
 
-    func submit(session benchmarkSession: BenchmarkSession, displayName: String) async throws -> SubmitResponse {
+    func submit(
+        session benchmarkSession: BenchmarkSession,
+        displayName: String,
+        group: BenchmarkRunGroup? = nil,
+        repetitionIndex: Int? = nil
+    ) async throws -> SubmitResponse {
         guard benchmarkSession.status == .completed else {
             throw AnubisError.leaderboardError(reason: "Only completed benchmarks can be uploaded")
         }
@@ -286,7 +328,21 @@ actor LeaderboardService {
             chipBandwidthGbs: chip.memoryBandwidthGBs,
             chipMacModel: chip.macModel,
             chipMacModelId: chip.macModelIdentifier,
-            methodologyVersion: Self.methodologyVersion
+            methodologyVersion: Self.methodologyVersion,
+            runGroupId: group?.id,
+            groupSampleCount: group?.sampleCount,
+            groupRepetitionIndex: repetitionIndex,
+            groupSeedStrategy: group?.seedStrategy.rawValue,
+            groupMeanTokensPerSecond: group?.meanTokensPerSecond,
+            groupStdevTokensPerSecond: group?.stdevTokensPerSecond,
+            groupCiLowTokensPerSecond: group?.ciLowTokensPerSecond,
+            groupCiHighTokensPerSecond: group?.ciHighTokensPerSecond,
+            groupMeanTimeToFirstToken: group?.meanTimeToFirstToken,
+            groupCiLowTimeToFirstToken: group?.ciLowTimeToFirstToken,
+            groupCiHighTimeToFirstToken: group?.ciHighTimeToFirstToken,
+            groupMeanWattsPerToken: group?.meanWattsPerToken,
+            groupCiLowWattsPerToken: group?.ciLowWattsPerToken,
+            groupCiHighWattsPerToken: group?.ciHighWattsPerToken
         )
 
         let bodyData = try JSONEncoder().encode(submission)

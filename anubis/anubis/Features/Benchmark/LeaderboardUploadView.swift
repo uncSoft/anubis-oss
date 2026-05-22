@@ -9,6 +9,11 @@ import SwiftUI
 
 struct LeaderboardUploadView: View {
     let session: BenchmarkSession
+    /// When the session is part of an N-rep group, this is the parent
+    /// group and the 1-based rep index. Drives the banner and ships the
+    /// group context along with the submission payload.
+    let group: BenchmarkRunGroup?
+    let repetitionIndex: Int?
 
     @State private var displayName: String
     @State private var uploading = false
@@ -18,8 +23,10 @@ struct LeaderboardUploadView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    init(session: BenchmarkSession) {
+    init(session: BenchmarkSession, group: BenchmarkRunGroup? = nil, repetitionIndex: Int? = nil) {
         self.session = session
+        self.group = group
+        self.repetitionIndex = repetitionIndex
         let saved = UserDefaults.standard.string(forKey: Constants.UserDefaultsKeys.leaderboardDisplayName) ?? ""
         _displayName = State(initialValue: saved)
     }
@@ -49,7 +56,7 @@ struct LeaderboardUploadView: View {
                 formView
             }
         }
-        .frame(width: 420, height: 380)
+        .frame(width: 420, height: group != nil ? 440 : 380)
     }
 
     // MARK: - Form
@@ -112,6 +119,10 @@ struct LeaderboardUploadView: View {
                                 .strokeBorder(Color.cardBorder, lineWidth: 1)
                         }
                 }
+            }
+
+            if let group, group.sampleCount ?? 0 > 1 {
+                groupContextBanner(group: group)
             }
 
             // Display name
@@ -218,6 +229,57 @@ struct LeaderboardUploadView: View {
         .padding(Spacing.md)
     }
 
+    // MARK: - Group context banner
+
+    /// Compact card shown above the display-name field when the session
+    /// being uploaded is one rep in an N-rep group. Surfaces the group's
+    /// mean and 95% CI so the user knows the wider context of the single
+    /// row they're about to submit — and so they can verify the rep they
+    /// picked is reasonably representative.
+    private func groupContextBanner(group: BenchmarkRunGroup) -> some View {
+        let count = group.sampleCount ?? group.completedRepetitions
+        let header: String
+        if let idx = repetitionIndex {
+            header = "Rep \(idx) of \(count) in this group"
+        } else {
+            header = "Part of an \(count)-rep group"
+        }
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.caption)
+                    .foregroundStyle(.blue)
+                Text(header)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+
+            if let mean = group.meanTokensPerSecond,
+               let low = group.ciLowTokensPerSecond,
+               let high = group.ciHighTokensPerSecond {
+                Text(String(format: "Group mean: %.2f tok/s · 95%% CI [%.2f – %.2f]", mean, low, high))
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Submission includes group context (id, mean, CI) so future leaderboard views can show the whole group's spread alongside this rep.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: CornerRadius.md)
+                .fill(Color.blue.opacity(0.08))
+                .overlay {
+                    RoundedRectangle(cornerRadius: CornerRadius.md)
+                        .strokeBorder(Color.blue.opacity(0.25), lineWidth: 1)
+                }
+        }
+    }
+
     // MARK: - Upload
 
     private func upload() {
@@ -233,7 +295,12 @@ struct LeaderboardUploadView: View {
         Task {
             do {
                 let service = LeaderboardService()
-                let response = try await service.submit(session: session, displayName: trimmed)
+                let response = try await service.submit(
+                    session: session,
+                    displayName: trimmed,
+                    group: group,
+                    repetitionIndex: repetitionIndex
+                )
                 await MainActor.run {
                     submissionId = response.id
                     uploaded = true
