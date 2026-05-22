@@ -159,8 +159,13 @@ final class BenchmarkViewModel: ObservableObject {
     }
     @Published var groupViewMode: GroupViewMode = .fullGroup
 
-    /// Current real-time metrics during benchmark
-    @Published private(set) var currentMetrics: SystemMetrics?
+    /// Current real-time metrics during benchmark.
+    /// Demoted from @Published — coalesced into notifyMetricsBatchChanged()
+    /// alongside latestPerCoreSnapshot, perCoreData, and debugState so that
+    /// per-sample subscription updates fire ONE objectWillChange.send()
+    /// per tick instead of 3-4. In group streaming this is further
+    /// throttled to ~1Hz to keep MainActor free for text flush.
+    private(set) var currentMetrics: SystemMetrics?
 
     /// Accumulated response text (internal only — views observe responseTextStore instead)
     private var responseText = ""
@@ -293,8 +298,9 @@ final class BenchmarkViewModel: ObservableObject {
         }
     }
 
-    /// Debug inspector state
-    @Published private(set) var debugState = DebugInspectorState()
+    /// Debug inspector state — demoted from @Published, see
+    /// notifyMetricsBatchChanged for the coalescing strategy.
+    private(set) var debugState = DebugInspectorState()
 
     /// Available processes for custom selection
     @Published private(set) var candidateProcesses: [ProcessCandidate] = []
@@ -315,17 +321,21 @@ final class BenchmarkViewModel: ObservableObject {
     /// entire view hierarchy (especially text streaming) on every chart update.
     let chartStore = BenchmarkChartStore()
 
-    /// Per-core utilization data (live-only, not persisted)
-    @Published private(set) var perCoreData: PerCoreChartData = .empty
+    /// Per-core utilization data (live-only, not persisted).
+    /// Demoted from @Published — see notifyMetricsBatchChanged.
+    private(set) var perCoreData: PerCoreChartData = .empty
 
-    /// Latest per-core snapshot for the inline grid
-    @Published private(set) var latestPerCoreSnapshot: [CoreUtilization] = []
+    /// Latest per-core snapshot for the inline grid.
+    /// Demoted from @Published — see notifyMetricsBatchChanged.
+    private(set) var latestPerCoreSnapshot: [CoreUtilization] = []
 
-    /// GPU detail data for the GPU detail pop-out window
-    @Published private(set) var gpuDetailData: GPUDetailData = .empty
+    /// GPU detail data for the GPU detail pop-out window.
+    /// Demoted from @Published — see notifyMetricsBatchChanged.
+    private(set) var gpuDetailData: GPUDetailData = .empty
 
-    /// Latest GPU utilization for the inline GPU core grid
-    @Published private(set) var latestGPUUtilization: Double = 0
+    /// Latest GPU utilization for the inline GPU core grid.
+    /// Demoted from @Published — see notifyMetricsBatchChanged.
+    private(set) var latestGPUUtilization: Double = 0
 
     /// Response text lives in a separate observable so metric card @Published
     /// updates don't trigger NSTextView re-evaluation (the #1 streaming bottleneck).
@@ -526,6 +536,9 @@ final class BenchmarkViewModel: ObservableObject {
         // Reset the per-rep throttle anchor so the first sample of the
         // next rep isn't blocked by the floor.
         lastSampleCollectedAt = .distantPast
+        // Same for the metrics-batch notification throttle — first
+        // sample of each rep should always notify.
+        lastMetricsNotificationAt = .distantPast
 
         responseText = ""
         responseTextStore.reset()
@@ -1380,21 +1393,25 @@ final class BenchmarkViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] metrics in
                 guard let self = self else { return }
+                // Mutate the underlying state without firing a cascade
+                // per field — coalesce into a single notification via
+                // notifyMetricsBatchChanged() below. In group streaming
+                // that notification is throttled to ~1Hz so MainActor
+                // stays available for text flush.
                 self.currentMetrics = metrics
-                // Update per-core snapshot from live metrics (even outside benchmark)
                 if let perCore = metrics?.perCoreUtilization, !perCore.isEmpty {
                     self.latestPerCoreSnapshot = perCore
                     if self.isRunning {
                         self.perCoreData.append(snapshot: perCore, at: Date())
                     }
                 }
-                // Update GPU utilization and detail data
                 if let metrics = metrics {
                     self.latestGPUUtilization = metrics.gpuUtilization
                     if self.isRunning {
                         self.gpuDetailData.append(metrics: metrics, at: Date())
                     }
                 }
+                self.notifyMetricsBatchChanged()
             }
     }
 
@@ -1513,6 +1530,28 @@ final class BenchmarkViewModel: ObservableObject {
     /// per batch instead of once per field — collapsing the Core
     /// Animation transactions that were dominating main-thread time.
     private func notifyLiveStatsChanged() {
+        objectWillChange.send()
+    }
+
+    /// Throttle anchor for the metrics-batch notification. Reset in
+    /// resetPerRepState so the first sample of each rep doesn't get
+    /// throttled.
+    private var lastMetricsNotificationAt: Date = .distantPast
+
+    /// Coalesces currentMetrics / latestPerCoreSnapshot / perCoreData /
+    /// debugState mutations into a single objectWillChange.send().
+    /// In group streaming (currentRunGroup running, repetitions > 1)
+    /// throttles to ~1Hz to free MainActor for text flush — otherwise
+    /// at full sample cadence (2Hz). Single-run mode always fires at
+    /// 2Hz since main isn't competing with the group banner / dots.
+    private func notifyMetricsBatchChanged() {
+        let isGroupStreaming = currentRunGroup?.status == .running && repetitions > 1
+        let throttle: TimeInterval = isGroupStreaming ? 1.0 : 0.5
+        let now = Date()
+        if now.timeIntervalSince(lastMetricsNotificationAt) < throttle {
+            return
+        }
+        lastMetricsNotificationAt = now
         objectWillChange.send()
     }
 

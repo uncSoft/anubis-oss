@@ -812,8 +812,12 @@ struct BenchmarkView: View {
            group.status == .running,
            viewModel.currentRepetitionIndex > 0 {
             HStack(spacing: Spacing.sm) {
+                // Static icon — the .symbolEffect(.pulse) animation
+                // forced a continuous Core Animation transaction every
+                // frame on the parent view tree, which competed with
+                // text-flush during group streaming. The per-rep dots
+                // (right side) already convey progress.
                 Image(systemName: "repeat")
-                    .symbolEffect(.pulse, isActive: viewModel.isRunning)
                     .foregroundStyle(Color.chartTokens)
                 Text("Run \(viewModel.currentRepetitionIndex) of \(group.repetitions)")
                     .font(.subheadline.weight(.semibold))
