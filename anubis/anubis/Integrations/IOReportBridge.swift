@@ -139,6 +139,7 @@ final class IOReportBridge {
     private var gpuStatsPrevSample: CFDictionary?
     private var gpuStatsReady: Bool = false
     private var hasLoggedGpuStats: Bool = false
+    private var hasLoggedEnergy: Bool = false
 
     // GPU frequency table from IORegistry (MHz values for each P-state)
     private var gpuFreqTable: [Double] = []
@@ -479,6 +480,7 @@ final class IOReportBridge {
         var cpuEnergy: Int64 = 0
         var aneEnergy: Int64 = 0
         var dramEnergy: Int64 = 0
+        var sawAnyEnergy = false
 
         fns.iterate(delta as NSDictionary) { sample in
             let name = (fns.channelGetChannelName(sample) as String?) ?? ""
@@ -486,24 +488,57 @@ final class IOReportBridge {
 
             if name == "GPU Energy" {
                 gpuEnergy += value
+                if value > 0 { sawAnyEnergy = true }
             } else if name == "ECPU" || name == "PCPU" {
                 cpuEnergy += value
+                if value > 0 { sawAnyEnergy = true }
             } else if name == "ANE" {
                 aneEnergy += value
+                if value > 0 { sawAnyEnergy = true }
             } else if name == "DRAM" {
                 dramEnergy += value
+                if value > 0 { sawAnyEnergy = true }
             }
 
             return 0
         }
 
-        // nJ → W: divide by (interval_s * 1e9)
-        let ns = intervalSeconds * 1_000_000_000.0
+        // Per-channel energy units on Apple Silicon (empirically verified
+        // on M4 against asitop/macmon and confirmed by powermetrics):
+        //   GPU Energy        → nanojoules  → ÷ (interval × 1e9) for W
+        //   ECPU / PCPU       → millijoules → ÷ (interval × 1e3) for W
+        //   ANE               → millijoules → ÷ (interval × 1e3) for W
+        //   DRAM              → millijoules → ÷ (interval × 1e3) for W
+        // Treating the latter three as nJ produced readings ~10⁶× too
+        // small (CPU showed in microwatts instead of watts). If a future
+        // chip changes units the diagnostic log + sanity check below
+        // will surface it.
+        let gpuDivisor = intervalSeconds * 1_000_000_000.0  // nJ → W
+        let mjDivisor  = intervalSeconds * 1_000.0          // mJ → W
+        let computedGpu  = Double(gpuEnergy)  / gpuDivisor
+        let computedCpu  = Double(cpuEnergy)  / mjDivisor
+        let computedAne  = Double(aneEnergy)  / mjDivisor
+        let computedDram = Double(dramEnergy) / mjDivisor
+
+        if !hasLoggedEnergy && sawAnyEnergy {
+            hasLoggedEnergy = true
+            Log.metrics.info("Energy delta (interval=\(intervalSeconds, privacy: .public)s): raw gpu=\(gpuEnergy, privacy: .public)nJ cpu=\(cpuEnergy, privacy: .public)mJ ane=\(aneEnergy, privacy: .public)mJ dram=\(dramEnergy, privacy: .public)mJ → computed gpu=\(computedGpu, privacy: .public)W cpu=\(computedCpu, privacy: .public)W ane=\(computedAne, privacy: .public)W dram=\(computedDram, privacy: .public)W")
+        }
+
+        // Sanity check: Apple Silicon SoC components never exceed ~200W
+        // sustained. If we ever read above that, the unit assumption is
+        // wrong for this chip and we should not pollute the leaderboard
+        // with the bad value.
+        let suspiciouslyHigh = 200.0
+        for (name, value) in [("gpu", computedGpu), ("cpu", computedCpu), ("ane", computedAne), ("dram", computedDram)] where value > suspiciouslyHigh {
+            Log.metrics.warning("Energy channel \(name, privacy: .public) computed \(value, privacy: .public)W — exceeds plausible SoC limit; unit assumption likely wrong on this chip")
+        }
+
         return ParsedPower(
-            gpuPower: Double(gpuEnergy) / ns,
-            cpuPower: Double(cpuEnergy) / ns,
-            anePower: Double(aneEnergy) / ns,
-            dramPower: Double(dramEnergy) / ns
+            gpuPower: computedGpu,
+            cpuPower: computedCpu,
+            anePower: computedAne,
+            dramPower: computedDram
         )
     }
 
