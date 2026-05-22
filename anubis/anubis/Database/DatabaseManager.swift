@@ -432,6 +432,19 @@ final class DatabaseManager {
             )
         }
 
+        // Migration v9: Add GPU power aggregate columns to benchmark_run_group
+        // so the dashboard's Avg GPU Power card can switch between
+        // group-mean and last-rep alongside the other cards. Same shape
+        // as the other per-metric aggregates already on the table.
+        migrator.registerMigration("v9") { db in
+            try db.alter(table: "benchmark_run_group") { t in
+                t.add(column: "mean_gpu_power_watts", .double)
+                t.add(column: "stdev_gpu_power_watts", .double)
+                t.add(column: "ci_low_gpu_power_watts", .double)
+                t.add(column: "ci_high_gpu_power_watts", .double)
+            }
+        }
+
         try migrator.migrate(queue)
     }
 

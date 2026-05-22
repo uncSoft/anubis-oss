@@ -148,6 +148,17 @@ final class BenchmarkViewModel: ObservableObject {
     /// 0 means not currently inside a group.
     @Published private(set) var currentRepetitionIndex: Int = 0
 
+    /// View-mode for the post-completion dashboard. When the user just
+    /// finished a multi-rep group, do the metric cards + detail stats
+    /// show the *group mean* across all reps, or just the *last rep's*
+    /// numbers? Default to .fullGroup so the cards agree with the
+    /// summary-card headline; toggle exposed on the summary card.
+    enum GroupViewMode: String, CaseIterable {
+        case fullGroup    // mean across all reps in the group
+        case lastRep      // last rep's session values (legacy behavior)
+    }
+    @Published var groupViewMode: GroupViewMode = .fullGroup
+
     /// Current real-time metrics during benchmark
     @Published private(set) var currentMetrics: SystemMetrics?
 
@@ -162,10 +173,17 @@ final class BenchmarkViewModel: ObservableObject {
     @Published var showLiveCharts = true
 
     /// Current tokens per second (real-time average)
-    @Published private(set) var currentTokensPerSecond: Double = 0
+    // Per-sample-tick "live stats". Bundled into one notification per
+    // collectSample call rather than 8 separate @Published mutations,
+    // which were causing a Core Animation transaction storm — see the
+    // 2026-05-22 hang sample showing 460 frames in CA::Layer::display_
+    // if_needed driven by repeated @Published cascades on the VM.
+    // Manual objectWillChange.send() is called once per batch via
+    // notifyLiveStatsChanged().
+    private(set) var currentTokensPerSecond: Double = 0
 
     /// Peak tokens per second observed during benchmark
-    @Published private(set) var peakTokensPerSecond: Double = 0
+    private(set) var peakTokensPerSecond: Double = 0
 
     /// Time to first token (live tracking)
     @Published private(set) var timeToFirstToken: TimeInterval?
@@ -174,7 +192,7 @@ final class BenchmarkViewModel: ObservableObject {
     @Published private(set) var prefillTokensPerSecond: Double?
 
     /// Peak memory usage during benchmark
-    @Published private(set) var currentPeakMemory: Int64 = 0
+    private(set) var currentPeakMemory: Int64 = 0
 
     /// Model memory info (from Ollama /api/ps)
     @Published private(set) var modelMemoryTotal: Int64 = 0
@@ -182,19 +200,19 @@ final class BenchmarkViewModel: ObservableObject {
     @Published private(set) var modelMemoryCPU: Int64 = 0
 
     /// Running average GPU power during benchmark
-    @Published private(set) var avgGpuPower: Double = 0
+    private(set) var avgGpuPower: Double = 0
 
     /// Peak GPU power observed during benchmark
-    @Published private(set) var peakGpuPower: Double = 0
+    private(set) var peakGpuPower: Double = 0
 
     /// Running average system power during benchmark
-    @Published private(set) var avgSystemPower: Double = 0
+    private(set) var avgSystemPower: Double = 0
 
     /// Peak system power observed during benchmark
-    @Published private(set) var peakSystemPower: Double = 0
+    private(set) var peakSystemPower: Double = 0
 
     /// Total tokens generated so far
-    @Published private(set) var tokensGenerated = 0
+    private(set) var tokensGenerated = 0
 
     /// Elapsed time since benchmark start
     @Published private(set) var elapsedTime: TimeInterval = 0
@@ -350,6 +368,18 @@ final class BenchmarkViewModel: ObservableObject {
     private var lastChartUpdate: Date = .distantPast
     private let maxChartDataPoints = 250  // Limit chart points to keep rendering fast
 
+    /// Timestamp of the last successfully-collected sample. Used by
+    /// collectSample's throttle floor to collapse backed-up Tasks that
+    /// would otherwise produce sub-400ms gaps and spike the chart's
+    /// instantaneous-tok/s calculation. See [SPIKE BUG] notes.
+    private var lastSampleCollectedAt: Date = .distantPast
+    private let minimumSampleSpacing: TimeInterval = 0.4
+
+    /// [DEBUG] Wall-clock of the last flushTextOnly run, used to detect
+    /// gaps where MainActor was blocked. Expected interval is 0.1s
+    /// (uiUpdateInterval); anything > 0.3s is a meaningful stall.
+    private var lastTextFlushAt: Date = .distantPast
+
     // Lock-protected stream buffers — written by Task.detached consumer, read by UI timer
     private struct StreamBuffers {
         var text: String = ""
@@ -416,6 +446,18 @@ final class BenchmarkViewModel: ObservableObject {
             }
             .store(in: &backendSubscriptions)
 
+        // Reload chart data when the user flips the group view-mode
+        // toggle. Initial value is skipped via dropFirst so this doesn't
+        // fire at startup before any benchmark has run.
+        $groupViewMode
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                Task { await self.reloadChartForCurrentViewMode() }
+            }
+            .store(in: &backendSubscriptions)
+
         // Observe changes to the selected OpenAI config (switching between
         // two OpenAI-compatible backends keeps currentBackend == .openai,
         // so we need a separate subscription to detect config changes)
@@ -474,8 +516,21 @@ final class BenchmarkViewModel: ObservableObject {
     /// Reset per-repetition state. Called at the top of every rep
     /// (both single-run and group runs) so each rep starts clean.
     private func resetPerRepState() {
+        // Kill any in-flight sample timer from a previous rep. Timer.
+        // invalidate() prevents future fires but does NOT cancel Tasks
+        // already enqueued from a recent fire — those leftover Tasks
+        // are handled by the sessionId-mismatch guard in collectSample.
+        sampleTimer?.invalidate()
+        sampleTimer = nil
+
+        // Reset the per-rep throttle anchor so the first sample of the
+        // next rep isn't blocked by the floor.
+        lastSampleCollectedAt = .distantPast
+
         responseText = ""
         responseTextStore.reset()
+        // Reset the live-stat fields without firing 8 separate cascades —
+        // we'll emit one notification below covering the whole batch.
         tokensGenerated = 0
         currentTokensPerSecond = 0
         peakTokensPerSecond = 0
@@ -490,6 +545,7 @@ final class BenchmarkViewModel: ObservableObject {
         avgSystemPower = 0
         peakSystemPower = 0
         elapsedTime = 0
+        notifyLiveStatsChanged()
         debugState.reset()
         error = nil
         currentSamplesInternal = []
@@ -637,10 +693,69 @@ final class BenchmarkViewModel: ObservableObject {
             }
 
             let lock = self.streamLock
-            self.consumeTask = Task.detached { [lock] in
+            let consumerRepIdx = currentRepetitionIndex
+            let consumerSessionId = session.id ?? -1
+            // High priority: under heavy chart-rendering load (rendering
+            // the run-group banner + N-rep progress + live charts at the
+            // start of a group), default-priority tasks were being
+            // starved on the cooperative pool. URLSession bytes piled
+            // up in its internal buffer un-drained → TCP backpressure →
+            // Ollama buffered server-side → user-visible 6s chunk gaps.
+            // Boosting to .userInteractive makes the consumer pre-empt
+            // other cooperative work so the socket always gets drained.
+            self.consumeTask = Task.detached(priority: .userInteractive) { [lock] in
+                // [DEBUG] Chunk-rate periodic summary — logged every 200
+                // chunks so we can see whether Ollama is delivering at a
+                // steady rate or bursting.
+                var lastSummaryTime = Date()
+                var lastSummaryChunks = 0
+                let summaryEvery = 200
+
+                // [DEBUG] Inter-chunk arrival timing. We want to know
+                // whether chunks are arriving steadily from the backend
+                // or in bursts. Per-chunk timing for the first 30 chunks
+                // of the rep tells us the TTFT + ramp-up; gap histogram
+                // captured below tells us the steady-state pattern.
+                var lastChunkArrival: Date? = nil
+                var gapBuckets: (under10: Int, under100: Int, under500: Int, under2000: Int, over2000: Int) = (0, 0, 0, 0, 0)
+                var maxGap: Double = 0
+                var chunkIdx = 0
+
                 for try await chunk in stream {
                     if Task.isCancelled { break }
-                    lock.withLock { buf in
+                    let chunkArrivedAt = Date()
+
+                    // Inter-chunk gap accounting (off-MainActor — runs
+                    // detached, no contention with text flush).
+                    if let prev = lastChunkArrival {
+                        let gap = chunkArrivedAt.timeIntervalSince(prev)
+                        switch gap {
+                        case ..<0.010:   gapBuckets.under10 += 1
+                        case ..<0.100:   gapBuckets.under100 += 1
+                        case ..<0.500:   gapBuckets.under500 += 1
+                        case ..<2.000:   gapBuckets.under2000 += 1
+                        default:         gapBuckets.over2000 += 1
+                        }
+                        if gap > maxGap { maxGap = gap }
+                        // Log individual large gaps — these are the
+                        // user-visible "chunks took a second" moments.
+                        if gap > 0.5 {
+                            Log.benchmark.info("[CHUNK_GAP] gap=\(gap, privacy: .public)s session=\(consumerSessionId, privacy: .public) rep=\(consumerRepIdx, privacy: .public) chunk_idx=\(chunkIdx, privacy: .public)")
+                        }
+                    }
+                    lastChunkArrival = chunkArrivedAt
+
+                    // First 30 chunks: log timestamp + size so we can
+                    // see TTFT exactly + whether the early chunks are
+                    // 1-char fragments or proper multi-char tokens.
+                    if chunkIdx < 30 {
+                        Log.benchmark.info("[CHUNK_EARLY] idx=\(chunkIdx, privacy: .public) bytes=\(chunk.text.utf8.count, privacy: .public) text_len=\(chunk.text.count, privacy: .public) rep=\(consumerRepIdx, privacy: .public)")
+                    }
+                    chunkIdx += 1
+                    // Mutate buffer under the lock, then surface the
+                    // chunkCount outside so we can log without capturing
+                    // the inout `buf` in the os_log autoclosure.
+                    let chunkCountSnapshot: Int = lock.withLock { buf in
                         buf.text += chunk.text
                         buf.tokenCount += 1
                         buf.chunkCount += 1
@@ -664,8 +779,19 @@ final class BenchmarkViewModel: ObservableObject {
                             buf.firstTokenTime = now
                         }
                         if chunk.done, let s = chunk.stats { buf.stats = s }
+                        return buf.chunkCount
+                    }
+
+                    if chunkCountSnapshot - lastSummaryChunks >= summaryEvery {
+                        let elapsed = chunkArrivedAt.timeIntervalSince(lastSummaryTime)
+                        let rate = elapsed > 0 ? Double(chunkCountSnapshot - lastSummaryChunks) / elapsed : 0
+                        Log.benchmark.info("[CHUNKS] session=\(consumerSessionId, privacy: .public) rep=\(consumerRepIdx, privacy: .public) total_chunks=\(chunkCountSnapshot, privacy: .public) window=\(elapsed, privacy: .public)s window_rate=\(rate, privacy: .public)chunks/s")
+                        lastSummaryTime = chunkArrivedAt
+                        lastSummaryChunks = chunkCountSnapshot
                     }
                 }
+                // [DEBUG] End-of-rep chunk-gap histogram + peak gap.
+                Log.benchmark.info("[CHUNK_HIST] session=\(consumerSessionId, privacy: .public) rep=\(consumerRepIdx, privacy: .public) total_chunks=\(chunkIdx, privacy: .public) under10ms=\(gapBuckets.under10, privacy: .public) under100ms=\(gapBuckets.under100, privacy: .public) under500ms=\(gapBuckets.under500, privacy: .public) under2s=\(gapBuckets.under2000, privacy: .public) over2s=\(gapBuckets.over2000, privacy: .public) max_gap=\(maxGap, privacy: .public)s")
             }
 
             do {
@@ -765,6 +891,22 @@ final class BenchmarkViewModel: ObservableObject {
         }
     }
 
+    /// Diagnostic snapshot used at rep boundaries. Catches accumulating
+    /// state that would explain the "subsequent reps get slower" report.
+    private func dumpRepBoundarySnapshot(_ label: String, repIdx: Int?, total: Int?) {
+        let chart = chartStore.chartData
+        let repTag = repIdx.map { "rep=\($0+1)/\(total ?? 0)" } ?? "—"
+        Log.benchmark.info("""
+        [N-RUN] \(label, privacy: .public) \(repTag, privacy: .public) \
+        samples_in_mem=\(self.currentSamplesInternal.count, privacy: .public) \
+        pending_db=\(self.pendingDBSamples.count, privacy: .public) \
+        chart_tps_pts=\(chart.tokensPerSecond.count, privacy: .public) \
+        chart_sys_pwr_pts=\(chart.systemPower.count, privacy: .public) \
+        chart_gpu_util_pts=\(chart.gpuUtilization.count, privacy: .public) \
+        elapsed=\(self.elapsedTime, privacy: .public)s
+        """)
+    }
+
     /// Orchestrate an N-rep run group. Creates the group, loops calling
     /// runOneRep with per-rep seeds and the group's id, aggregates
     /// stats from completed sessions, finalises the group state.
@@ -805,16 +947,23 @@ final class BenchmarkViewModel: ObservableObject {
             // Reset per-rep state for repetitions after the first
             // (the first rep was reset in startBenchmark).
             if repIdx > 0 {
+                dumpRepBoundarySnapshot("BEFORE_RESET", repIdx: repIdx, total: repetitions)
                 resetPerRepState()
+                dumpRepBoundarySnapshot("AFTER_RESET", repIdx: repIdx, total: repetitions)
+            } else {
+                dumpRepBoundarySnapshot("REP_START_FIRST", repIdx: repIdx, total: repetitions)
             }
 
             let seed = seedForRep(repIdx)
+            let repStart = Date()
             do {
                 let session = try await runOneRep(
                     model: model,
                     runGroupId: group.id,
                     seed: seed
                 )
+                let repWall = Date().timeIntervalSince(repStart)
+                Log.benchmark.info("[N-RUN] REP_DONE rep=\(repIdx + 1, privacy: .public)/\(self.repetitions, privacy: .public) wall=\(repWall, privacy: .public)s session_id=\(session.id ?? -1, privacy: .public) status=\(session.status.rawValue, privacy: .public)")
                 if session.status == .completed {
                     completedSessions.append(session)
                     group.completedRepetitions += 1
@@ -850,6 +999,11 @@ final class BenchmarkViewModel: ObservableObject {
         }
         currentRunGroup = group
         currentRepetitionIndex = 0
+
+        // Load the full-group chart since groupViewMode defaults to
+        // .fullGroup. If the user toggles to .lastRep, the
+        // groupViewMode subscription will swap back to per-rep samples.
+        await reloadChartForCurrentViewMode()
     }
 
     /// Stop the current benchmark
@@ -1272,6 +1426,20 @@ final class BenchmarkViewModel: ObservableObject {
         os_signpost(.begin, log: Signposts.streaming, name: "flushText")
         defer { os_signpost(.end, log: Signposts.streaming, name: "flushText") }
 
+        let flushStart = Date()
+
+        // [DEBUG] Gap detector: the uiUpdateTimer fires every 0.1s. If
+        // we're called > 0.3s after the previous flush, the MainActor
+        // was blocked for at least that long — that's the user-visible
+        // text streaming "freeze". Log so we can correlate with what
+        // else was happening at that moment.
+        if lastTextFlushAt != .distantPast {
+            let gap = flushStart.timeIntervalSince(lastTextFlushAt)
+            if gap > 0.3 {
+                Log.benchmark.info("[STALL_TEXT] gap=\(gap, privacy: .public)s since previous flush (expected ~0.1s) rep=\(self.currentRepetitionIndex, privacy: .public)")
+            }
+        }
+        lastTextFlushAt = flushStart
         let text = streamLock.withLock { buf -> String in
             let t = buf.text
             buf.text = ""
@@ -1281,6 +1449,13 @@ final class BenchmarkViewModel: ObservableObject {
         if streamResponse && !text.isEmpty {
             responseTextStore.append(text)
             responseText += text
+        }
+
+        // [DEBUG] Log when this 10Hz path takes >30ms (a frame at 30fps
+        // = 33ms; anything above that is visible UI lag).
+        let elapsed = Date().timeIntervalSince(flushStart)
+        if elapsed > 0.030 {
+            Log.benchmark.info("[LAG_TEXT] flushTextOnly took \(elapsed * 1000, privacy: .public)ms text_size=\(text.utf8.count, privacy: .public)B response_total=\(self.responseText.utf8.count, privacy: .public)B rep=\(self.currentRepetitionIndex, privacy: .public)")
         }
 
         // First token detection (one-time)
@@ -1294,28 +1469,51 @@ final class BenchmarkViewModel: ObservableObject {
         }
     }
 
-    /// Flush numeric @Published properties (called at 2Hz from collectSample).
-    /// Keeps all BenchmarkViewModel objectWillChange mutations at sample cadence,
-    /// completely decoupled from the 10Hz text path.
+    /// Flush numeric properties at sample cadence (2Hz from collectSample).
+    /// These were @Published — now batched into ONE objectWillChange.send()
+    /// per call (see notifyLiveStatsChanged) to collapse Core Animation
+    /// transaction storms during streaming.
     private func flushMetricUpdates() {
         os_signpost(.begin, log: Signposts.streaming, name: "flushMetrics")
         defer { os_signpost(.end, log: Signposts.streaming, name: "flushMetrics") }
 
+        let flushStart = Date()
         let snap = streamLock.withLock { $0 }
 
+        var dirty = false
         if snap.tokenCount != tokensGenerated {
             tokensGenerated = snap.tokenCount
+            dirty = true
         }
         if let ftt = snap.firstTokenTime, snap.tokenCount > 0 {
             let genElapsed = Date().timeIntervalSince(ftt)
             let freshTps = genElapsed > 0 ? Double(snap.tokenCount) / genElapsed : 0
             if freshTps != currentTokensPerSecond {
                 currentTokensPerSecond = freshTps
+                dirty = true
             }
         }
         if snap.peakTps != peakTokensPerSecond {
             peakTokensPerSecond = snap.peakTps
+            dirty = true
         }
+        if dirty {
+            notifyLiveStatsChanged()
+        }
+
+        let elapsed = Date().timeIntervalSince(flushStart)
+        if elapsed > 0.030 {
+            Log.benchmark.info("[LAG_METRICS] flushMetricUpdates took \(elapsed * 1000, privacy: .public)ms rep=\(self.currentRepetitionIndex, privacy: .public)")
+        }
+    }
+
+    /// Single objectWillChange.send() for a batch of live-stat mutations.
+    /// Replaces 8 separate @Published cascades per sample tick. Views
+    /// bound to the VM still re-evaluate when this fires, but now ONCE
+    /// per batch instead of once per field — collapsing the Core
+    /// Animation transactions that were dominating main-thread time.
+    private func notifyLiveStatsChanged() {
+        objectWillChange.send()
     }
 
     /// Fetch model memory breakdown from Ollama /api/ps
@@ -1353,6 +1551,32 @@ final class BenchmarkViewModel: ObservableObject {
         defer { os_signpost(.end, log: Signposts.streaming, name: "collectSample") }
 
         guard isRunning else { return }
+
+        // [GUARD 1] Generation check: Timer.invalidate() doesn't cancel
+        // Tasks already enqueued from a recent fire. A leftover Task
+        // from the previous rep's timer can run after the rep
+        // transition and write a sample to the OLD session id with
+        // freshly-reset (tokens=0) state. Drop it here so it can't
+        // pollute the chart.
+        guard sessionId == currentSession?.id else {
+            Log.benchmark.info("[SAMPLE_DROP] stale_session=\(sessionId, privacy: .public) current=\(self.currentSession?.id ?? -1, privacy: .public)")
+            return
+        }
+
+        // [GUARD 2] Throttle floor: if the MainActor was briefly busy,
+        // multiple Timer fires can queue Tasks that then run back-to-
+        // back with sub-millisecond gaps. Each such Task would write a
+        // sample with the same token count but a tiny dt — feeding the
+        // chart's instantTps calculation a "delta / 0.0002s" spike.
+        // Drop the rapid-fire duplicates and let the next real fire
+        // (≥ minimumSampleSpacing later) produce the canonical sample.
+        let now = Date()
+        let sinceLast = now.timeIntervalSince(lastSampleCollectedAt)
+        if sinceLast < minimumSampleSpacing {
+            Log.benchmark.info("[SAMPLE_DROP] throttled session=\(sessionId, privacy: .public) since_last=\(sinceLast, privacy: .public)s")
+            return
+        }
+        lastSampleCollectedAt = now
 
         // Flush numeric @Published properties at sample cadence (2Hz)
         flushMetricUpdates()
@@ -1406,13 +1630,36 @@ final class BenchmarkViewModel: ObservableObject {
             cumulativeTokensPerSecond: snapTps
         )
 
+        // [DEBUG] Log per-sample delta + instantTps that the chart will
+        // compute — lets us see the chart spike data live in Console.app.
+        // Only fires when there's a previous in-memory sample to delta
+        // against (within the current rep, since the list is reset
+        // between reps).
+        if let prev = currentSamplesInternal.last,
+           let prevTokens = prev.tokensGenerated {
+            let dt = sample.timestamp.timeIntervalSince(prev.timestamp)
+            let deltaTokens = snapTokens - prevTokens
+            let instantTps = (dt > 0 && deltaTokens > 0) ? Double(deltaTokens) / dt : 0
+            Log.benchmark.info("[SAMPLE] session=\(sessionId, privacy: .public) tokens=\(snapTokens, privacy: .public) delta_tokens=\(deltaTokens, privacy: .public) dt=\(dt, privacy: .public)s instant_tps=\(instantTps, privacy: .public) rep=\(self.currentRepetitionIndex, privacy: .public)")
+        } else {
+            Log.benchmark.info("[SAMPLE] session=\(sessionId, privacy: .public) tokens=\(snapTokens, privacy: .public) (first in rep) rep=\(self.currentRepetitionIndex, privacy: .public)")
+        }
+
         // Assign a local ID for in-memory tracking (DB will assign real ID on flush)
         currentSamplesInternal.append(sample)
         pendingDBSamples.append(sample)
 
+        // Batch all live-stat mutations and emit ONE objectWillChange.send()
+        // at the end via notifyLiveStatsChanged(). Pre-refactor this block
+        // was 5 separate @Published mutations per sample tick, which
+        // multiplied into the CA::Transaction commit storm visible in the
+        // 2026-05-22 lag sample.
+        var statsDirty = false
+
         // Track peak backend process memory (using compensated value)
         if effectiveMemory > currentPeakMemory {
             currentPeakMemory = effectiveMemory
+            statsDirty = true
         }
 
         // Accumulate power stats for running avg/peak
@@ -1428,15 +1675,18 @@ final class BenchmarkViewModel: ObservableObject {
             powerSampleCount += 1
         }
 
-        // Flush power stats to @Published at sample rate (2Hz) — not 10Hz
         if powerSampleCount > 0 {
             let newAvgGpu = gpuPowerSum / Double(powerSampleCount)
-            if newAvgGpu != avgGpuPower { avgGpuPower = newAvgGpu }
-            if pendingPeakGpuPower != peakGpuPower { peakGpuPower = pendingPeakGpuPower }
+            if newAvgGpu != avgGpuPower { avgGpuPower = newAvgGpu; statsDirty = true }
+            if pendingPeakGpuPower != peakGpuPower { peakGpuPower = pendingPeakGpuPower; statsDirty = true }
 
             let newAvgSys = systemPowerSum / Double(powerSampleCount)
-            if newAvgSys != avgSystemPower { avgSystemPower = newAvgSys }
-            if pendingPeakSystemPower != peakSystemPower { peakSystemPower = pendingPeakSystemPower }
+            if newAvgSys != avgSystemPower { avgSystemPower = newAvgSys; statsDirty = true }
+            if pendingPeakSystemPower != peakSystemPower { peakSystemPower = pendingPeakSystemPower; statsDirty = true }
+        }
+
+        if statsDirty {
+            notifyLiveStatsChanged()
         }
 
         // Debug state at sample rate (2Hz) — not per-chunk
@@ -1449,7 +1699,6 @@ final class BenchmarkViewModel: ObservableObject {
         }
 
         // Flush to database periodically (every 5s) instead of on every sample
-        let now = Date()
         if now.timeIntervalSince(lastDBFlush) >= dbFlushInterval {
             await flushSamplesToDatabase()
         }
@@ -1460,6 +1709,7 @@ final class BenchmarkViewModel: ObservableObject {
 
             let samples = currentSamplesInternal
             let maxPoints = maxChartDataPoints
+            let chartStartedAt = Date()
             Task.detached(priority: .utility) {
                 let samplesToUse: [BenchmarkSample]
                 if samples.count > maxPoints {
@@ -1471,10 +1721,15 @@ final class BenchmarkViewModel: ObservableObject {
                     samplesToUse = samples
                 }
 
+                let buildStart = Date()
                 let newChartData = BenchmarkSample.chartData(from: samplesToUse)
+                let buildElapsed = Date().timeIntervalSince(buildStart)
+                let queueLatency = buildStart.timeIntervalSince(chartStartedAt)
+                let tpsPts = newChartData.tokensPerSecond.count
 
                 await MainActor.run {
                     self.chartStore.update(newChartData)
+                    Log.benchmark.info("[CHART] samples_in=\(samples.count, privacy: .public) samples_used=\(samplesToUse.count, privacy: .public) tps_pts_out=\(tpsPts, privacy: .public) build_ms=\(buildElapsed * 1000, privacy: .public) queue_lag_ms=\(queueLatency * 1000, privacy: .public)")
                 }
             }
         }
@@ -1526,12 +1781,13 @@ final class BenchmarkViewModel: ObservableObject {
         flushTextOnly()
         flushMetricUpdates()
 
-        // Final power stats flush
+        // Final power stats flush — one notification covers all four.
         if powerSampleCount > 0 {
             avgGpuPower = gpuPowerSum / Double(powerSampleCount)
             peakGpuPower = pendingPeakGpuPower
             avgSystemPower = systemPowerSum / Double(powerSampleCount)
             peakSystemPower = pendingPeakSystemPower
+            notifyLiveStatsChanged()
         }
 
         // Flush any remaining samples to database before finishing
@@ -1559,6 +1815,41 @@ final class BenchmarkViewModel: ObservableObject {
         await loadRecentSessions()
     }
 
+    /// Re-source the chart data based on the current group view mode.
+    /// In `.fullGroup` mode after a group has completed, fetches every
+    /// sample across every session in the group and concatenates them
+    /// into one time-series. In `.lastRep` mode (or when there's no
+    /// finished group), keeps the chart pointed at the current
+    /// session's samples (already loaded). Safe to call on the main
+    /// actor — DB work runs on the GRDB queue, chart update marshals
+    /// back to main.
+    private func reloadChartForCurrentViewMode() async {
+        guard shouldShowGroupMean,
+              let groupId = currentRunGroup?.id
+        else {
+            // Switching back to last-rep: restore the last session's
+            // chart from in-memory samples (still populated from the
+            // most recent rep).
+            let samples = currentSamplesInternal
+            let chartData = BenchmarkSample.chartData(from: samples)
+            chartStore.update(chartData)
+            return
+        }
+
+        do {
+            let samples = try await databaseManager.queue.read { db -> [BenchmarkSample] in
+                try BenchmarkSample
+                    .filter(sql: "session_id IN (SELECT id FROM benchmark_session WHERE run_group_id = ?)", arguments: [groupId])
+                    .order(Column("timestamp").asc)
+                    .fetchAll(db)
+            }
+            let chartData = BenchmarkSample.chartData(from: samples)
+            chartStore.update(chartData)
+        } catch {
+            Log.benchmark.error("Failed to load group chart data: \(error.localizedDescription)")
+        }
+    }
+
     /// Extract TCP port from a URL string (e.g. "http://localhost:11434" → 11434)
     private func extractPort(from urlString: String) -> UInt16? {
         if let url = URL(string: urlString), let port = url.port {
@@ -1582,8 +1873,25 @@ extension BenchmarkViewModel {
         Formatters.duration(elapsedTime)
     }
 
-    /// Average tokens per second — uses backend-reported value when complete, live value during run
+    /// True when there's a finished group to summarize and the user has
+    /// asked for the full-group view rather than the last rep's numbers.
+    /// Used by display formatters to decide between group-mean and
+    /// session-level values.
+    var shouldShowGroupMean: Bool {
+        guard groupViewMode == .fullGroup,
+              let group = currentRunGroup,
+              group.status != .running,
+              (group.sampleCount ?? 0) > 1
+        else { return false }
+        return true
+    }
+
+    /// Average tokens per second — uses backend-reported value when complete, live value during run.
+    /// In group-mean view after a multi-rep group, returns the group mean instead.
     var effectiveAverageTps: Double {
+        if shouldShowGroupMean, let mean = currentRunGroup?.meanTokensPerSecond {
+            return mean
+        }
         if let session = currentSession, session.status == .completed, let tps = session.tokensPerSecond {
             return tps
         }
@@ -1665,8 +1973,12 @@ extension BenchmarkViewModel {
         metricsService.isPowerMetricsAvailable
     }
 
-    /// Average GPU power formatted (running avg during benchmark, final after)
+    /// Average GPU power formatted (running avg during benchmark, final after).
+    /// In group-mean view, returns the group's mean across all reps.
     var avgGPUPowerFormatted: String {
+        if shouldShowGroupMean, let mean = currentRunGroup?.meanGpuPowerWatts {
+            return Formatters.watts(mean)
+        }
         if let session = currentSession, session.status == .completed,
            let avg = session.avgGpuPowerWatts {
             return Formatters.watts(avg)
@@ -1685,8 +1997,12 @@ extension BenchmarkViewModel {
         return Formatters.watts(peakGpuPower)
     }
 
-    /// Average system power formatted (running avg during benchmark, final after)
+    /// Average system power formatted (running avg during benchmark, final after).
+    /// In group-mean view, returns the group's mean across all reps.
     var avgSystemPowerFormatted: String {
+        if shouldShowGroupMean, let mean = currentRunGroup?.meanSystemPowerWatts {
+            return Formatters.watts(mean)
+        }
         if let session = currentSession, session.status == .completed,
            let avg = session.avgSystemPowerWatts {
             return Formatters.watts(avg)
@@ -1705,6 +2021,34 @@ extension BenchmarkViewModel {
         return Formatters.watts(peakSystemPower)
     }
 
+    /// TTFT formatted in ms. Group-mean view returns the group's mean
+    /// TTFT (the (56 ms – 784 ms) range a 3-rep group exposes lives in
+    /// the summary card's CI; this is the headline number).
+    var formattedTTFT: String {
+        if shouldShowGroupMean, let mean = currentRunGroup?.meanTimeToFirstToken {
+            return Formatters.milliseconds(mean * 1000)
+        }
+        guard let ttft = timeToFirstToken else { return "—" }
+        return Formatters.milliseconds(ttft * 1000)
+    }
+
+    /// Peak memory formatted. Group-mean view returns the mean of
+    /// per-rep peaks; in practice memory is essentially constant
+    /// across reps (the model stays resident) so the group mean
+    /// equals the per-rep peak.
+    var formattedPeakMemory: String {
+        if shouldShowGroupMean, let mean = currentRunGroup?.meanPeakMemoryBytes {
+            return Formatters.bytes(Int64(mean))
+        }
+        if currentPeakMemory > 0 {
+            return Formatters.bytes(currentPeakMemory)
+        }
+        if let bytes = currentSession?.peakMemoryBytes {
+            return Formatters.bytes(bytes)
+        }
+        return "—"
+    }
+
     /// Current GPU frequency formatted (live metrics, falling back to session average)
     var currentGPUFrequencyFormatted: String {
         if let freq = currentMetrics?.gpuFrequencyMHz, freq > 0 {
@@ -1717,7 +2061,11 @@ extension BenchmarkViewModel {
     }
 
     /// Energy per token formatted as J/tok (avg system power / avg tok/s).
+    /// In group-mean view, returns the group's mean J/Tok across all reps.
     var currentWattsPerTokenFormatted: String {
+        if shouldShowGroupMean, let mean = currentRunGroup?.meanWattsPerToken {
+            return String(format: "%.2f J/tok", mean)
+        }
         if let session = currentSession, session.status == .completed,
            let wpt = session.avgWattsPerToken {
             return String(format: "%.2f J/tok", wpt)

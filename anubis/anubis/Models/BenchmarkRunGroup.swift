@@ -96,6 +96,14 @@ struct BenchmarkRunGroup: Identifiable, Codable, Hashable, FetchableRecord, Muta
     var ciLowPeakMemoryBytes: Double?
     var ciHighPeakMemoryBytes: Double?
 
+    // Phase 1.2 v2: GPU power group aggregate. Added so the dashboard's
+    // Avg GPU Power card can switch between "group mean" and "last rep"
+    // alongside the other cards.
+    var meanGpuPowerWatts: Double?
+    var stdevGpuPowerWatts: Double?
+    var ciLowGpuPowerWatts: Double?
+    var ciHighGpuPowerWatts: Double?
+
     enum CodingKeys: String, CodingKey, ColumnExpression {
         case id
         case createdAt = "created_at"
@@ -135,6 +143,10 @@ struct BenchmarkRunGroup: Identifiable, Codable, Hashable, FetchableRecord, Muta
         case stdevPeakMemoryBytes = "stdev_peak_memory_bytes"
         case ciLowPeakMemoryBytes = "ci_low_peak_memory_bytes"
         case ciHighPeakMemoryBytes = "ci_high_peak_memory_bytes"
+        case meanGpuPowerWatts = "mean_gpu_power_watts"
+        case stdevGpuPowerWatts = "stdev_gpu_power_watts"
+        case ciLowGpuPowerWatts = "ci_low_gpu_power_watts"
+        case ciHighGpuPowerWatts = "ci_high_gpu_power_watts"
     }
 
     /// Initialise a new group in `planned` state.
@@ -245,6 +257,14 @@ extension BenchmarkRunGroup {
         if let ci = BootstrapCI.confidenceInterval95(peakMem) {
             ciLowPeakMemoryBytes = ci.low
             ciHighPeakMemoryBytes = ci.high
+        }
+
+        let gpuPwr = completed.compactMap { $0.avgGpuPowerWatts }
+        meanGpuPowerWatts = BootstrapCI.mean(gpuPwr)
+        stdevGpuPowerWatts = BootstrapCI.stdev(gpuPwr)
+        if let ci = BootstrapCI.confidenceInterval95(gpuPwr) {
+            ciLowGpuPowerWatts = ci.low
+            ciHighGpuPowerWatts = ci.high
         }
     }
 }

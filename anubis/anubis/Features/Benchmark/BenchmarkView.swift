@@ -410,7 +410,7 @@ struct BenchmarkView: View {
                 .disabled(viewModel.isRunning)
             } label: {
                 HStack {
-                    Text("Parameters")
+                    Text("Parameters/N Runs")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("T:\(String(format: "%.1f", viewModel.temperature)) P:\(String(format: "%.1f", viewModel.topP)) Tokens:\(viewModel.maxTokens)\(viewModel.repetitions > 1 ? " · n=\(viewModel.repetitions)" : "")")
@@ -695,7 +695,7 @@ struct BenchmarkView: View {
 
             CompactMetricsCard(
                 title: "TTFT",
-                value: viewModel.timeToFirstToken.map { Formatters.milliseconds($0 * 1000) } ?? "—",
+                value: viewModel.formattedTTFT,
                 icon: "clock.arrow.circlepath",
                 color: .chartTokens,
                 subtitle: viewModel.prefillTokensPerSecond.map { "Prefill: \(Formatters.tokensPerSecond($0))" },
@@ -867,6 +867,19 @@ struct BenchmarkView: View {
                          : "Group \(group.status.rawValue) · \(group.completedRepetitions)/\(group.repetitions) runs")
                         .font(.headline)
                     Spacer()
+                    // View-mode toggle controls whether the lower
+                    // dashboard cards/charts show group means or the
+                    // last rep's numbers. Renders only when there's
+                    // more than one completed rep to average.
+                    if (group.sampleCount ?? 0) > 1 {
+                        Picker("", selection: $viewModel.groupViewMode) {
+                            Text("Group mean").tag(BenchmarkViewModel.GroupViewMode.fullGroup)
+                            Text("Last rep").tag(BenchmarkViewModel.GroupViewMode.lastRep)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 200)
+                        .help("Switch the dashboard between the group's mean across all reps and just the most recent rep's values. The summary card above always shows the group mean.")
+                    }
                     Text(group.seedStrategy == .random ? "random seeds" : "fixed seed")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1005,9 +1018,7 @@ struct BenchmarkView: View {
                 // Row 2: Peak Memory / Prompt Tokens / Completion Tokens / Eval Duration
                 DetailStatCell(
                     title: "Peak Memory",
-                    value: viewModel.currentPeakMemory > 0
-                        ? Formatters.bytes(viewModel.currentPeakMemory)
-                        : viewModel.currentSession?.peakMemoryBytes.map { Formatters.bytes($0) } ?? "—",
+                    value: viewModel.formattedPeakMemory,
                     icon: "arrow.up.right",
                     color: .chartMemory
                 )
@@ -1280,36 +1291,67 @@ struct StreamingTextView: NSViewRepresentable {
     let text: String
     let placeholder: String
 
+    /// Streaming-optimised system font with OpenType ligature features
+    /// pre-disabled at the CTFont level. Setting `.ligature: 0` only as
+    /// an NSAttributedString attribute is not enough — CoreText still
+    /// calls `CopyOfFontWithLigatureSetting` on every layout pass,
+    /// which iterates the font's feature array and burns the main
+    /// thread (see hang sample 2026-05-22). Baking the setting into
+    /// the font descriptor itself bypasses that hot path entirely.
+    private static let streamingFont: NSFont = {
+        let base = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        // CTFontFeatureType 1 == kLigaturesType; selector 0 = required-off,
+        // 2 = common-off, 4 = rare-off, 8 = contextual-off, 22 = historical-off.
+        // Disable every common/optional ligature variant so the layout
+        // manager never asks CoreText to "compute the non-default settings".
+        let featureSettings: [[CFString: Int]] = [
+            [kCTFontFeatureTypeIdentifierKey: 1, kCTFontFeatureSelectorIdentifierKey: 2],  // common
+            [kCTFontFeatureTypeIdentifierKey: 1, kCTFontFeatureSelectorIdentifierKey: 4],  // rare
+            [kCTFontFeatureTypeIdentifierKey: 1, kCTFontFeatureSelectorIdentifierKey: 8],  // contextual
+            [kCTFontFeatureTypeIdentifierKey: 1, kCTFontFeatureSelectorIdentifierKey: 22], // historical
+        ]
+        let descriptor = base.fontDescriptor.addingAttributes([
+            NSFontDescriptor.AttributeName(kCTFontFeatureSettingsAttribute as String): featureSettings
+        ])
+        return NSFont(descriptor: descriptor, size: NSFont.systemFontSize) ?? base
+    }()
+
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
-        let textView = scrollView.documentView as! NSTextView
+        // TextKit 2 — fundamentally different layout pipeline from
+        // TextKit 1's NSLayoutManager + NSATSTypesetter. TK1's
+        // typesetter unconditionally calls CopyOfFontWithLigatureSetting
+        // on every layout pass, which dominates main thread time on
+        // long streaming text (see hang sample 2026-05-22 with the
+        // identical stack trace). TK2 uses viewport-based layout and
+        // doesn't go through that font-feature iteration hot path.
+        let textView = NSTextView(usingTextLayoutManager: true)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
 
         textView.isEditable = false
         textView.isSelectable = true
         textView.backgroundColor = .clear
         textView.drawsBackground = false
-        textView.font = .systemFont(ofSize: NSFont.systemFontSize)
+        textView.font = Self.streamingFont
         textView.textColor = .labelColor
         textView.textContainerInset = NSSize(width: 12, height: 12)
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
 
-        // Skip layout for offscreen text — critical for long streaming responses
-        textView.layoutManager?.allowsNonContiguousLayout = true
-
-        // Disable kerning + ligatures globally — kills CoreText OTL::GPOS pair-positioning
-        // hot path that pegs the main thread on long responses (see hang sample 2026-04-21).
         textView.typingAttributes = [
-            .font: textView.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .font: Self.streamingFont,
             .foregroundColor: NSColor.labelColor,
             .kern: 0,
             .ligature: 0,
         ]
 
+        let scrollView = NSScrollView()
+        scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -1362,7 +1404,7 @@ struct StreamingTextView: NSViewRepresentable {
 
         if let storage = textView.textStorage {
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: textView.font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+                .font: Self.streamingFont,
                 .foregroundColor: NSColor.labelColor,
                 .kern: 0,
                 .ligature: 0,

@@ -24,6 +24,10 @@ actor OllamaClient: InferenceBackend {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300 // 5 minutes for long generations
         config.timeoutIntervalForResource = 600 // 10 minutes total
+        // Low-latency delivery: tells URLSession to optimize the data
+        // path for responsiveness rather than throughput, which
+        // significantly reduces internal buffering of streamed bytes.
+        config.networkServiceType = .responsiveData
         self.session = URLSession(configuration: config)
     }
 
@@ -110,6 +114,20 @@ actor OllamaClient: InferenceBackend {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Force plain (uncompressed) responses: URLSession will buffer
+        // bytes to gunzip them when Content-Encoding: gzip is
+        // negotiated, which produces visible bursts of streaming
+        // chunks. Forcing identity makes each line from Ollama land in
+        // our async iterator the moment it's read off the socket.
+        urlRequest.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        // Force a fresh TCP connection per request. URLSession's
+        // default keep-alive behaviour was producing wildly uneven
+        // chunk arrival (sample 2026-05-22 showed 474 chunks <10ms
+        // apart interleaved with 7 chunks taking >2s each, even
+        // though the same prompt streamed perfectly evenly to curl).
+        // Curl uses a fresh TCP connection per invocation. Matching
+        // that behaviour with Connection: close.
+        urlRequest.setValue("close", forHTTPHeaderField: "Connection")
 
         let body = OllamaGenerateRequest(
             model: request.model,
@@ -228,6 +246,10 @@ actor OllamaClient: InferenceBackend {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        // Match curl's behaviour: fresh TCP connection per request.
+        // See note on the same header in streamGenerate(request:continuation:).
+        urlRequest.setValue("close", forHTTPHeaderField: "Connection")
 
         let body = OllamaGenerateRequestFull(
             model: request.model,

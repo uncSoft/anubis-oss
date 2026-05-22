@@ -38,6 +38,11 @@ actor OpenAICompatibleClient: InferenceBackend {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 300
         config.timeoutIntervalForResource = 600
+        // Optimize delivery path for streaming chat completions —
+        // URLSession buffers less aggressively in this mode, so SSE
+        // chunks land in the async iterator the moment they arrive
+        // rather than being batched into 16KB+ flushes.
+        config.networkServiceType = .responsiveData
         self.session = URLSession(configuration: config)
     }
 
@@ -206,6 +211,17 @@ actor OpenAICompatibleClient: InferenceBackend {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Force plain (uncompressed) responses — URLSession buffers
+        // bytes to gunzip gzipped streams, which produces visible
+        // bursts of streamed SSE chunks. Plain text streams through.
+        urlRequest.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        // Force a fresh TCP connection per request. URLSession's
+        // default keep-alive behaviour interacts badly with how some
+        // backends pace streaming responses (see Ollama hang sample
+        // 2026-05-22 — 7 chunks took >2s each when reusing a kept-
+        // alive connection, while curl with a fresh connection got
+        // perfectly even ~30ms-apart chunks).
+        urlRequest.setValue("close", forHTTPHeaderField: "Connection")
 
         if let apiKey = apiKey, !apiKey.isEmpty {
             urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
