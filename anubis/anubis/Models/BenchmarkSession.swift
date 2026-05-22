@@ -221,6 +221,17 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         return end.timeIntervalSince(startedAt)
     }
 
+    /// True when the backend didn't stream incrementally — the recorded
+    /// generation duration is implausibly short for the token count,
+    /// meaning `tokensPerSecond` reflects burst-decode time rather than
+    /// real generation time. Used to surface a tooltip in the UI.
+    var hasSuspiciousTiming: Bool {
+        guard let completion = completionTokens, completion > 100,
+              let eval = evalDuration, eval > 0, eval < 1.0
+        else { return false }
+        return true
+    }
+
     /// Backend type
     var backendType: InferenceBackendType? {
         InferenceBackendType(rawValue: backend)

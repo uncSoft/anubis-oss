@@ -221,6 +221,10 @@ actor OpenAICompatibleClient: InferenceBackend {
             model: request.model,
             messages: messages,
             stream: true,
+            // Ask the server to include token counts in the final stream
+            // chunk — LM Studio, vLLM, llama.cpp-server, etc. omit `usage`
+            // unless this flag is set, which leaves promptTokens unknown.
+            streamOptions: OpenAIStreamOptions(includeUsage: true),
             maxTokens: request.maxTokens,
             temperature: request.temperature,
             topP: request.topP,
@@ -751,6 +755,7 @@ private struct OpenAIChatRequest: Codable {
     let model: String
     let messages: [[String: String]]
     let stream: Bool
+    let streamOptions: OpenAIStreamOptions?
     let maxTokens: Int?
     let temperature: Double?
     let topP: Double?
@@ -758,8 +763,17 @@ private struct OpenAIChatRequest: Codable {
 
     enum CodingKeys: String, CodingKey {
         case model, messages, stream, temperature, stop
+        case streamOptions = "stream_options"
         case maxTokens = "max_tokens"
         case topP = "top_p"
+    }
+}
+
+private struct OpenAIStreamOptions: Codable {
+    let includeUsage: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case includeUsage = "include_usage"
     }
 }
 

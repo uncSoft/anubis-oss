@@ -622,7 +622,9 @@ struct BenchmarkView: View {
                 icon: "bolt.fill",
                 color: .chartTokens,
                 subtitle: viewModel.peakTokensPerSecond > 0 ? "Peak: \(viewModel.formattedPeakTokensPerSecond)" : nil,
-                help: "Average: total tokens ÷ generation time. Peak: highest instantaneous rate between sample intervals."
+                help: viewModel.currentSession?.hasSuspiciousTiming == true
+                    ? "⚠️ This backend did not stream tokens incrementally — generation duration came back implausibly short for the token count, so tok/s reflects burst-decode time rather than real generation time. Try a backend that streams (Ollama, LM Studio with streaming enabled)."
+                    : "Average: total tokens ÷ generation time. Peak: highest instantaneous rate between sample intervals."
             )
 
             CompactMetricsCard(

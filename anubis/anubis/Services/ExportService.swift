@@ -153,7 +153,8 @@ enum ExportService {
         // Performance metrics
         report += "## Performance Metrics\n\n"
         if let tps = session.tokensPerSecond {
-            report += "Tokens/sec: \(String(format: "%.2f", tps))\n"
+            let suspicious = session.hasSuspiciousTiming ? " (⚠️ backend did not stream incrementally — timing unreliable)" : ""
+            report += "Tokens/sec: \(String(format: "%.2f", tps))\(suspicious)\n"
         }
         if let ttft = session.timeToFirstToken {
             report += "Time to First Token: \(String(format: "%.0f", ttft * 1000))ms\n"

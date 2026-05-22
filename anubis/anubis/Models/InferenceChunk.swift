@@ -112,10 +112,28 @@ struct InferenceStats: Sendable, Codable {
     }
 
     /// Tokens per second for visible output (excludes thinking).
+    ///
+    /// If the model produced only reasoning tokens with no visible output
+    /// (`outputTokens == 0`), fall back to total throughput so the user sees
+    /// something meaningful instead of a spurious zero.
     var tokensPerSecond: Double {
         let dur = outputEvalDuration
-        guard dur > 0 else { return 0 }
-        return Double(outputTokens) / dur
+        if dur > 0 && outputTokens > 0 {
+            return Double(outputTokens) / dur
+        }
+        if completionTokens > 0 && evalDuration > 0 {
+            return Double(completionTokens) / evalDuration
+        }
+        return 0
+    }
+
+    /// True when stream timing suggests the backend buffered the entire
+    /// response and emitted it in a burst at the end rather than streaming
+    /// incrementally. In that case `evalDuration` measures the burst-decode
+    /// window, not the real generation time, and `tokensPerSecond` based on
+    /// it will be implausibly high. UI should annotate, not override.
+    var hasSuspiciousStreamTiming: Bool {
+        completionTokens > 100 && evalDuration > 0 && evalDuration < 1.0
     }
 
     /// Average latency per output token in milliseconds.

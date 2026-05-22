@@ -289,9 +289,19 @@ struct SessionRow: View {
                 }
 
                 if let tps = session.tokensPerSecond {
-                    Text(Formatters.tokensPerSecond(tps))
-                        .font(.mono(11, weight: .medium))
-                        .foregroundStyle(Color.chartTokens)
+                    HStack(spacing: 3) {
+                        if session.hasSuspiciousTiming {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.orange)
+                        }
+                        Text(Formatters.tokensPerSecond(tps))
+                            .font(.mono(11, weight: .medium))
+                            .foregroundStyle(Color.chartTokens)
+                    }
+                    .help(session.hasSuspiciousTiming
+                          ? "Backend did not stream incrementally — tok/s reflects burst-decode time, not real generation time."
+                          : "")
                 }
 
                 Spacer()
@@ -403,6 +413,9 @@ struct SessionDetailView: View {
                     title: "Output Tk/s",
                     value: session.tokensPerSecond.map { Formatters.tokensPerSecond($0) } ?? "—"
                 )
+                .help(session.hasSuspiciousTiming
+                      ? "This backend did not stream tokens incrementally — the measured generation duration is implausibly short for the token count, so tok/s reflects burst-decode time rather than real generation time. Try a backend that streams (Ollama, LM Studio with streaming enabled)."
+                      : "")
                 StatCell(
                     title: "Prefill Tk/s",
                     value: prefillTokensPerSecondString
