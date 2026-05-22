@@ -8,6 +8,7 @@
 import SwiftUI
 import Charts
 import AppKit
+import Combine
 import UniformTypeIdentifiers
 
 // MARK: - Export Mode Environment Key
@@ -2024,6 +2025,11 @@ private struct ProcessPickerMenu: View {
     @ObservedObject var viewModel: BenchmarkViewModel
     @Environment(\.isExporting) private var isExporting
 
+    /// 1.2s refresh keeps CPU% live without thrashing — the second tick
+    /// produces the first real CPU number (calculateCPUPercent needs a
+    /// baseline; the first call always returns 0).
+    private let refreshTimer = Timer.publish(every: 1.2, on: .main, in: .common).autoconnect()
+
     /// Top N processes to show (already sorted by memory descending)
     private var topProcesses: [ProcessCandidate] {
         Array(viewModel.candidateProcesses.prefix(10))
@@ -2057,7 +2063,7 @@ private struct ProcessPickerMenu: View {
             Divider()
 
             // Top processes by memory
-            Section("Top Processes by Memory") {
+            Section("Top Processes (live, sorted by memory)") {
                 if topProcesses.isEmpty {
                     Text("Scanning...")
                         .foregroundStyle(.secondary)
@@ -2066,7 +2072,7 @@ private struct ProcessPickerMenu: View {
                         Button {
                             viewModel.selectCustomProcess(process)
                         } label: {
-                            Text("\(process.name) — \(Formatters.bytes(process.memoryBytes))")
+                            Text(processRowLabel(for: process))
                         }
                     }
                 }
@@ -2101,7 +2107,30 @@ private struct ProcessPickerMenu: View {
                 Task { await viewModel.refreshProcessList() }
             }
         }
+        .onReceive(refreshTimer) { _ in
+            Task { await viewModel.refreshProcessList() }
+        }
         } // if !isExporting
+    }
+
+    /// Build the single-line label for a picker row. We can't use a multi-line
+    /// VStack inside a Menu Button label on macOS (the menu strips it), so we
+    /// pack everything into one Text and lean on a separator dot.
+    private func processRowLabel(for process: ProcessCandidate) -> String {
+        let displayName: String
+        if let sub = process.subtitle, !sub.isEmpty {
+            displayName = "\(process.name) (\(sub))"
+        } else {
+            displayName = process.name
+        }
+        let memory = Formatters.bytes(process.memoryBytes)
+        let cpu = process.cpuPercent
+        // Only show CPU once it's meaningfully measured — under 1% reads as
+        // baseline noise and clutters the menu.
+        if cpu >= 1 {
+            return "\(displayName) — \(memory) · \(Int(cpu.rounded()))% CPU"
+        }
+        return "\(displayName) — \(memory)"
     }
 
     private var processDisplayName: String {

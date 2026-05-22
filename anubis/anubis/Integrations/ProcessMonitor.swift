@@ -30,6 +30,14 @@ struct ProcessCandidate: Identifiable, Sendable {
     let name: String
     let path: String
     let memoryBytes: Int64
+    /// Sampled CPU% — 0 on first sighting (needs a baseline), real value on
+    /// subsequent refreshes. Picker uses this to surface the active worker.
+    let cpuPercent: Double
+    /// Optional discriminator for generic interpreters (e.g. "llmworker.js"
+    /// for a node process running LM Studio's inference worker, "mlx_lm.server"
+    /// for a python process running mlx-lm). Lets the picker show
+    /// "node (llmworker.js)" instead of five identical-looking "node" rows.
+    let subtitle: String?
 
     var id: pid_t { pid }
 }
@@ -60,6 +68,17 @@ actor ProcessMonitor {
     /// Set for LM Studio (heaviest child selected) and manual picker.
     private var customSingleProcess: Bool = false
 
+    /// When non-nil, customPID was set by autoDetectByPort (a "soft" pin
+    /// that should periodically re-evaluate) rather than by the user picking
+    /// from the menu (a "hard" pin that stays put). LM Studio's inference
+    /// worker doesn't reach its true memory/heaviest-process status until
+    /// the model finishes loading — which may happen during the first rep,
+    /// not before. Re-evaluating every few seconds lets us converge to the
+    /// real worker without depending on rep boundaries.
+    private var softPinPort: UInt16?
+    private var lastSoftPinCheck: Date = .distantPast
+    private let softPinCheckInterval: TimeInterval = 2.0
+
     // CPU tracking for delta-based calculation
     private var previousCPUTimes: [pid_t: (user: UInt64, system: UInt64, timestamp: Date)] = [:]
 
@@ -70,8 +89,11 @@ actor ProcessMonitor {
     /// LM Studio is checked BEFORE Ollama because LM Studio bundles an embedded
     /// ollama binary whose path contains both "LM Studio" and "ollama".
     private static let detectionPatterns: [(pathCheck: (String) -> Bool, type: BackendProcessType, name: String)] = [
-        // LM Studio first — its embedded server paths contain "ollama"
-        ({ $0.contains("LM Studio") || $0.hasSuffix("/lms") },
+        // LM Studio first — its embedded server paths contain "ollama".
+        // /.lmstudio/ matches the per-user runtime cache where the actual
+        // inference worker (node + llmworker.js) lives — outside the .app
+        // bundle, sometimes reparented to launchd.
+        ({ $0.contains("LM Studio") || $0.hasSuffix("/lms") || $0.contains("/.lmstudio/") },
          .lmStudio, "LM Studio"),
         ({ $0.hasSuffix("/ollama") || $0.contains("/ollama.app/") || ($0.contains("Ollama.app") && $0.hasSuffix("Ollama")) },
          .ollama, "Ollama"),
@@ -112,6 +134,17 @@ actor ProcessMonitor {
 
     /// Find the primary (preferred) backend process
     func findPrimaryBackend(preferredType: BackendProcessType? = nil) -> BackendProcessInfo? {
+        // Self-healing soft pin: if customPID was set via autoDetectByPort
+        // (model may not have been loaded yet), re-evaluate every couple of
+        // seconds and switch to a heavier related process if one has
+        // emerged. No-op for hard pins (manual picker) and for sessions
+        // that never ran autoDetectByPort.
+        if let port = softPinPort,
+           Date().timeIntervalSince(lastSoftPinCheck) >= softPinCheckInterval {
+            lastSoftPinCheck = Date()
+            _ = refreshSoftPin(port: port)
+        }
+
         // Custom/port-detected process override takes absolute priority
         if let pid = customPID {
             let memory = customSingleProcess
@@ -133,6 +166,15 @@ actor ProcessMonitor {
                 customPID = nil
                 customName = nil
                 customSingleProcess = false
+                // If this was a soft pin (auto-detected via port), don't
+                // fall through to the priority-based default. That path
+                // happily returns the first Ollama process it sees, which
+                // is exactly the "switched LM Studio model, got Ollama
+                // attribution" bug. Return nil and let the next sample's
+                // soft-pin refresh re-discover the right worker.
+                if softPinPort != nil {
+                    return nil
+                }
             }
         }
 
@@ -162,6 +204,9 @@ actor ProcessMonitor {
         customPID = pid
         customName = name
         customSingleProcess = true // User explicitly selected this process
+        // User picked manually — disable soft-pin re-evaluation so we don't
+        // overwrite their choice from under them.
+        softPinPort = nil
         // Clear cache so next findPrimaryBackend uses the custom process
         cachedBackends = []
         cacheTime = .distantPast
@@ -172,6 +217,7 @@ actor ProcessMonitor {
         customPID = nil
         customName = nil
         customSingleProcess = false
+        softPinPort = nil
     }
 
     /// Whether a custom process is currently set
@@ -230,7 +276,29 @@ actor ProcessMonitor {
     /// finds the Node child with the highest memory — that's the one holding the model.
     func autoDetectByPort(_ port: UInt16) -> BackendProcessInfo? {
         guard let info = findProcessOnPort(port) else { return nil }
+        softPinPort = port
+        lastSoftPinCheck = Date()
+        return applyAutoDetectResult(info: info)
+    }
 
+    /// Re-run auto-detect for a port without rotating the soft-pin timestamp
+    /// management — used by the in-place self-healing path inside
+    /// findPrimaryBackend.
+    @discardableResult
+    private func refreshSoftPin(port: UInt16) -> BackendProcessInfo? {
+        guard let info = findProcessOnPort(port) else {
+            // Port stopped listening (server restarting, mid-switch, etc.).
+            // Hold the existing pin rather than clearing — losing it would
+            // make the metrics loop fall through to priority defaults and
+            // mis-attribute to whichever backend happens to be running.
+            return nil
+        }
+        return applyAutoDetectResult(info: info)
+    }
+
+    /// Apply an auto-detection result: pick the heaviest related worker
+    /// (LM Studio specifically), set customPID, return the info.
+    private func applyAutoDetectResult(info: BackendProcessInfo) -> BackendProcessInfo {
         // For LM Studio, find the heaviest process in the bundle + its descendants
         if info.type == .lmStudio,
            let heaviest = findHeaviestRelatedProcess(forPID: info.pid) {
@@ -329,6 +397,12 @@ actor ProcessMonitor {
 
         let actualCount = Int(actualSize) / MemoryLayout<pid_t>.size
 
+        // LM Studio's inference worker lives in the per-user runtime cache
+        // (~/.lmstudio/.internal/utils/node), NOT inside the .app bundle, and
+        // may be reparented to launchd — so we treat any process under that
+        // tree as bundle-related when the bundle prefix is LM Studio.app.
+        let lmStudioRuntimeMarker = prefix.contains("LM Studio.app") ? "/.lmstudio/" : nil
+
         // Pass 1: identify all bundle PIDs and build parent→children map
         var bundlePIDs: Set<pid_t> = []
         var childrenOf: [pid_t: [pid_t]] = [:]
@@ -337,12 +411,14 @@ actor ProcessMonitor {
             let p = pids[i]
             guard p > 0 else { continue }
 
-            // Check if in bundle
+            // Check if in bundle (or in the LM Studio per-user runtime cache)
             var buf = [CChar](repeating: 0, count: PROC_PIDPATHINFO_MAXSIZE)
             let len = proc_pidpath(p, &buf, UInt32(buf.count))
             if len > 0 {
                 let pPath = String(cString: buf)
                 if pPath.hasPrefix(prefix) {
+                    bundlePIDs.insert(p)
+                } else if let marker = lmStudioRuntimeMarker, pPath.contains(marker) {
                     bundlePIDs.insert(p)
                 }
             }
@@ -551,6 +627,9 @@ actor ProcessMonitor {
 
     /// List candidate processes for the picker UI.
     /// Returns processes with >50MB RSS, sorted by memory descending.
+    /// Each refresh samples CPU% — the first call returns 0% (no baseline);
+    /// subsequent calls return the real value. The picker polls this on a
+    /// timer so the user can spot the active worker by its CPU spike.
     func listCandidateProcesses() -> [ProcessCandidate] {
         let bufferSize = proc_listpids(UInt32(PROC_ALL_PIDS), 0, nil, 0)
         guard bufferSize > 0 else { return [] }
@@ -578,16 +657,49 @@ actor ProcessMonitor {
 
             let path = String(cString: pathBuffer)
             let name = (path as NSString).lastPathComponent
+            let cpu = calculateCPUPercent(pid: pid)
+            let subtitle = inferProcessSubtitle(pid: pid, execName: name, path: path)
 
             candidates.append(ProcessCandidate(
                 pid: pid,
                 name: name,
                 path: path,
-                memoryBytes: memory
+                memoryBytes: memory,
+                cpuPercent: cpu,
+                subtitle: subtitle
             ))
         }
 
         return candidates.sorted { $0.memoryBytes > $1.memoryBytes }
+    }
+
+    /// Discriminator for interpreter processes (node, python) whose exec name
+    /// alone tells the user nothing. We peek at argv and surface a single
+    /// recognisable token — e.g. "llmworker.js" for LM Studio's inference
+    /// worker — so the picker shows "node (llmworker.js)" instead of five
+    /// identical "node" rows.
+    private func inferProcessSubtitle(pid: pid_t, execName: String, path: String) -> String? {
+        let isNode = execName == "node" || path.hasSuffix("/node")
+        let isPython = execName.hasPrefix("python") || execName.hasPrefix("Python")
+        guard isNode || isPython else { return nil }
+        guard let args = getProcessArgs(pid: pid) else { return nil }
+
+        if isNode {
+            // Prefer the LAST .js token — for LM Studio that's the worker file
+            // passed as the actual script arg (an earlier copy appears inside
+            // the inline require() string that opens argv[2]).
+            let tokens = args.split(separator: " ", omittingEmptySubsequences: true)
+            if let jsArg = tokens.reversed().first(where: { $0.hasSuffix(".js") }) {
+                return (String(jsArg) as NSString).lastPathComponent
+            }
+            return nil
+        }
+
+        // Python — reuse the existing backend patterns
+        for pattern in Self.pythonPatterns {
+            if pattern.argCheck(args) { return pattern.name }
+        }
+        return nil
     }
 
     /// Get current metrics for a specific process

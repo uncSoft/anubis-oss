@@ -852,6 +852,11 @@ final class BenchmarkViewModel: ObservableObject {
         } catch {
             self.inferenceService.clearGenerating()
             session.fail()
+            // Stash the error description in `response` so failed
+            // sessions are diagnosable from the History view without
+            // a dedicated error-message column. Prefixed so it's
+            // unambiguous when reading back.
+            session.response = "[ERROR] \(error.localizedDescription)"
             try? await databaseManager.queue.write { db in
                 try session.update(db)
             }
@@ -923,6 +928,15 @@ final class BenchmarkViewModel: ObservableObject {
             // Reset per-rep state for repetitions after the first
             // (the first rep was reset in startBenchmark).
             if repIdx > 0 {
+                // Give the backend a beat to recover between requests.
+                // LM Studio / llama.cpp-style servers reject the
+                // immediately-following request when reps are spaced
+                // <~150 ms apart (every-other-rep failure pattern
+                // observed 2026-05-22 in N>=2 groups). 250 ms is
+                // empirically enough and adds at most ~1 s to a 5-rep
+                // group.
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                if Task.isCancelled { cancelled = true; break }
                 dumpRepBoundarySnapshot("BEFORE_RESET", repIdx: repIdx, total: repetitions)
                 resetPerRepState()
                 dumpRepBoundarySnapshot("AFTER_RESET", repIdx: repIdx, total: repetitions)

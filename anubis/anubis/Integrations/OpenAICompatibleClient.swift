@@ -215,13 +215,14 @@ actor OpenAICompatibleClient: InferenceBackend {
         // bytes to gunzip gzipped streams, which produces visible
         // bursts of streamed SSE chunks. Plain text streams through.
         urlRequest.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        // Force a fresh TCP connection per request. URLSession's
-        // default keep-alive behaviour interacts badly with how some
-        // backends pace streaming responses (see Ollama hang sample
-        // 2026-05-22 — 7 chunks took >2s each when reusing a kept-
-        // alive connection, while curl with a fresh connection got
-        // perfectly even ~30ms-apart chunks).
-        urlRequest.setValue("close", forHTTPHeaderField: "Connection")
+        // NOTE: do NOT set Connection: close here. LM Studio (and
+        // probably other OpenAI-compatible servers built on
+        // llama.cpp/vLLM) fails every other request in an N-rep group
+        // when the previous request closed the TCP connection — the
+        // server is still in teardown when we try to reconnect ~30 ms
+        // later and rejects with a fast HTTP error. Ollama has the
+        // opposite preference (Connection: close fixes chunk pacing
+        // there) — so the header lives on OllamaClient instead.
 
         if let apiKey = apiKey, !apiKey.isEmpty {
             urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
