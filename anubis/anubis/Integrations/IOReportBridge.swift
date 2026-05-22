@@ -165,7 +165,7 @@ final class IOReportBridge {
         let freqCount = gpuFreqTable.count
         Log.metrics.info("IOReportBridge initialized - GPU service: \(gpuAvail), Energy: \(eReady), GPU Stats: \(gReady), freq table: \(freqCount) states")
         if !gpuFreqTable.isEmpty {
-            Log.metrics.info("GPU frequency table (MHz): \(self.gpuFreqTable)")
+            Log.metrics.info("GPU frequency table (MHz): \(self.gpuFreqTable, privacy: .public)")
         }
     }
 
@@ -304,46 +304,59 @@ final class IOReportBridge {
     /// Extract GPU frequencies from pmgr's voltage-states9 property.
     /// The property is a Data blob of pairs: (frequency: UInt32, voltage: UInt32).
     private static func extractGPUFrequencies(from service: io_service_t) -> [Double]? {
-        // Try voltage-states9 first (GPU), then voltage-states5
-        for key in ["voltage-states9", "voltage-states5"] {
+        // Try voltage-states9 first (GPU on M1-M4), then alternates seen on
+        // newer chips (M5 may have shifted to another index; try a sweep).
+        for key in ["voltage-states9", "voltage-states11", "voltage-states13", "voltage-states5"] {
             guard let ref = IORegistryEntryCreateCFProperty(
                 service, key as CFString, kCFAllocatorDefault, 0
             ) else { continue }
 
             guard let data = ref.takeRetainedValue() as? Data else { continue }
 
-            // Data is pairs of UInt32: (frequency, voltage)
+            // Data is pairs of UInt32: (frequency, voltage). Collect raw freqs
+            // first, then decide the unit scale from the max value across the
+            // whole table — earlier code chose per-entry, which mis-classified
+            // sub-GHz P-states (e.g. M4's 339 MHz reads as 339M Hz; treating
+            // that as KHz produces 338,827 MHz and the sanity filter then
+            // drops it, leaving the table missing every low P-state).
             let pairSize = MemoryLayout<UInt32>.size * 2
             guard data.count >= pairSize else { continue }
 
-            var frequencies: [Double] = []
+            var rawFreqs: [UInt32] = []
             for offset in stride(from: 0, to: data.count, by: pairSize) {
                 let freqRaw = data.withUnsafeBytes { buf in
                     buf.load(fromByteOffset: offset, as: UInt32.self)
                 }
                 if freqRaw == 0 { continue }
+                rawFreqs.append(freqRaw)
+            }
+            guard let maxRaw = rawFreqs.max() else { continue }
 
-                // M1-M3: Hz (e.g. 1398000000 → 1398 MHz)
-                // M4: KHz (e.g. 1470000 → 1470 MHz)
-                let freqMHz: Double
-                if freqRaw > 1_000_000_000 {
-                    // Hz → MHz
-                    freqMHz = Double(freqRaw) / 1_000_000.0
-                } else if freqRaw > 1_000_000 {
-                    // KHz → MHz
-                    freqMHz = Double(freqRaw) / 1_000.0
-                } else {
-                    // Already MHz or unknown
-                    freqMHz = Double(freqRaw)
-                }
-
-                if freqMHz >= 100 && freqMHz <= 5000 {
-                    frequencies.append(freqMHz)
-                }
+            // Pick scale once based on the table's peak value.
+            // GPU max is realistically 0.5–3 GHz: Hz form > 100M, KHz form
+            // > 100k, MHz form 100–5000.
+            let scale: Double
+            if maxRaw > 100_000_000 {
+                scale = 1_000_000.0  // Hz → MHz
+            } else if maxRaw > 100_000 {
+                scale = 1_000.0      // KHz → MHz
+            } else {
+                scale = 1.0          // already MHz
             }
 
+            let frequencies = rawFreqs
+                .map { Double($0) / scale }
+                .filter { $0 >= 100 && $0 <= 5000 }
+
             if !frequencies.isEmpty {
-                return frequencies.sorted()
+                // Dedupe within 1 MHz — voltage-states blobs often store
+                // adjacent rail variants of the same P-state.
+                let sorted = frequencies.sorted()
+                var unique: [Double] = []
+                for f in sorted where unique.last.map({ abs(f - $0) > 1.0 }) ?? true {
+                    unique.append(f)
+                }
+                return unique
             }
         }
 
@@ -520,7 +533,7 @@ final class IOReportBridge {
                             stateInfo.append("\(sn):\(r)")
                         }
                     }
-                    Log.metrics.info("GPU Stats delta: name=\(name) subGroup=\(subGroup) states=\(stateCount) [\(stateInfo.joined(separator: ", "))]")
+                    Log.metrics.info("GPU Stats delta: name=\(name, privacy: .public) subGroup=\(subGroup, privacy: .public) states=\(stateCount) [\(stateInfo.joined(separator: ", "), privacy: .public)]")
                 }
 
                 // Each state is a P-state with a frequency.
@@ -542,10 +555,15 @@ final class IOReportBridge {
                     // Fall back to frequency table (index 0 = OFF/idle, skip it)
                     if freqMHz == 0 && !self.gpuFreqTable.isEmpty {
                         // State index 0 is typically OFF/idle state.
-                        // P-states map to gpuFreqTable[stateIndex - 1]
+                        // P-states map to gpuFreqTable[stateIndex - 1]; if
+                        // GPUPH reports more states than the table holds,
+                        // saturate to the top entry rather than silently
+                        // dropping the residency (which biases the weighted
+                        // mean toward whatever low entries survived).
                         let tableIdx = Int(i) - 1
-                        if tableIdx >= 0 && tableIdx < self.gpuFreqTable.count {
-                            freqMHz = self.gpuFreqTable[tableIdx]
+                        if tableIdx >= 0 {
+                            let capped = min(tableIdx, self.gpuFreqTable.count - 1)
+                            freqMHz = self.gpuFreqTable[capped]
                         }
                     }
 
