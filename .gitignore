@@ -70,3 +70,6 @@ anubis_power_logs.txt
 
 # Refresh-findings local venv
 scripts/.venv/
+
+# Local-only planning / working docs (not pushed)
+ROADMAP.md
