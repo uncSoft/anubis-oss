@@ -76,6 +76,19 @@ struct LeaderboardSubmission: Codable {
     let chipMacModel: String?
     let chipMacModelId: String?
 
+    /// Methodology version. Bumped whenever a material change to how
+    /// metrics are computed lands. Lets the leaderboard segregate or
+    /// badge submissions per methodology era so cross-version
+    /// comparisons stay honest.
+    ///
+    /// - v1 (implicit, prior to this field): pre-v3.4 — CPU/ANE/DRAM
+    ///   power were ~10⁶× too small, systemPower was effectively just
+    ///   GPU, J/Tok was a corresponding undercount.
+    /// - v2 (sent starting v3.4): per-channel scale fix, systemPower
+    ///   includes proper CPU/ANE/DRAM contribution, J/Tok reflects
+    ///   true SoC energy per token.
+    let methodologyVersion: Int
+
     enum CodingKeys: String, CodingKey {
         case machineId = "machine_id"
         case displayName = "display_name"
@@ -121,6 +134,7 @@ struct LeaderboardSubmission: Codable {
         case chipBandwidthGbs = "chip_bandwidth_gbs"
         case chipMacModel = "chip_mac_model"
         case chipMacModelId = "chip_mac_model_id"
+        case methodologyVersion = "methodology_version"
     }
 }
 
@@ -271,7 +285,8 @@ actor LeaderboardService {
             chipMemoryGb: chip.unifiedMemoryGB,
             chipBandwidthGbs: chip.memoryBandwidthGBs,
             chipMacModel: chip.macModel,
-            chipMacModelId: chip.macModelIdentifier
+            chipMacModelId: chip.macModelIdentifier,
+            methodologyVersion: Self.methodologyVersion
         )
 
         let bodyData = try JSONEncoder().encode(submission)
@@ -383,4 +398,11 @@ actor LeaderboardService {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
         return "\(short) (\(build))"
     }
+
+    // MARK: - Methodology Version
+
+    /// Bump when a material change to how metrics are computed lands,
+    /// so the leaderboard can segregate or badge per-era submissions.
+    /// See LeaderboardSubmission.methodologyVersion for the changelog.
+    static let methodologyVersion: Int = 2
 }

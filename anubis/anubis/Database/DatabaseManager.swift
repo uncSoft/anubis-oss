@@ -39,9 +39,35 @@ final class DatabaseManager {
 
         dbQueue = try DatabaseQueue(path: databaseURL.path, configuration: config)
 
+        // Snapshot the DB before running migrations so a botched v7+
+        // data-rewrite (power scale fix) is recoverable. The backup is
+        // taken once per unique pre-migration state — if the user has
+        // already migrated and is on v7+ the backup is skipped.
+        backupBeforeNewMigrationsIfNeeded()
+
         // Run migrations
         try migrate()
         isInitialized = true
+    }
+
+    /// Copy the DB to anubis.sqlite.pre-vN.bak before running any
+    /// new data-rewriting migration so users have a snapshot they
+    /// can restore if a migration produces unexpected results.
+    private func backupBeforeNewMigrationsIfNeeded() {
+        // Only relevant if the live DB exists and we haven't already
+        // taken the v7 backup.
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: databaseURL.path) else { return }
+        let backupURL = databaseURL.appendingPathExtension("pre-v7.bak")
+        guard !fm.fileExists(atPath: backupURL.path) else { return }
+        do {
+            try fm.copyItem(at: databaseURL, to: backupURL)
+        } catch {
+            // Backup failure shouldn't block app launch — the migration
+            // itself runs inside a GRDB transaction, so this is belt-and-
+            // suspenders. Log only.
+            print("DatabaseManager: pre-v7 backup failed: \(error.localizedDescription)")
+        }
     }
 
     /// Get the database queue for operations
@@ -219,6 +245,120 @@ final class DatabaseManager {
                 t.add(column: "reasoning_tokens", .integer)
                 t.add(column: "reasoning_duration", .double)
             }
+        }
+
+        // Migration v7: Fix CPU/ANE/DRAM power scale (#? — v3.4).
+        //
+        // Before v3.4, parseEnergyDelta assumed all IOReport Energy Model
+        // channels returned values in nanojoules. That's correct for GPU
+        // Energy but wrong for ECPU/PCPU/ANE/DRAM, which return millijoules
+        // — so historical cpu/ane/dram per-sample readings were stored
+        // ~10⁶× too small (µW instead of W), and systemPower (the sum)
+        // was effectively just GPU. avgWattsPerToken at session level was
+        // therefore an undercount (missed CPU/ANE/DRAM contribution).
+        //
+        // Notes on the historical data this migration is correcting:
+        //  - The clean nJ-bug rows have cpu/ane/dram in the 1 µW – 1 mW
+        //    range. Multiplying by 10⁶ brings them to 1 – 1000 W, which
+        //    is approximately right (CPU under load = 5–25 W on Apple
+        //    Silicon).
+        //  - Some pre-existing DB rows have impossibly high system_power
+        //    (up to ~60,000 W) from earlier code-era bugs unrelated to
+        //    this fix. The threshold (< 1 mW) deliberately excludes those
+        //    so we don't compound the damage. A post-rescale sanity sweep
+        //    nulls per-channel values that come out above 200 W (which is
+        //    higher than any realistic Apple Silicon SoC component) and
+        //    leaves the row visible but with the bad value zeroed out.
+        //
+        // The pre-migration DB is backed up to anubis.sqlite.pre-v7.bak
+        // outside this transaction (see backupBeforeNewMigrationsIfNeeded).
+        migrator.registerMigration("v7") { db in
+            let scale = 1_000_000.0
+            // Rescale only the clean µW bug range. Anything ≥ 1 mW
+            // pre-migration is either (a) already correct from a post-
+            // v3.4 sample written during testing, or (b) historical
+            // garbage from a different bug pattern — either way, leave
+            // it alone.
+            let upperBound = 1e-3
+
+            // 1. Rescale per-sample channels that match the µW bug pattern.
+            try db.execute(sql: """
+                UPDATE benchmark_sample
+                SET cpu_power_watts = cpu_power_watts * \(scale)
+                WHERE cpu_power_watts IS NOT NULL AND cpu_power_watts > 0 AND cpu_power_watts < \(upperBound)
+                """)
+            try db.execute(sql: """
+                UPDATE benchmark_sample
+                SET ane_power_watts = ane_power_watts * \(scale)
+                WHERE ane_power_watts IS NOT NULL AND ane_power_watts > 0 AND ane_power_watts < \(upperBound)
+                """)
+            try db.execute(sql: """
+                UPDATE benchmark_sample
+                SET dram_power_watts = dram_power_watts * \(scale)
+                WHERE dram_power_watts IS NOT NULL AND dram_power_watts > 0 AND dram_power_watts < \(upperBound)
+                """)
+
+            // 2. Sanity cap: NULL any per-channel value that came out
+            // implausibly high (> 200 W per channel is impossible on
+            // Apple Silicon SoC components). Catches outliers from
+            // historical garbage rows.
+            let perChannelCap = 200.0
+            try db.execute(sql: "UPDATE benchmark_sample SET cpu_power_watts = NULL WHERE cpu_power_watts > \(perChannelCap)")
+            try db.execute(sql: "UPDATE benchmark_sample SET ane_power_watts = NULL WHERE ane_power_watts > \(perChannelCap)")
+            try db.execute(sql: "UPDATE benchmark_sample SET dram_power_watts = NULL WHERE dram_power_watts > \(perChannelCap)")
+            try db.execute(sql: "UPDATE benchmark_sample SET gpu_power_watts = NULL WHERE gpu_power_watts > \(perChannelCap)")
+
+            // 3. Recompute per-sample system_power_watts from the now-
+            // corrected channels. COALESCE so NULLs don't blow up the sum.
+            try db.execute(sql: """
+                UPDATE benchmark_sample
+                SET system_power_watts =
+                    COALESCE(gpu_power_watts, 0)
+                  + COALESCE(cpu_power_watts, 0)
+                  + COALESCE(ane_power_watts, 0)
+                  + COALESCE(dram_power_watts, 0)
+                WHERE gpu_power_watts IS NOT NULL
+                   OR cpu_power_watts IS NOT NULL
+                   OR ane_power_watts IS NOT NULL
+                   OR dram_power_watts IS NOT NULL
+                """)
+
+            // 4. Sanity cap system_power_watts too — the sum should never
+            // exceed ~300 W on any Apple Silicon chip.
+            let systemCap = 300.0
+            try db.execute(sql: "UPDATE benchmark_sample SET system_power_watts = NULL WHERE system_power_watts > \(systemCap)")
+
+            // 5. Re-aggregate session-level avg/peak system_power_watts
+            // from the corrected (and sanity-capped) sample data.
+            try db.execute(sql: """
+                UPDATE benchmark_session
+                SET avg_system_power_watts = (
+                        SELECT AVG(system_power_watts) FROM benchmark_sample s
+                        WHERE s.session_id = benchmark_session.id
+                          AND s.system_power_watts IS NOT NULL
+                          AND s.system_power_watts > 0
+                    ),
+                    peak_system_power_watts = (
+                        SELECT MAX(system_power_watts) FROM benchmark_sample s
+                        WHERE s.session_id = benchmark_session.id
+                          AND s.system_power_watts IS NOT NULL
+                          AND s.system_power_watts > 0
+                    )
+                WHERE EXISTS (
+                    SELECT 1 FROM benchmark_sample s
+                    WHERE s.session_id = benchmark_session.id
+                )
+                """)
+
+            // 6. Recompute avg_watts_per_token (J/tok) from the corrected
+            // session-level avg power and the existing tokens_per_second.
+            try db.execute(sql: """
+                UPDATE benchmark_session
+                SET avg_watts_per_token = avg_system_power_watts / tokens_per_second
+                WHERE avg_system_power_watts IS NOT NULL
+                  AND tokens_per_second IS NOT NULL
+                  AND tokens_per_second > 0
+                """)
         }
 
         try migrator.migrate(queue)
