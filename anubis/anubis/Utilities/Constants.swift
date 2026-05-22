@@ -96,5 +96,11 @@ enum Constants {
         static let metricsPollingInterval = "metricsPollingInterval"
         static let mlxModelDirectories = "mlxModelDirectories"
         static let leaderboardDisplayName = "leaderboardDisplayName"
+        // Last-used backend + model, restored on launch so the user lands
+        // back on whatever they ran most recently (not the historical
+        // Ollama default).
+        static let lastUsedBackend = "lastUsedBackend"        // JSON PersistedBackendID
+        static let lastUsedModelName = "lastUsedModelName"    // String, scoped to lastUsedBackend
+        static let lastUsedAt = "lastUsedAt"                  // Date
     }
 }

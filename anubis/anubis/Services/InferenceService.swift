@@ -7,17 +7,29 @@
 
 import Foundation
 import Combine
+import os
 
 /// Service that coordinates inference across multiple backends
 @MainActor
 final class InferenceService: ObservableObject {
     // MARK: - Published State
 
-    /// Currently selected backend
-    @Published private(set) var currentBackend: InferenceBackendType = .ollama
+    /// Currently selected backend.
+    ///
+    /// Restored from `PersistedBackendID` on init when available, otherwise
+    /// resolved by a parallel health probe (Apple Intelligence → OpenAI-compat
+    /// configs → Ollama). No longer hardcoded to `.ollama`; that historical
+    /// default was wrong for users running only LM Studio, MLX, vLLM, or AI.
+    @Published private(set) var currentBackend: InferenceBackendType
 
     /// Currently selected backend configuration (for OpenAI backends)
     @Published private(set) var currentOpenAIConfig: BackendConfiguration?
+
+    /// True when the persisted last-used backend exists but its health check
+    /// failed on resolve. We keep it selected so the user sees what they had,
+    /// but the picker can render an "(offline)" badge so the situation is
+    /// obvious.
+    @Published private(set) var currentBackendIsOffline = false
 
     /// Available models from all backends
     @Published private(set) var allModels: [ModelInfo] = []
@@ -68,12 +80,113 @@ final class InferenceService: ObservableObject {
             openAIClients[config.id] = OpenAICompatibleClient(configuration: config)
         }
 
+        // Restore persisted selection synchronously so the UI lands on the
+        // right backend without flicker. Health is verified async below; if
+        // the backend is offline, currentBackendIsOffline gets flipped on
+        // and the picker UI surfaces it.
+        if let persisted = PersistedBackendID.load(), Self.canApply(persisted, configManager: configManager) {
+            self.currentBackend = persisted.type
+            if persisted.type == .openai, let configId = persisted.openAIConfigId {
+                self.currentOpenAIConfig = configManager.openAIConfigs.first { $0.id == configId }
+            }
+        } else {
+            // Fresh launch (or persisted choice references a deleted config).
+            // Use Ollama as the placeholder for the brief window before the
+            // async health probe lands on the actual right backend; not a
+            // user-facing default.
+            self.currentBackend = .ollama
+        }
+
         // Observe configuration changes
         configManager.$configurations
             .sink { [weak self] _ in
                 self?.reloadConfigurations()
             }
             .store(in: &cancellables)
+
+        // Async: verify the persisted choice is healthy, or for fresh users
+        // probe the priority order and land on the first responding backend.
+        Task { await self.resolveInitialBackend() }
+    }
+
+    /// Check whether a persisted selection still refers to a valid configuration.
+    private static func canApply(_ persisted: PersistedBackendID, configManager: BackendConfigurationManager) -> Bool {
+        switch persisted.type {
+        case .ollama, .appleIntelligence:
+            return true
+        case .openai:
+            guard let configId = persisted.openAIConfigId else { return false }
+            return configManager.openAIConfigs.contains { $0.id == configId }
+        }
+    }
+
+    /// Decide the initial backend.
+    ///
+    /// 1. If there's a persisted selection, verify it's reachable. If yes,
+    ///    keep it. If no, mark `currentBackendIsOffline` so the picker can
+    ///    render an offline badge — but keep the selection rather than
+    ///    silently jumping the user to a different backend.
+    /// 2. No persisted selection (fresh install): probe in priority order
+    ///    Apple Intelligence → each OpenAI-compat config → Ollama, land on
+    ///    the first healthy one. No Ollama-first bias.
+    private func resolveInitialBackend() async {
+        await checkAllBackends()
+
+        if let persisted = PersistedBackendID.load(), Self.canApply(persisted, configManager: configManager) {
+            currentBackendIsOffline = !isHealthy(persisted)
+            Log.app.info("Backend resolve: restored persisted \(persisted.type.rawValue, privacy: .public)\(persisted.openAIConfigId.map { " (config \($0.uuidString))" } ?? "", privacy: .public) — offline: \(self.currentBackendIsOffline)")
+            return
+        }
+
+        // Fresh-launch priority order.
+        if backendHealth[.appleIntelligence]?.isRunning == true {
+            currentBackend = .appleIntelligence
+            currentOpenAIConfig = nil
+            persistCurrentSelection()
+            Log.app.info("Backend resolve: fresh launch → Apple Intelligence")
+            return
+        }
+        for config in configManager.openAIConfigs {
+            if openAIBackendHealth[config.id]?.isRunning == true {
+                setOpenAIBackend(config)
+                persistCurrentSelection()
+                Log.app.info("Backend resolve: fresh launch → OpenAI-compat \(config.name, privacy: .public)")
+                return
+            }
+        }
+        if backendHealth[.ollama]?.isRunning == true {
+            currentBackend = .ollama
+            currentOpenAIConfig = nil
+            persistCurrentSelection()
+            Log.app.info("Backend resolve: fresh launch → Ollama (last in priority order)")
+            return
+        }
+        Log.app.info("Backend resolve: no backend healthy; UI will show disconnected")
+        // Nothing healthy; leave currentBackend at its placeholder and let
+        // the UI surface the disconnected state through the existing health
+        // indicator.
+    }
+
+    private func isHealthy(_ persisted: PersistedBackendID) -> Bool {
+        switch persisted.type {
+        case .ollama:
+            return backendHealth[.ollama]?.isRunning == true
+        case .openai:
+            guard let id = persisted.openAIConfigId else { return false }
+            return openAIBackendHealth[id]?.isRunning == true
+        case .appleIntelligence:
+            return backendHealth[.appleIntelligence]?.isRunning == true
+        }
+    }
+
+    /// Snapshot the current backend choice into PersistedBackendID and write
+    /// it to UserDefaults so the next launch restores the same selection.
+    func persistCurrentSelection() {
+        let persisted = PersistedBackendID(
+            type: currentBackend,
+            openAIConfigId: currentBackend == .openai ? currentOpenAIConfig?.id : nil
+        )
+        persisted.save()
     }
 
     /// Reload backend configurations
@@ -119,8 +232,10 @@ final class InferenceService: ObservableObject {
         if backend != .openai {
             currentOpenAIConfig = nil
         }
+        currentBackendIsOffline = false
         objectWillChange.send()
         lastError = nil
+        persistCurrentSelection()
     }
 
     /// Switch to a specific OpenAI-compatible backend
@@ -129,14 +244,18 @@ final class InferenceService: ObservableObject {
         // fires objectWillChange immediately, so config must be ready first
         currentOpenAIConfig = config
         currentBackend = .openai
+        currentBackendIsOffline = false
         lastError = nil
+        persistCurrentSelection()
     }
 
     /// Switch to the Apple Intelligence (Foundation Models) backend
     func setAppleIntelligenceBackend() {
         currentOpenAIConfig = nil
         currentBackend = .appleIntelligence
+        currentBackendIsOffline = false
         lastError = nil
+        persistCurrentSelection()
     }
 
     /// Get the currently active backend

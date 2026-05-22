@@ -245,43 +245,14 @@ struct BackendStatusView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Combined backend selector
+            // Combined backend selector. Ordering reflects no-Ollama-bias:
+            // Apple Intelligence first (most native on supported macOS),
+            // then user-configured OpenAI-compat backends (LM Studio,
+            // MLX, vLLM, etc.), then Ollama. Picker also marks the
+            // selected backend offline when its health check has failed.
             Menu {
-                // Ollama
-                Button {
-                    inferenceService.setBackend(.ollama)
-                } label: {
-                    HStack {
-                        Label("Ollama", systemImage: "server.rack")
-                        Spacer()
-                        if inferenceService.currentBackend == .ollama && inferenceService.currentOpenAIConfig == nil {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-
-                // OpenAI-compatible servers (includes MLX, LM Studio, vLLM, etc.)
-                let openAIConfigs = configManager.openAIConfigs
-                if !openAIConfigs.isEmpty {
-                    Divider()
-                    ForEach(openAIConfigs) { config in
-                        Button {
-                            inferenceService.setOpenAIBackend(config)
-                        } label: {
-                            HStack {
-                                Label(config.name, systemImage: "globe")
-                                Spacer()
-                                if inferenceService.currentOpenAIConfig?.id == config.id {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Apple Intelligence (Foundation Models, macOS 26+)
                 if #available(macOS 26.0, *) {
-                    Divider()
                     Button {
                         inferenceService.setAppleIntelligenceBackend()
                     } label: {
@@ -293,6 +264,39 @@ struct BackendStatusView: View {
                             }
                         }
                     }
+                    Divider()
+                }
+
+                // OpenAI-compatible servers (LM Studio, MLX, vLLM, etc.)
+                let openAIConfigs = configManager.openAIConfigs
+                ForEach(openAIConfigs) { config in
+                    Button {
+                        inferenceService.setOpenAIBackend(config)
+                    } label: {
+                        HStack {
+                            Label(config.name, systemImage: "globe")
+                            Spacer()
+                            if inferenceService.currentOpenAIConfig?.id == config.id {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+                if !openAIConfigs.isEmpty {
+                    Divider()
+                }
+
+                // Ollama (last — no longer the default)
+                Button {
+                    inferenceService.setBackend(.ollama)
+                } label: {
+                    HStack {
+                        Label("Ollama", systemImage: "server.rack")
+                        Spacer()
+                        if inferenceService.currentBackend == .ollama && inferenceService.currentOpenAIConfig == nil {
+                            Image(systemName: "checkmark")
+                        }
+                    }
                 }
             } label: {
                 HStack {
@@ -300,6 +304,11 @@ struct BackendStatusView: View {
                         .frame(width: 20)
                     Text(currentBackendName)
                         .lineLimit(1)
+                    if inferenceService.currentBackendIsOffline {
+                        Text("(offline)")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
                     Spacer()
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.caption)
@@ -317,6 +326,16 @@ struct BackendStatusView: View {
                 }
             }
             .buttonStyle(.plain)
+
+            // "Last used Xh ago" — only shown when there's a persisted
+            // timestamp that isn't trivially recent. Signals that the
+            // selection was restored from a previous session.
+            if let lastUsed = PersistedBackendID.lastUsedAt,
+               Date().timeIntervalSince(lastUsed) > 300 {
+                Text("Restored from last session · \(lastUsed, format: .relative(presentation: .named))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
 
             // Status indicator
             HStack(spacing: 6) {

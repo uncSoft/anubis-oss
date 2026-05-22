@@ -178,9 +178,16 @@ final class BenchmarkViewModel: ObservableObject {
     @Published private(set) var availableModels: [ModelInfo] = []
 
     /// Selected model for benchmark
-    @Published var selectedModel: ModelInfo?
+    @Published var selectedModel: ModelInfo? {
+        didSet {
+            // Persist so the next launch restores the same model (scoped to
+            // the persisted backend — see PersistedModelSelection).
+            PersistedModelSelection.save(selectedModel?.name)
+        }
+    }
 
-    /// Selected backend (synced with inferenceService)
+    /// Selected backend (synced with inferenceService — initial value is
+    /// read from inferenceService in init, no longer hardcoded to .ollama).
     @Published var selectedBackend: InferenceBackendType = .ollama {
         didSet {
             if oldValue != selectedBackend {
@@ -414,9 +421,15 @@ final class BenchmarkViewModel: ObservableObject {
         // Get models for current backend (properly filters by OpenAI config ID if applicable)
         availableModels = inferenceService.modelsForCurrentBackend()
 
-        // If switching backends and current model isn't available, select first available
+        // If the current model isn't in the new list, try to restore the
+        // user's persisted last-used model name; fall back to the first one.
         if selectedModel == nil || !availableModels.contains(where: { $0.id == selectedModel?.id }) {
-            selectedModel = availableModels.first
+            if let persistedName = PersistedModelSelection.load(),
+               let restored = availableModels.first(where: { $0.name == persistedName }) {
+                selectedModel = restored
+            } else {
+                selectedModel = availableModels.first
+            }
         }
 
         // Check backend health
