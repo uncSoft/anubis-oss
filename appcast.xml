@@ -4,6 +4,72 @@
 	<channel>
 		<title>anubis</title>
   <item>
+      <title>Version 3.5</title>
+      <pubDate>Fri, 22 May 2026 20:00:00 -0400</pubDate>
+      <sparkle:version>3.5</sparkle:version>
+      <sparkle:shortVersionString>3.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Version 3.5 — N-rep groups with confidence intervals, LM Studio fixes, accurate SoC power</h2>
+          <p>A focused follow-up to v3.3 — this release combines what was staged as v3.4 (more accurate SoC power accounting + backend persistence) with substantial new work: N-rep benchmark groups with bootstrap confidence intervals, comprehensive LM Studio reliability fixes, and a server-side schema for group-aware leaderboard submissions.</p>
+
+          <h3>New: N-rep benchmark groups</h3>
+          <ul>
+              <li><b>Repetitions stepper (1–20)</b> in the benchmark toolbar. A group runs N reps of the same configuration sequentially. On completion the dashboard surfaces <b>mean ± 95% bootstrap CI</b> (1000 resamples) for tok/s, TTFT, J/Tok, system power, GPU power, and peak memory.</li>
+              <li><b>Seed strategy picker.</b> <i>Random</i> (default) picks a fresh seed per rep — CI then captures both hardware AND sampler variance, the honest measurement of what an end user actually experiences. <i>Fixed</i> uses the same seed across reps — CI captures hardware variance only, useful for reproducibility runs.</li>
+              <li><b>Group view-mode toggle.</b> Dashboard cards switch between "Full group" (mean across all reps) and "Last rep" with one click.</li>
+              <li><b>Per-rep streaming and per-rep charts</b> preserved. Every rep collects full per-sample data; the group aggregate is computed at completion.</li>
+          </ul>
+
+          <h3>New: Group context attached to leaderboard submissions</h3>
+          <ul>
+              <li>Submissions from a group rep now carry their group's <code>run_group_id</code>, sample count, repetition index, seed strategy, and <b>mean + 95% CI</b> for the headline metrics (tok/s, TTFT, J/Tok).</li>
+              <li>Server schema (<code>leaderboard_submissions</code> v7) updated to persist all of this. The current leaderboard page still renders per-rep rows; the underlying data now supports a future "mean ± CI" view without re-uploading anything.</li>
+              <li>Also fixes a long-standing issue where <code>methodology_version</code> (added in code at v3.4) was being silently dropped by the server. Pre-v3.5 submissions stay <code>NULL</code> for that column; v3.5+ correctly tags as methodology 2.</li>
+          </ul>
+
+          <h3>Fixed: More accurate SoC power accounting</h3>
+          <p>The CPU, ANE, and DRAM power channels reported by IOReport use different units (mJ) than the GPU channel (nJ). The prior implementation treated all four uniformly, which meant the CPU/ANE/DRAM contributions were effectively rounded out of <code>system_power</code> — leaving it dominated by GPU. The headline <code>J/Tok</code> metric was a corresponding undercount.</p>
+          <p>Per-channel scaling is now correct, so <code>system_power</code> reflects the whole SoC, and <code>J/Tok</code> reflects true SoC energy per token. <b>Migration v7 in the local app DB retroactively rescales the affected columns in your historical sessions so older reports re-aggregate cleanly.</b> The methodology version tag bumps from 1 → 2, and the leaderboard server now records this so cross-version comparisons stay honest — pre-v3.5 submissions stay tagged methodology 1 (or <code>NULL</code> for pre-v3.4); v3.5+ submissions are methodology 2.</p>
+
+          <h3>Fixed: LM Studio reliability</h3>
+          <ul>
+              <li><b>Alternating-failure pattern in N&gt;1 groups.</b> Every other rep was failing in ~100 ms with NULL tokens. Root cause: the <code>Connection: close</code> header (added for Ollama chunk pacing) caused LM Studio to reject the immediately-following request while still in TCP teardown. Header is now Ollama-only; OpenAI-compat backends keep the connection alive. 250 ms inter-rep delay added in run groups as belt-and-suspenders. Failed sessions also now record the error description in their <code>response</code> field for easy diagnosis.</li>
+              <li><b>Process auto-detection grabbed the wrong worker on the first run.</b> The actual model holder lives at <code>~/.lmstudio/.internal/utils/node</code>, outside the <code>.app</code> bundle and sometimes reparented to launchd — and on first run the model isn't loaded yet so the worker has tiny memory. Detection now recognizes that path AND a self-healing soft pin re-evaluates every 2 s, converging to the real worker within ~2 s of model load completing. No more "first rep wrong, second rep right."</li>
+              <li><b>Mis-attribution to Ollama after switching LM Studio models.</b> When LM Studio's port briefly stopped listening, the metrics loop silently fell through to a priority default that picked Ollama if it happened to be running. Closed that fall-through.</li>
+              <li><b>tok/s = 0 for reasoning-only LM Studio output</b> — falls back to total throughput.</li>
+              <li><b>mlx-server-style buffered streams reporting 10,000+ tok/s</b> — warning triangle + tooltip when timing is suspicious instead of inflating the headline.</li>
+          </ul>
+
+          <h3>Fixed: M5 Max GPU frequency</h3>
+          <p>Pinned at 1084 MHz on M5 Max due to inverted Hz/KHz/MHz scale heuristic. Now picks unit scale from the table maximum + saturation fallback; reports the full clock range.</p>
+
+          <h3>Fixed: OpenAI-compat sessions reporting <code>promptTokens = 0</code></h3>
+          <p>Added <code>stream_options.include_usage: true</code> to force usage in the final SSE chunk.</p>
+
+          <h3>Streaming + performance</h3>
+          <ul>
+              <li><b>Streaming text view migrated from TextKit 1 to TextKit 2.</b> Fixes a long-running hang after ~25 reps caused by <code>CopyOfFontWithLigatureSetting</code> getting called on every layout pass. Font is now pre-configured with ligatures disabled at the CTFont level.</li>
+              <li><b>Stream consume task promoted to <code>.userInteractive</code> priority.</b> Stop button responds immediately; group-mode chunks stream evenly instead of arriving in bursts.</li>
+              <li><b>Group streaming cascade storm fixed.</b> Six <code>@Published</code> cascades demoted to plain vars and batched at 1 Hz during multi-rep runs. Sidebar toggles take &lt;50 ms during runs (was up to 1 s).</li>
+          </ul>
+
+          <h3>Polish</h3>
+          <ul>
+              <li><b>Process picker enhancements.</b> Live CPU% updates (1.2 s refresh) so the active inference worker stands out. Interpreter processes (node, python) are labelled by script — e.g. <code>node (llmworker.js) — 1.2 GB · 69% CPU</code> — so you don't have to guess between five identical "node" rows.</li>
+              <li><b>Last-used backend and model persist across launches.</b> Ollama is no longer the always-default; first launch shows what's available, subsequent launches restore your last selection.</li>
+              <li><b>Friendly error for non-thinking models.</b> When a model rejects Ollama's <code>think</code> parameter, the error message now explains the fix instead of a generic 400.</li>
+          </ul>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.5.0/Anubis-OSS-3.5.zip"
+          sparkle:version="3.5"
+          sparkle:shortVersionString="3.5"
+          length="13734346"
+          type="application/octet-stream"
+          sparkle:edSignature="UVtgs9TseXccLinzC+/om6c+c4tCJvozEKfDwMeZkDtXQMRNhreCyeN6VxPVozD52S8m4PiYx5tdCQSDOzi/CA==" />
+  </item>
+  <item>
       <title>Version 3.3</title>
       <pubDate>Fri, 22 May 2026 12:40:00 -0400</pubDate>
       <sparkle:version>3.3</sparkle:version>
