@@ -330,6 +330,15 @@
     <!-- AI-FINDINGS-END -->
   </div>
 
+  <!-- N-rep groups note (NEW for v3.5+) -->
+  <div class="section">
+    <h2>New: Repeated-Run Benchmarks<span class="badge badge-new">v3.5+</span></h2>
+    <div class="subtitle">Submissions from app v3.5+ can now bundle N consecutive runs into a single benchmark group, with mean and 95% bootstrap confidence intervals computed across reps.</div>
+    <div class="finding"><strong>Why it matters.</strong> A single benchmark run captures one snapshot of the system &mdash; thermal state, scheduler choices, sampler seed, background load all bleed into the result. An N-rep group runs the same configuration multiple times and reports the mean plus a 95% CI, so you can see the actual spread, not just one point. That CI is what tells you whether a 5% gap between two configs is real or noise.</div>
+    <div class="finding green"><strong>How to spot one.</strong> On the <a href="https://devpadapp.com/leaderboard.html">leaderboard</a>, group reps now show a small &ldquo;&plusmn;X.XX &middot; N reps&rdquo; line under the tok/s value, and the expand panel reveals a Group Context section with the full mean &plusmn; CI for tok/s, TTFT, and J/Tok. The <a href="https://devpadapp.com/explorer.html">explorer</a> exposes the group aggregates as sortable columns.</div>
+    <div class="finding orange"><strong>How to run them yourself.</strong> Open Anubis OSS v3.5 or later, set the Repetitions stepper in the benchmark toolbar to anything from 2&ndash;20, and pick a seed strategy &mdash; <em>Random</em> (default) captures both hardware and sampler variance, <em>Fixed</em> isolates hardware-only variance for tight reproducibility comparisons. Each rep streams normally; the group aggregate is computed at completion.</div>
+  </div>
+
   <!-- Reasoning model section (NEW for v3.1+) -->
   <div class="section" id="reasoning-section" style="display:none">
     <h2>Reasoning Models &mdash; Three Throughput Metrics<span class="badge badge-new">v3.1+</span></h2>
