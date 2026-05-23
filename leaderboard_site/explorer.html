@@ -231,6 +231,20 @@
                 "Peak Memory (GB)": e.peak_memory_bytes != null ? round(e.peak_memory_bytes / 1073741824, 2) : null,
                 "Backend":          e.backend || "",
                 "App Version":      e.app_version || "",
+                "Methodology":      num(e.methodology_version),
+                // Run-group context (Anubis v3.5+ N-rep groups). When a
+                // submission is one of N reps, group_* fields carry the
+                // aggregate (mean + 95% bootstrap CI) for the headline
+                // metrics. Per-rep rows still show their own tok/s in
+                // "Output tok/s" — these columns let you see the group's
+                // spread alongside.
+                "Group Reps":       num(e.group_sample_count),
+                "Group Rep #":      num(e.group_repetition_index),
+                "Group Mean tok/s": num(e.group_mean_tokens_per_second),
+                "Group ±CI tok/s": ciHalfWidth(e.group_ci_low_tokens_per_second, e.group_ci_high_tokens_per_second),
+                "Group Mean TTFT (ms)": e.group_mean_time_to_first_token != null ? num(e.group_mean_time_to_first_token * 1000) : null,
+                "Group Mean J/Tok": num(e.group_mean_watts_per_token),
+                "Seed Strategy":    e.group_seed_strategy || "",
                 "Submitted":        e.submitted_at || "",
             }));
 
@@ -251,9 +265,10 @@
                 theme: "Pro Dark",
                 columns: [
                     "Name", "Model", "Quantization", "Format", "Chip", "Memory (GB)",
-                    "Output tok/s", "Prefill tok/s", "Reasoning tok/s",
+                    "Output tok/s", "Group Mean tok/s", "Group ±CI tok/s", "Group Reps",
+                    "Prefill tok/s", "Reasoning tok/s",
                     "TTFT (ms)", "Watts/Token",
-                    "Avg GPU Power (W)", "Peak Memory (GB)", "Backend"
+                    "Avg GPU Power (W)", "Peak Memory (GB)", "Backend", "Methodology"
                 ],
                 sort: [["Output tok/s", "desc"]],
                 settings: true,
@@ -294,6 +309,14 @@
             const d = num(e.reasoning_duration);
             if (t == null || d == null || d <= 0) return null;
             return t / d;
+        }
+
+        // Half-width of a 95% CI — what people usually want to see after
+        // a ± sign. Returns null when either bound is missing.
+        function ciHalfWidth(low, high) {
+            const l = num(low), h = num(high);
+            if (l == null || h == null) return null;
+            return round((h - l) / 2, 3);
         }
     </script>
 </body>

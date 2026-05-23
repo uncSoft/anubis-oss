@@ -246,6 +246,17 @@
             box-shadow: 0 0 6px rgba(108,180,238,0.5);
             transition: width 0.4s ease;
         }
+        /* "±X · N reps" suffix shown on rows that are part of a v3.5+
+           N-rep group. Communicates that the headline tok/s is a single
+           rep but has a measured spread, without changing the rank. */
+        .tps-ci {
+            display: block;
+            font-size: 0.7rem;
+            color: #8b95a8;
+            margin-top: 2px;
+            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+        }
+        .tps-ci .ci-num { color: #b8c3d1; }
 
         .metric {
             font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
@@ -814,6 +825,11 @@
             <select id="filter-format" onchange="applyFilters()">
                 <option value="">All Formats</option>
             </select>
+            <select id="filter-methodology" onchange="applyFilters()" title="Filter by metric methodology version. v3.5+ has corrected per-channel SoC power scaling; earlier submissions undercount CPU/ANE/DRAM contributions.">
+                <option value="">All Methodologies</option>
+                <option value="2">v3.5+ corrected power</option>
+                <option value="legacy">Pre-v3.5 (legacy power)</option>
+            </select>
             <button class="filter-clear" id="filter-clear" onclick="clearFilters()">Clear Filters</button>
             <span class="filter-tag" id="filter-tag"></span>
         </div>
@@ -883,7 +899,8 @@
         let entries = [];
         let currentSort = { key: 'tokens_per_second', dir: 'desc' };
         let expandedIds = new Set();
-        let filters = { chip: '', model: '', quant: '', format: '' };
+        // methodology values: '' = all, '2' = v3.5+ corrected, 'legacy' = NULL or 1
+        let filters = { chip: '', model: '', quant: '', format: '', methodology: '' };
         let countAnimated = false;
 
         async function fetchLeaderboard() {
@@ -986,6 +1003,8 @@
                 if (filters.model && e.model_name !== filters.model) return false;
                 if (filters.quant && e.model_quantization !== filters.quant) return false;
                 if (filters.format && e.model_format !== filters.format) return false;
+                if (filters.methodology === '2' && e.methodology_version !== 2) return false;
+                if (filters.methodology === 'legacy' && e.methodology_version === 2) return false;
                 return true;
             });
         }
@@ -995,6 +1014,7 @@
             filters.model = document.getElementById('filter-model').value;
             filters.quant = document.getElementById('filter-quant').value;
             filters.format = document.getElementById('filter-format').value;
+            filters.methodology = document.getElementById('filter-methodology').value;
             renderTable();
         }
 
@@ -1003,17 +1023,19 @@
             filters.model = '';
             filters.quant = '';
             filters.format = '';
+            filters.methodology = '';
             document.getElementById('filter-chip').value = '';
             document.getElementById('filter-model').value = '';
             document.getElementById('filter-quant').value = '';
             document.getElementById('filter-format').value = '';
+            document.getElementById('filter-methodology').value = '';
             renderTable();
         }
 
         function renderTable() {
             const content = document.getElementById('content');
             const filtered = getFilteredEntries();
-            const hasFilters = filters.chip || filters.model || filters.quant || filters.format;
+            const hasFilters = filters.chip || filters.model || filters.quant || filters.format || filters.methodology;
 
             // Update count display
             const countEl = document.getElementById('count');
@@ -1122,7 +1144,8 @@
                 html += `<td>${quantBadge(entry.model_quantization)}</td>`;
                 html += `<td>${formatBadge(entry.model_format)}</td>`;
                 html += `<td>${chipBadge(entry)}</td>`;
-                html += `<td class="metric metric-primary tps-cell"><span class="tps-num">${fmtNum(entry.tokens_per_second, 2)}</span><div class="tps-track"><div class="tps-bar" style="width:${tpsPct}%"></div></div></td>`;
+                const ciSuffix = renderTpsCiSuffix(entry);
+                html += `<td class="metric metric-primary tps-cell"><span class="tps-num">${fmtNum(entry.tokens_per_second, 2)}</span>${ciSuffix}<div class="tps-track"><div class="tps-bar" style="width:${tpsPct}%"></div></div></td>`;
                 html += `<td class="metric">${fmtNum(prefillTps(entry), 2)}</td>`;
                 html += `<td class="metric">${fmtTTFT(entry.time_to_first_token)}</td>`;
                 html += `<td class="metric">${fmtPower(entry.avg_system_power_watts)}</td>`;
@@ -1192,6 +1215,33 @@
             h += cell('Watts/Token', e.avg_watts_per_token != null ? `${fmtNum(e.avg_watts_per_token, 3)} W/tok` : null, 'power');
             h += cell('Peak Memory', fmtBytes(e.peak_memory_bytes), 'mem');
 
+            // Group context — only when this submission is part of an
+            // N-rep group (Anubis v3.5+). Aggregates (mean + 95%
+            // bootstrap CI) describe the parent group; the headline
+            // values above are just this one rep.
+            if (e.run_group_id != null) {
+                h += sec('Group context');
+                h += cell('Reps in group', fmtInt(e.group_sample_count));
+                h += cell('This rep #', fmtInt(e.group_repetition_index));
+                h += cell('Seed strategy', e.group_seed_strategy);
+                const tpsCi = ciHalfWidth(e.group_ci_low_tokens_per_second, e.group_ci_high_tokens_per_second);
+                h += cell('Group mean tok/s',
+                    e.group_mean_tokens_per_second != null
+                        ? `${fmtNum(e.group_mean_tokens_per_second, 2)}${tpsCi != null ? ` ± ${fmtNum(tpsCi, 2)}` : ''}`
+                        : null, 'accent');
+                const ttftCi = ciHalfWidth(e.group_ci_low_time_to_first_token, e.group_ci_high_time_to_first_token);
+                h += cell('Group mean TTFT',
+                    e.group_mean_time_to_first_token != null
+                        ? `${fmtTTFT(e.group_mean_time_to_first_token)}${ttftCi != null ? ` ± ${fmtNum(ttftCi * 1000, 0)} ms` : ''}`
+                        : null);
+                const jptCi = ciHalfWidth(e.group_ci_low_watts_per_token, e.group_ci_high_watts_per_token);
+                h += cell('Group mean J/Tok',
+                    e.group_mean_watts_per_token != null
+                        ? `${fmtNum(e.group_mean_watts_per_token, 3)}${jptCi != null ? ` ± ${fmtNum(jptCi, 3)}` : ''} J/tok`
+                        : null, 'power');
+                h += cell('Group ID', fmtInt(e.run_group_id));
+            }
+
             h += sec('Hardware');
             h += cell('Mac Model', e.chip_mac_model);
             h += cell('Chip', e.chip_name);
@@ -1248,6 +1298,28 @@
             if (!e || e.prompt_tokens == null || !e.prompt_eval_duration) return null;
             if (e.prompt_eval_duration <= 0) return null;
             return e.prompt_tokens / e.prompt_eval_duration;
+        }
+
+        // CI half-width — the "± value" people scan after a number.
+        // Returns null when either bound is missing.
+        function ciHalfWidth(low, high) {
+            if (low == null || high == null) return null;
+            return (high - low) / 2;
+        }
+
+        // Subtle "±X.XX · N reps" line shown below the tok/s value when
+        // an entry is part of a v3.5+ N-rep group. Empty string when no
+        // group data is available, so older / single-shot rows render
+        // unchanged.
+        function renderTpsCiSuffix(e) {
+            if (!e || e.run_group_id == null) return '';
+            const half = ciHalfWidth(e.group_ci_low_tokens_per_second, e.group_ci_high_tokens_per_second);
+            const n = e.group_sample_count;
+            if (half == null && !n) return '';
+            const parts = [];
+            if (half != null) parts.push(`<span class="ci-num">±${fmtNum(half, 2)}</span>`);
+            if (n) parts.push(`${n} reps`);
+            return `<span class="tps-ci" title="95% bootstrap CI from ${n || '?'} group reps">${parts.join(' · ')}</span>`;
         }
         function reasoningTps(e) {
             if (!e || e.reasoning_tokens == null || !e.reasoning_duration) return null;
