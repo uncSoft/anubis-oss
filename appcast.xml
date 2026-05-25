@@ -4,6 +4,60 @@
 	<channel>
 		<title>anubis</title>
   <item>
+      <title>Version 3.6</title>
+      <pubDate>Mon, 25 May 2026 12:30:00 -0400</pubDate>
+      <sparkle:version>3.6</sparkle:version>
+      <sparkle:shortVersionString>3.6</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Version 3.6 — Run history management + Browse Ollama models in-app</h2>
+          <p>A focused user-experience release since v3.5. The two biggest UX papercuts &mdash; "I can't see or delete benchmarks past the most-recent 20" and "discovering Ollama models is buried" &mdash; both go away. Plus the leaderboard becomes a one-click affordance with optional fully automatic submission.</p>
+
+          <h3>New: Run history management <small>(closes #26)</small></h3>
+          <ul>
+              <li><b>Filter bar</b> above the list: Model, Backend, Status dropdowns auto-populated from loaded sessions, plus a segmented <b>Show: 50 / 200 / 500 / All</b> picker. The 20-row ceiling is gone.</li>
+              <li><b>Multi-select</b> via SwiftUI List's native &#8984;-click and &#8679;-click. Detail panel renders when exactly one row is selected.</li>
+              <li><b>"Select All Filtered"</b> + <b>"Delete N Selected"</b> in the toolbar &mdash; distinct from "Clear All" so you can prune subsets without nuking everything. Example: filter to Status&nbsp;=&nbsp;Cancelled &rarr; Select All Filtered &rarr; Delete N Selected &rarr; only the cancelled rows go away.</li>
+              <li><b>Context-menu delete is selection-aware</b> &mdash; right-click a row that's part of a &ge;2 selection to bulk-delete the whole set; right-click outside the selection to delete just that row.</li>
+              <li><b>"Clear All" confirmation rewritten</b> to be honest that it nukes everything in the DB regardless of filter / row limit.</li>
+              <li>Status bar reads "X of Y sessions" when filters are active.</li>
+          </ul>
+
+          <h3>New: Browse Ollama models from the benchmark view</h3>
+          <ul>
+              <li><b>"Browse Models"</b> toolbar button (Ollama backend only) opens a sheet that fetches <code>https://ollama.com/library</code> directly. ~25 top models on first open; search input hits <code>/search?q=&hellip;</code> after a 300&nbsp;ms debounce.</li>
+              <li><b>Each card</b> shows name, description, capability chips (tools / vision / thinking / embedding), available sizes as buttons, pull count, last-updated.</li>
+              <li><b>Click a size button</b> to start the pull &mdash; runs through the existing <code>/api/pull</code> plumbing with progress UI.</li>
+              <li><b>"Installed" badge</b> on entries you already have locally.</li>
+              <li><b>24 h client-side cache</b>; Refresh button bypasses it.</li>
+              <li>The existing "Pull Model" button (typed-name flow) is unchanged and remains the answer for HuggingFace identifiers, custom tags, and non-Ollama backends.</li>
+          </ul>
+
+          <h3>Fixed: Cancel actually cancels the model pull</h3>
+          <p>Clicking Cancel in the pull dialog used to dismiss the sheet but leave the download running silently in the background. The cancel now propagates all the way down &mdash; the <code>URLSession.bytes</code> read stops, the HTTP connection closes, and the partial blob stays on disk so a re-pull resumes from where it stopped (Ollama's standard behavior).</p>
+
+          <h3>Leaderboard upload &mdash; prominent + optional auto-submit</h3>
+          <ul>
+              <li><b>Toolbar upload button is now a state machine</b>: idle (run a benchmark first) &rarr; <b>"Submit to Leaderboard"</b> (completed run, never submitted, with subtle visual emphasis) &rarr; "Submitting&hellip;" (with progress spinner) &rarr; <b>"Submitted &check;"</b> (green) &rarr; "Retry Submit" (orange, with the server error in the tooltip if anything failed).</li>
+              <li><b>Settings &rarr; Community Leaderboard</b>: display-name field + a default-off "Auto-submit completed runs" toggle. When enabled, every successful run (and every rep of a group) auto-uploads in the background with no further interaction. Toggle disables itself until a display name is set.</li>
+          </ul>
+
+          <h3>Polish</h3>
+          <ul>
+              <li><b>Parameters + Performance/Thinking sections</b> in the benchmark dashboard now default to expanded so first-time users see the N-runs stepper, seed strategy, and Ollama Thinking picker without discovering the chevrons. Once collapsed, the preference persists.</li>
+              <li><b>New (i) button next to the Thinking picker</b> opens a popover that consolidates: what Auto / On / Off each do, that only Ollama exposes a <code>think</code> field (so the picker hides on OpenAI-compat backends), and what to do when a model rejects the field.</li>
+              <li><b>Submissions from a group rep now carry full group context</b> to the leaderboard server &mdash; sample count, repetition index, seed strategy, and mean &plusmn; 95% CI for tokens-per-second, TTFT, and J/Tok. The leaderboard page renders the "&plusmn;CI &middot; N reps" line under the headline tok/s on group rows; the explorer exposes the group aggregates as sortable columns; the expanded detail panel has a full "Group context" section.</li>
+          </ul>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.6.0/Anubis-OSS-3.6.zip"
+          sparkle:version="3.6"
+          sparkle:shortVersionString="3.6"
+          length="13879718"
+          type="application/octet-stream"
+          sparkle:edSignature="tlMz1PidH6IITkQpvFj3HJweOA9HFv6coq3LZnI+okAssXeSzA7BF5oJzGlRaFNCZ1Fnt2+/Zbmq0MKXkrSTCw==" />
+  </item>
+  <item>
       <title>Version 3.5</title>
       <pubDate>Fri, 22 May 2026 20:00:00 -0400</pubDate>
       <sparkle:version>3.5</sparkle:version>

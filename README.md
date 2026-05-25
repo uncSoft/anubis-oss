@@ -22,6 +22,27 @@ Anubis is a native macOS app for benchmarking, comparing, and managing local lar
 
 ## What's New
 
+### Run History Management + Browse Ollama Models *(New in 3.6)*
+
+The History window is now genuinely usable, and discovering Ollama models no longer requires leaving the app.
+
+- **History** — filter bar (Model / Backend / Status) plus a *Show: 50 / 200 / 500 / All* picker (the 20-row ceiling is gone). Multi-select via ⌘-click and ⇧-click. New *Select All Filtered* + *Delete N Selected* buttons let you prune subsets — e.g. filter to Status = Cancelled → Select All → Delete — without nuking everything. Fixes [#26](https://github.com/uncSoft/anubis-oss/issues/26).
+- **Browse Ollama models** — new toolbar button (Ollama backend only) opens a sheet that fetches `https://ollama.com/library` directly. Cards show description, capability chips, size buttons, pull count, last-updated; click a size to pull through the existing progress UI. Search hits `/search?q=…`. Already-installed models show a green badge. 24-hour client-side cache, Refresh button to bypass it.
+- **Cancel actually cancels** — clicking Cancel during a pull now stops the download (it used to dismiss the sheet but leave the HTTP read running in the background). Partial blobs stay on disk so re-pulls resume.
+- **Leaderboard upload is prominent + optional auto-submit** — toolbar upload button is now a state machine (idle / Submit / Submitting / Submitted ✓ / Retry). Settings → Community Leaderboard has a display-name field plus a default-off "Auto-submit completed runs" toggle that uploads every successful run (and every rep of a group) silently in the background.
+- **Polish** — Parameters and Performance/Thinking sections default to expanded so first-time users see the N-runs stepper and Ollama Thinking picker without discovering the chevrons (preference persists once changed). New (i) button next to Thinking opens a popover that explains all three modes, why only Ollama exposes the `think` field, and what to do when a model rejects it.
+
+### N-Rep Benchmark Groups + Accurate SoC Power *(New in 3.5)*
+
+Bundle N consecutive runs of the same configuration into one benchmark with mean and 95% bootstrap confidence intervals, plus a significant correction to system-wide power accounting.
+
+- **N-Rep groups** — Repetitions stepper (1–20) in the benchmark toolbar. On completion the dashboard surfaces **mean ± 95% bootstrap CI** (1000 resamples) for tok/s, TTFT, J/Tok, system power, GPU power, and peak memory. Seed strategy picker: *Random* (captures both hardware and sampler variance) or *Fixed* (hardware-only variance for reproducibility). Per-rep streaming and per-rep charts are preserved.
+- **Group context on the leaderboard** — group reps now submit with `run_group_id`, sample count, rep index, seed strategy, and mean ± CI for the headline metrics. The leaderboard page renders "±CI · N reps" inline under tok/s on group rows; the explorer surfaces the group aggregates as sortable columns.
+- **Corrected SoC power accounting** — the CPU, ANE, and DRAM power channels reported by IOReport use different units (mJ) than the GPU channel (nJ). The prior implementation treated all four uniformly, so CPU/ANE/DRAM contributions were effectively rounded out of `system_power` and the headline `J/Tok` metric was a corresponding undercount. Per-channel scaling is now correct; methodology version tag bumps 1 → 2 so cross-version comparisons stay honest. Migration v7 in the local app DB retroactively rescales historical sessions.
+- **LM Studio reliability** — fixed the alternating-failure pattern in N>1 groups (the `Connection: close` header we'd added for Ollama chunk pacing was causing LM Studio to reject the immediately-following request). Auto-detection now correctly identifies the inference worker at `~/.lmstudio/.internal/utils/node`, with a self-healing soft pin that re-evaluates every 2 s. Stops mis-attributing to Ollama after a model switch.
+- **M5 Max GPU frequency** — fixed the pinned-at-1084-MHz bug from an inverted Hz/KHz/MHz scale heuristic.
+- **Streaming hardening** — TextKit 1 retained (TK2 had viewport-layout issues on appended text); stream consume task promoted to `.userInteractive` priority; `@Published` cascades batched at 1 Hz during multi-rep group streaming; font-level ligature disable bypasses the `CopyOfFontWithLigatureSetting` hot path that caused the 25-rep hang.
+
 ### Ollama Thinking Toggle *(New in 3.2)*
 
 Tri-state control over Ollama's `think` request parameter, exposed in the Benchmark Performance disclosure when the Ollama backend is selected.
