@@ -96,6 +96,10 @@ enum Constants {
         static let metricsPollingInterval = "metricsPollingInterval"
         static let mlxModelDirectories = "mlxModelDirectories"
         static let leaderboardDisplayName = "leaderboardDisplayName"
+        // Opt-in auto-submission of completed runs to the community
+        // leaderboard. Default false; only enabled when the user has
+        // both flipped this toggle AND set a display name.
+        static let autoSubmitLeaderboard = "anubis.autoSubmitLeaderboard"
         // Last-used backend + model, restored on launch so the user lands
         // back on whatever they ran most recently (not the historical
         // Ollama default).

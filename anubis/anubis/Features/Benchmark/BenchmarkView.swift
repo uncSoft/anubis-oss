@@ -99,13 +99,7 @@ struct BenchmarkView: View {
                 }
                 .help("Export benchmark results")
 
-                Button {
-                    showLeaderboardUpload = true
-                } label: {
-                    Label("Leaderboard", systemImage: "globe.badge.chevron.backward")
-                }
-                .disabled(viewModel.currentSession?.status != .completed)
-                .help("Upload to community leaderboard")
+                LeaderboardPillButton(viewModel: viewModel, showLeaderboardUpload: $showLeaderboardUpload)
 
                 Button {
                     viewModel.openExpandedMetricsWindow()
@@ -144,7 +138,8 @@ struct BenchmarkView: View {
                     // for that index.
                     repetitionIndex: viewModel.currentRepetitionIndex > 0
                         ? viewModel.currentRepetitionIndex
-                        : viewModel.currentRunGroup?.completedRepetitions
+                        : viewModel.currentRunGroup?.completedRepetitions,
+                    onSubmitted: { viewModel.markCurrentSessionLeaderboardSubmitted() }
                 )
             }
         }
@@ -1337,17 +1332,34 @@ struct StreamingTextView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        // TextKit 2 — fundamentally different layout pipeline from
-        // TextKit 1's NSLayoutManager + NSATSTypesetter. TK1's
-        // typesetter unconditionally calls CopyOfFontWithLigatureSetting
-        // on every layout pass, which dominates main thread time on
-        // long streaming text (see hang sample 2026-05-22 with the
-        // identical stack trace). TK2 uses viewport-based layout and
-        // doesn't go through that font-feature iteration hot path.
-        let textView = NSTextView(usingTextLayoutManager: true)
+        // TextKit 1 (NSLayoutManager + NSATSTypesetter). TK2 was
+        // briefly tried thinking we needed it to bypass the
+        // CopyOfFontWithLigatureSetting hot path in NSATSTypesetter
+        // that caused a hang at ~25 reps. The actual load-bearing
+        // fix was the font-level ligature disable below (the
+        // Self.streamingFont property) — that bakes ligature-off
+        // into the font descriptor itself so CoreText never iterates
+        // the feature array, regardless of TextKit version. TK2's
+        // viewport-based lazy layout fights with the constant text
+        // appends of streaming inference, dropping/re-laying-out
+        // fragments on scroll. TK1 lays out greedily and scrolls
+        // natively; at our response sizes the perf cost is nothing.
+        let textView = NSTextView(usingTextLayoutManager: false)
+
+        // Standard NSTextView sizing for a vertically-scrolling
+        // document. minSize.height is kept in sync with the scroll
+        // view's content height inside updateNSView so the textView
+        // frame doesn't collapse below the visible region.
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: 0,                                  // 0 + widthTracksTextView ⇒ follow textView width
+            height: CGFloat.greatestFiniteMagnitude    // no vertical clip
+        )
 
         textView.isEditable = false
         textView.isSelectable = true
@@ -1356,8 +1368,18 @@ struct StreamingTextView: NSViewRepresentable {
         textView.font = Self.streamingFont
         textView.textColor = .labelColor
         textView.textContainerInset = NSSize(width: 12, height: 12)
+
+        // Read-only display: all the automatic substitutions /
+        // spell-check / data-detection scans cost cycles on a
+        // multi-paragraph response and serve no purpose for LLM
+        // output. Disabling them is just hygiene.
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticDataDetectionEnabled = false
+        textView.isAutomaticLinkDetectionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
 
         textView.typingAttributes = [
             .font: Self.streamingFont,
@@ -1388,6 +1410,15 @@ struct StreamingTextView: NSViewRepresentable {
         let coordinator = context.coordinator
         let newNSLength = (text as NSString).length
 
+        // Keep the textView's minSize.height in sync with the scroll
+        // view's content area so the textView frame doesn't collapse
+        // below the visible region. We can't do this in makeNSView
+        // because the hosted view isn't laid out yet at that point.
+        let visibleHeight = scrollView.contentSize.height
+        if visibleHeight > 0, abs(textView.minSize.height - visibleHeight) > 0.5 {
+            textView.minSize = NSSize(width: 0, height: visibleHeight)
+        }
+
         if text.isEmpty {
             // Show placeholder (or already showing it)
             if !coordinator.isShowingPlaceholder {
@@ -1409,7 +1440,7 @@ struct StreamingTextView: NSViewRepresentable {
             return
         }
 
-        // No change — skip entirely (O(1) integer check, not O(n) string comparison)
+        // No change — skip entirely (O(1) integer check)
         if newNSLength == coordinator.renderedUTF16Length {
             return
         }
@@ -1688,7 +1719,8 @@ struct ExpandedMetricsView: View {
                     // for that index.
                     repetitionIndex: viewModel.currentRepetitionIndex > 0
                         ? viewModel.currentRepetitionIndex
-                        : viewModel.currentRunGroup?.completedRepetitions
+                        : viewModel.currentRunGroup?.completedRepetitions,
+                    onSubmitted: { viewModel.markCurrentSessionLeaderboardSubmitted() }
                 )
             }
         }
@@ -2468,5 +2500,97 @@ private struct BenchmarkPullModelSheet: View {
         .buttonStyle(.bordered)
         .controlSize(.small)
         .font(.caption)
+    }
+}
+
+// MARK: - Leaderboard Pill Button
+
+/// Toolbar affordance that surfaces the upload state of the most-
+/// recently completed run. Replaces the previous plain "Leaderboard"
+/// button with a small state machine driven by the viewModel:
+///
+///   idle             — no completed session, button disabled
+///   uploadable       — completed run, never submitted → icon pulses,
+///                      label gets a subtle "Submit" lead so users
+///                      who don't know about the leaderboard at least
+///                      see it as actionable
+///   in-progress      — auto-submit or manual upload running →
+///                      ProgressView replaces the icon
+///   submitted        — flipped after a successful upload → checkmark
+///                      icon, green tint, tooltip says when
+///   failed           — auto-submit failure → triangle.exclamationmark,
+///                      tooltip carries the server error
+///
+/// Clicking always opens the existing LeaderboardUploadView sheet, so
+/// the user can re-submit (or set a display name on first launch)
+/// without losing the existing flow.
+private struct LeaderboardPillButton: View {
+    @ObservedObject var viewModel: BenchmarkViewModel
+    @Binding var showLeaderboardUpload: Bool
+
+    private enum PillState {
+        case idle, uploadable, submitting, submitted, failed
+    }
+
+    private var state: PillState {
+        if viewModel.leaderboardSubmissionInProgress { return .submitting }
+        guard viewModel.currentSession?.status == .completed else { return .idle }
+        if viewModel.currentSessionLeaderboardSubmitted { return .submitted }
+        if viewModel.lastLeaderboardSubmissionError != nil { return .failed }
+        return .uploadable
+    }
+
+    var body: some View {
+        Button {
+            showLeaderboardUpload = true
+        } label: {
+            switch state {
+            case .submitting:
+                Label {
+                    Text("Submitting…")
+                } icon: {
+                    ProgressView().controlSize(.mini)
+                }
+            case .submitted:
+                Label("Submitted", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            case .failed:
+                Label("Retry Submit", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            case .uploadable:
+                // Note: a continuously-pulsing .symbolEffect ran the
+                // CoreAnimation transaction loop forever, which made
+                // scroll feel like 30fps everywhere because every
+                // scroll commit had to flush both the scroll delta
+                // and the animation frame through the GPU. A label
+                // change + bold color is enough to draw the eye
+                // without burning a CA transaction per display tick.
+                Label("Submit to Leaderboard", systemImage: "globe.badge.chevron.backward")
+                    .foregroundStyle(.blue)
+                    .fontWeight(.semibold)
+            case .idle:
+                Label("Leaderboard", systemImage: "globe.badge.chevron.backward")
+            }
+        }
+        .disabled(state == .idle || state == .submitting)
+        .help(tooltip)
+    }
+
+    private var tooltip: String {
+        switch state {
+        case .idle:
+            return "Run a benchmark first, then submit it to the community leaderboard"
+        case .uploadable:
+            if viewModel.autoSubmitLeaderboardEnabled && viewModel.leaderboardDisplayName == nil {
+                return "Auto-submit is on but no display name is set. Click to set one and submit this run."
+            }
+            return "Add this run to the community leaderboard at devpadapp.com/leaderboard.html"
+        case .submitting:
+            return "Submitting this run to the community leaderboard…"
+        case .submitted:
+            return "Submitted ✓ — click to view the sheet or re-submit"
+        case .failed:
+            return "Last submission failed: \(viewModel.lastLeaderboardSubmissionError ?? "unknown error"). Click to retry."
+        }
     }
 }

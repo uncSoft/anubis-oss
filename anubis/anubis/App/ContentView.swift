@@ -591,6 +591,8 @@ struct SettingsView: View {
                 }
             }
 
+            LeaderboardSettingsSection()
+
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                 LabeledContent("Build", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1")
@@ -699,6 +701,63 @@ struct SettingsView: View {
             await MainActor.run {
                 refreshTrigger.toggle()
             }
+        }
+    }
+}
+
+// MARK: - Leaderboard Settings Section
+
+/// Settings UI for the community leaderboard:
+///   • Display name (single source of truth — the upload sheet
+///     reads/writes the same UserDefaults key).
+///   • Auto-submit toggle (default off). When on, every completed
+///     run + group rep uploads in the background. Requires a display
+///     name to be set; the toggle disables itself otherwise.
+///
+/// Surfaced here (rather than in the upload sheet) so the leaderboard
+/// is discoverable from the main Settings window — users who never
+/// click "Upload" in the toolbar will still see the toggle when they
+/// poke through preferences.
+private struct LeaderboardSettingsSection: View {
+    @AppStorage(Constants.UserDefaultsKeys.leaderboardDisplayName) private var displayName: String = ""
+    @AppStorage(Constants.UserDefaultsKeys.autoSubmitLeaderboard) private var autoSubmit: Bool = false
+
+    private var hasName: Bool {
+        !displayName.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    var body: some View {
+        Section {
+            TextField("Display name", text: $displayName, prompt: Text("Your name on the leaderboard"))
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: displayName) { _, newValue in
+                    let trimmed = String(newValue.prefix(Constants.Leaderboard.maxDisplayNameLength))
+                    if trimmed != newValue {
+                        displayName = trimmed
+                    }
+                }
+
+            Toggle(isOn: $autoSubmit) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto-submit completed runs")
+                    if !hasName {
+                        Text("Set a display name above to enable.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .disabled(!hasName)
+
+            HStack {
+                Spacer()
+                Link("Open leaderboard ↗", destination: URL(string: "https://devpadapp.com/leaderboard.html")!)
+                    .font(.caption)
+            }
+        } header: {
+            Text("Community Leaderboard")
+        } footer: {
+            Text("Auto-submit posts every successful run (and each rep of a group) to the community leaderboard at devpadapp.com. Submissions include hardware specs, model metadata, throughput, and power metrics. No personally-identifying information beyond your chosen display name is sent. Off by default; toggle anytime.")
         }
     }
 }

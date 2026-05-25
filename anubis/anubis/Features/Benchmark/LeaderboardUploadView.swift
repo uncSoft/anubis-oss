@@ -14,6 +14,10 @@ struct LeaderboardUploadView: View {
     /// group context along with the submission payload.
     let group: BenchmarkRunGroup?
     let repetitionIndex: Int?
+    /// Fired exactly once after a successful upload, on the main
+    /// actor. The toolbar binds this to viewModel.markCurrentSession
+    /// LeaderboardSubmitted so the upload pill flips to ✓.
+    let onSubmitted: (() -> Void)?
 
     @State private var displayName: String
     @State private var uploading = false
@@ -23,10 +27,16 @@ struct LeaderboardUploadView: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    init(session: BenchmarkSession, group: BenchmarkRunGroup? = nil, repetitionIndex: Int? = nil) {
+    init(
+        session: BenchmarkSession,
+        group: BenchmarkRunGroup? = nil,
+        repetitionIndex: Int? = nil,
+        onSubmitted: (() -> Void)? = nil
+    ) {
         self.session = session
         self.group = group
         self.repetitionIndex = repetitionIndex
+        self.onSubmitted = onSubmitted
         let saved = UserDefaults.standard.string(forKey: Constants.UserDefaultsKeys.leaderboardDisplayName) ?? ""
         _displayName = State(initialValue: saved)
     }
@@ -305,6 +315,7 @@ struct LeaderboardUploadView: View {
                     submissionId = response.id
                     uploaded = true
                     uploading = false
+                    onSubmitted?()
                 }
             } catch {
                 await MainActor.run {

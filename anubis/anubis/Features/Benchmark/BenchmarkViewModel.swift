@@ -124,6 +124,27 @@ final class BenchmarkViewModel: ObservableObject {
     /// Whether a benchmark is currently running (single or group).
     @Published private(set) var isRunning = false
 
+    // MARK: - Leaderboard submission state
+    //
+    // Drives the toolbar "Upload to Leaderboard" pill's state machine:
+    //   idle (nothing to do) → uploading → submitted ✓  OR  failed ⚠
+    // Also surfaces auto-submit results without nagging the user.
+
+    /// Tracks whether the rep most recently completed in this app
+    /// session has already been uploaded to the leaderboard (either by
+    /// the user clicking Upload, or by the auto-submit path). Reset on
+    /// every new `currentSession`.
+    @Published private(set) var currentSessionLeaderboardSubmitted: Bool = false
+
+    /// True while an upload (manual or auto) is in flight. The pill
+    /// shows a progress indicator.
+    @Published private(set) var leaderboardSubmissionInProgress: Bool = false
+
+    /// Last auto-submit failure, surfaced in the pill's tooltip so the
+    /// user knows submission isn't silently rotting. Cleared on the
+    /// next successful submission.
+    @Published private(set) var lastLeaderboardSubmissionError: String?
+
     // MARK: - Run Group (Phase 1.2)
 
     /// Target number of repetitions for a benchmark group. Default 1
@@ -828,6 +849,7 @@ final class BenchmarkViewModel: ObservableObject {
             }
 
             currentSession = session
+            currentSessionLeaderboardSubmitted = false
             self.debugState.phase = .complete
             self.debugState.completedAt = Date()
             if let finalStats = finalBuf.stats {
@@ -836,6 +858,19 @@ final class BenchmarkViewModel: ObservableObject {
                 if finalStats.promptProcessingSpeed > 0 {
                     self.prefillTokensPerSecond = finalStats.promptProcessingSpeed
                 }
+            }
+
+            // Auto-submit hook — fires after every successful rep when
+            // the user has opted in AND saved a display name. Each rep
+            // posts independently with its group context, so a 5-rep
+            // group becomes 5 group-linked rows (consistent with the
+            // existing per-rep submission model). Server rate-limit
+            // naturally caps aggressive runs at 10/hr per machine.
+            if autoSubmitLeaderboardEnabled,
+               let displayName = leaderboardDisplayName,
+               !displayName.isEmpty,
+               session.status == .completed {
+                autoSubmitToLeaderboard(session: session, displayName: displayName)
             }
 
             return session
@@ -1033,6 +1068,65 @@ final class BenchmarkViewModel: ObservableObject {
             Log.benchmark.error("Failed to load samples: \(error.localizedDescription)")
             return []
         }
+    }
+
+    // MARK: - Leaderboard auto-submit
+
+    /// Persisted opt-in: when true, every successful rep auto-uploads
+    /// to the community leaderboard. Off by default. UI lives in
+    /// Settings → Leaderboard.
+    var autoSubmitLeaderboardEnabled: Bool {
+        UserDefaults.standard.bool(forKey: Constants.UserDefaultsKeys.autoSubmitLeaderboard)
+    }
+
+    /// Currently-saved display name (set via the upload sheet or
+    /// Settings). nil if the user has never submitted before.
+    var leaderboardDisplayName: String? {
+        let v = UserDefaults.standard.string(forKey: Constants.UserDefaultsKeys.leaderboardDisplayName) ?? ""
+        return v.isEmpty ? nil : v
+    }
+
+    /// Fire an auto-submit upload in a detached task. Silent on
+    /// failure — surfaces via lastLeaderboardSubmissionError, not a
+    /// modal. Pulls the current run group's metadata so the rep
+    /// submission carries proper context.
+    private func autoSubmitToLeaderboard(session: BenchmarkSession, displayName: String) {
+        leaderboardSubmissionInProgress = true
+        let group = currentRunGroup
+        let repIdx = currentRepetitionIndex > 0
+            ? currentRepetitionIndex
+            : currentRunGroup?.completedRepetitions
+        Task { [weak self] in
+            do {
+                let service = LeaderboardService()
+                _ = try await service.submit(
+                    session: session,
+                    displayName: displayName,
+                    group: group,
+                    repetitionIndex: repIdx
+                )
+                await MainActor.run {
+                    self?.currentSessionLeaderboardSubmitted = true
+                    self?.lastLeaderboardSubmissionError = nil
+                    self?.leaderboardSubmissionInProgress = false
+                    Log.benchmark.info("[LEADERBOARD] auto-submitted session id=\(session.id ?? -1, privacy: .public)")
+                }
+            } catch {
+                await MainActor.run {
+                    self?.lastLeaderboardSubmissionError = error.localizedDescription
+                    self?.leaderboardSubmissionInProgress = false
+                    Log.benchmark.warning("[LEADERBOARD] auto-submit failed: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+    }
+
+    /// Called by the upload sheet after a successful manual submission
+    /// so the toolbar pill switches to its "submitted" state and the
+    /// auto-submit path doesn't re-fire (idempotency).
+    func markCurrentSessionLeaderboardSubmitted() {
+        currentSessionLeaderboardSubmitted = true
+        lastLeaderboardSubmissionError = nil
     }
 
     /// Delete a session
