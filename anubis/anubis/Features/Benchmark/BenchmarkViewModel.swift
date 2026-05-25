@@ -369,6 +369,23 @@ final class BenchmarkViewModel: ObservableObject {
     @Published var pullModelName = ""
     @Published var pullStatus = ""
     @Published var pullProgress: Double = 0
+    /// Holds the in-flight pull so Cancel can interrupt it.
+    /// Cancelling this Task cascades through the AsyncThrowingStream
+    /// in OllamaClient.pullModel (via continuation.onTermination)
+    /// down to the URLSession.bytes read, which closes the HTTP
+    /// connection and stops the download.
+    private var pullTask: Task<Void, Never>?
+
+    // MARK: - Browse Library State
+
+    /// Sheet for the curated browse experience (separate from the
+    /// existing "pull by typed name" sheet, so users have both
+    /// flows: type-a-name OR browse).
+    @Published var showBrowseLibrarySheet = false
+    @Published private(set) var libraryEntries: [OllamaLibraryEntry] = []
+    @Published private(set) var libraryLoading: Bool = false
+    @Published private(set) var libraryError: String?
+    @Published var librarySearchQuery: String = ""
 
     // MARK: - Dependencies
 
@@ -1221,36 +1238,110 @@ final class BenchmarkViewModel: ObservableObject {
     func pullModel() async {
         guard !pullModelName.isEmpty else { return }
 
+        // Cancel any prior pull that was somehow still in flight
+        // (e.g. the user re-triggered before the previous one
+        // finished/cancelled cleanly).
+        pullTask?.cancel()
+
         isPulling = true
         pullStatus = "Starting..."
         pullProgress = 0
 
         let modelName = pullModelName
 
-        do {
-            let stream = await inferenceService.ollamaClient.pullModel(modelName)
-            for try await progress in stream {
-                pullStatus = progress.status
-                if let percent = progress.percentComplete {
-                    pullProgress = percent
+        // Run the stream consume inside a tracked Task so cancelPull
+        // can interrupt it. Capture self weakly — if the view model
+        // is torn down mid-pull we want the inner task to bail rather
+        // than hold a strong cycle through the closure.
+        let task = Task { [weak self] in
+            guard let self = self else { return }
+            do {
+                let stream = await self.inferenceService.ollamaClient.pullModel(modelName)
+                for try await progress in stream {
+                    if Task.isCancelled { break }
+                    self.pullStatus = progress.status
+                    if let percent = progress.percentComplete {
+                        self.pullProgress = percent
+                    }
+                    if progress.status == "success" { break }
                 }
-                if progress.status == "success" { break }
+                if Task.isCancelled {
+                    self.pullStatus = "Cancelled"
+                } else {
+                    await self.loadModels()
+                    self.showPullSheet = false
+                    self.pullModelName = ""
+                }
+            } catch is CancellationError {
+                self.pullStatus = "Cancelled"
+            } catch {
+                if Task.isCancelled {
+                    self.pullStatus = "Cancelled"
+                } else {
+                    self.pullStatus = "Error: \(error.localizedDescription)"
+                }
             }
-            await loadModels()
-            showPullSheet = false
-            pullModelName = ""
-        } catch {
-            pullStatus = "Error: \(error.localizedDescription)"
+            self.isPulling = false
+            self.pullTask = nil
         }
-
-        isPulling = false
+        pullTask = task
+        await task.value
     }
 
     func cancelPull() {
+        // Cancel the in-flight pull first so the HTTP connection
+        // closes and the underlying URLSession.bytes read stops
+        // (the AsyncThrowingStream's onTermination handler in
+        // OllamaClient.pullModel propagates this all the way down).
+        // Then reset the user-facing state.
+        pullTask?.cancel()
+        pullTask = nil
         showPullSheet = false
         pullModelName = ""
         pullStatus = ""
         pullProgress = 0
+        isPulling = false
+    }
+
+    // MARK: - Browse Library
+
+    /// Open the browse sheet and load the default library view
+    /// (top models, no search filter).
+    func openBrowseLibrary() {
+        showBrowseLibrarySheet = true
+        librarySearchQuery = ""
+        Task { await reloadLibrary(forceRefresh: false) }
+    }
+
+    /// (Re)fetch the library — used by the initial open, the search
+    /// input on debounce, and the Refresh button. forceRefresh
+    /// bypasses the 24h cache.
+    func reloadLibrary(forceRefresh: Bool = false) async {
+        libraryLoading = true
+        libraryError = nil
+        let q = librarySearchQuery
+        do {
+            let entries = try await OllamaLibraryService.shared.fetch(
+                query: q.isEmpty ? nil : q,
+                forceRefresh: forceRefresh
+            )
+            libraryEntries = entries
+        } catch {
+            libraryError = error.localizedDescription
+            libraryEntries = []
+        }
+        libraryLoading = false
+    }
+
+    /// Triggered when the user picks an entry (optionally with a
+    /// specific size tag). Sets the pull-name and hands off to the
+    /// existing pull flow so progress UI is unified — the browse
+    /// sheet dismisses and the pull sheet takes over.
+    func pullFromLibrary(_ entry: OllamaLibraryEntry, size: String? = nil) {
+        pullModelName = entry.pullSpec(size: size)
+        showBrowseLibrarySheet = false
+        showPullSheet = true
+        Task { await pullModel() }
     }
 
     // MARK: - Process Selection

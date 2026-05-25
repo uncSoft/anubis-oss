@@ -120,11 +120,20 @@ struct BenchmarkView: View {
                 }
 
                 Button {
+                    viewModel.openBrowseLibrary()
+                } label: {
+                    Label("Browse Models", systemImage: "books.vertical")
+                }
+                .help("Browse top Ollama models and pull from the registry")
+                .disabled(viewModel.selectedBackend != .ollama)
+
+                Button {
                     viewModel.startPull()
                 } label: {
                     Label("Pull Model", systemImage: "arrow.down.circle")
                 }
-                .help("Pull a model from Ollama")
+                .help("Pull a model from Ollama by name")
+                .disabled(viewModel.selectedBackend != .ollama)
             }
         }
         .onDisappear {
@@ -149,6 +158,9 @@ struct BenchmarkView: View {
         }
         .sheet(isPresented: $viewModel.showPullSheet) {
             BenchmarkPullModelSheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $viewModel.showBrowseLibrarySheet) {
+            BrowseOllamaLibrarySheet(viewModel: viewModel)
         }
         .task {
             await viewModel.loadModels()
@@ -2584,6 +2596,16 @@ private struct BenchmarkPullModelSheet: View {
         }
         .padding(Spacing.lg)
         .frame(width: 400)
+        .onDisappear {
+            // Safety net: any path that dismisses the sheet while
+            // a pull is in flight should also cancel the download,
+            // not leave it running in the background. Cancel button
+            // already routes through cancelPull(); this catches the
+            // window-close / external-binding-flip cases.
+            if viewModel.isPulling {
+                viewModel.cancelPull()
+            }
+        }
     }
 
     private func pullSuggestion(_ name: String) -> some View {
@@ -2685,5 +2707,249 @@ private struct LeaderboardPillButton: View {
         case .failed:
             return "Last submission failed: \(viewModel.lastLeaderboardSubmissionError ?? "unknown error"). Click to retry."
         }
+    }
+}
+
+// MARK: - Browse Ollama Library Sheet
+
+/// Sheet that scrapes ollama.com/library (+ /search?q=) and lets the
+/// user pick a model + size to pull. Always-fresh catalog with zero
+/// curation maintenance; pulls run through the existing
+/// pullModel() / showPullSheet plumbing so progress UI is unified.
+private struct BrowseOllamaLibrarySheet: View {
+    @ObservedObject var viewModel: BenchmarkViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText: String = ""
+    /// Debounce token — restart the work item on every keystroke
+    /// so we only fetch when the user pauses typing.
+    @State private var searchDebounce: Task<Void, Never>?
+    /// Names of locally-installed models (lowercased base names),
+    /// so we can show an "Installed" badge on entries the user
+    /// already has. Snapshotted on sheet appear.
+    @State private var installedNames: Set<String> = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            searchBar
+            Divider()
+            content
+        }
+        .frame(width: 720, height: 560)
+        .task {
+            // Snapshot installed model base-names so we can mark
+            // entries the user already has.
+            installedNames = Set(viewModel.availableModels.compactMap {
+                $0.name.split(separator: ":").first.map { String($0).lowercased() }
+            })
+        }
+    }
+
+    // MARK: - Header
+
+    private var header: some View {
+        HStack {
+            Image(systemName: "books.vertical.fill")
+                .foregroundStyle(.blue)
+            Text("Browse Ollama Models")
+                .font(.headline)
+            Spacer()
+            Button {
+                Task { await viewModel.reloadLibrary(forceRefresh: true) }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help("Re-fetch from ollama.com, bypass the 24-hour cache")
+            Button("Done") { dismiss() }
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(Spacing.md)
+    }
+
+    // MARK: - Search
+
+    private var searchBar: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField(
+                "Search ollama.com/library (e.g. \"qwen\", \"reasoning\", \"code\")…",
+                text: $searchText
+            )
+            .textFieldStyle(.plain)
+            .onSubmit { fireSearch() }
+            .onChange(of: searchText) { _, _ in
+                // 300 ms debounce so we don't fetch on every keystroke.
+                searchDebounce?.cancel()
+                searchDebounce = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    if !Task.isCancelled { fireSearch() }
+                }
+            }
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                    fireSearch()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+    }
+
+    private func fireSearch() {
+        viewModel.librarySearchQuery = searchText
+        Task { await viewModel.reloadLibrary(forceRefresh: false) }
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.libraryLoading && viewModel.libraryEntries.isEmpty {
+            VStack(spacing: Spacing.sm) {
+                Spacer()
+                ProgressView()
+                Text("Fetching ollama.com/library…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let error = viewModel.libraryError {
+            VStack(spacing: Spacing.sm) {
+                Spacer()
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.title)
+                    .foregroundStyle(.orange)
+                Text("Couldn't load the Ollama library")
+                    .font(.headline)
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button("Try Again") {
+                    Task { await viewModel.reloadLibrary(forceRefresh: true) }
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, Spacing.xs)
+                Spacer()
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewModel.libraryEntries.isEmpty {
+            VStack(spacing: Spacing.sm) {
+                Spacer()
+                Image(systemName: "magnifyingglass")
+                    .font(.title)
+                    .foregroundStyle(.secondary)
+                Text(searchText.isEmpty ? "No models returned." : "No matches for \"\(searchText)\".")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView {
+                LazyVStack(spacing: Spacing.sm) {
+                    ForEach(viewModel.libraryEntries) { entry in
+                        LibraryEntryRow(
+                            entry: entry,
+                            isInstalled: installedNames.contains(entry.name.lowercased()),
+                            onPull: { size in
+                                viewModel.pullFromLibrary(entry, size: size)
+                            }
+                        )
+                    }
+                }
+                .padding(Spacing.md)
+            }
+        }
+    }
+}
+
+/// One card row in the browse sheet. Layout:
+///   [name (installed-badge if any)]                    [refresh-time, pull-count]
+///   [description]
+///   [capability chips]  [size buttons]
+private struct LibraryEntryRow: View {
+    let entry: OllamaLibraryEntry
+    let isInstalled: Bool
+    let onPull: (String?) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(entry.name)
+                    .font(.system(size: 15, weight: .semibold))
+                if isInstalled {
+                    Text("Installed")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.green.opacity(0.18), in: Capsule())
+                        .foregroundStyle(.green)
+                }
+                Spacer()
+                if !entry.pullCount.isEmpty {
+                    Label(entry.pullCount, systemImage: "arrow.down.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if !entry.updated.isEmpty {
+                    Text(entry.updated)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            if !entry.description.isEmpty {
+                Text(entry.description)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 6) {
+                ForEach(entry.capabilities, id: \.self) { cap in
+                    Text(cap)
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.indigo.opacity(0.15), in: Capsule())
+                        .foregroundStyle(.indigo)
+                }
+                Spacer()
+                if entry.sizes.isEmpty {
+                    // No size variants exposed — pull bare name.
+                    Button("Pull") { onPull(nil) }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                } else {
+                    ForEach(entry.sizes, id: \.self) { size in
+                        Button(size) { onPull(size) }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .help("Pull \(entry.name):\(size)")
+                    }
+                }
+            }
+        }
+        .padding(Spacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: CornerRadius.md)
+                .fill(Color.cardBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: CornerRadius.md)
+                        .strokeBorder(Color.cardBorder, lineWidth: 1)
+                )
+        )
     }
 }

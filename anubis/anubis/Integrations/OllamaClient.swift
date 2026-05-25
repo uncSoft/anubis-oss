@@ -429,12 +429,22 @@ actor OllamaClient: InferenceBackend {
     /// Pull (download) a model with progress updates
     func pullModel(_ name: String) -> AsyncThrowingStream<PullProgress, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            // Inner Task is unstructured (doesn't inherit consumer
+            // cancellation). Wire its cancellation explicitly via
+            // continuation.onTermination so dropping the stream
+            // (Cancel button in the pull sheet) actually stops the
+            // URLSession.bytes read and closes the connection,
+            // instead of letting the download silently complete in
+            // the background.
+            let task = Task {
                 do {
                     try await streamPull(name: name, continuation: continuation)
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }
