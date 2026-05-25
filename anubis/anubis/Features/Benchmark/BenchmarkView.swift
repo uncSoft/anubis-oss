@@ -29,10 +29,14 @@ struct BenchmarkView: View {
     @StateObject private var viewModel: BenchmarkViewModel
     @Environment(\.colorScheme) private var colorScheme
     @State private var showSystemPrompt = false
-    @State private var showParameters = false
-    @State private var showPerformance = false
+    // Persisted, default expanded — so new users see the N-runs +
+    // Thinking-toggle controls at least once. Once they collapse
+    // these, the preference sticks across launches.
+    @AppStorage(Constants.UserDefaultsKeys.benchmarkParametersExpanded) private var showParameters: Bool = true
+    @AppStorage(Constants.UserDefaultsKeys.benchmarkPerformanceExpanded) private var showPerformance: Bool = true
     @State private var showSessionDetails = true
     @State private var showLeaderboardUpload = false
+    @State private var showThinkingHelp = false
 
     init(
         inferenceService: InferenceService,
@@ -578,6 +582,17 @@ struct BenchmarkView: View {
                             Text("Thinking")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            Button {
+                                showThinkingHelp.toggle()
+                            } label: {
+                                Image(systemName: "info.circle")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .popover(isPresented: $showThinkingHelp, arrowEdge: .bottom) {
+                                thinkingHelpPopover
+                            }
                             Picker("", selection: $viewModel.ollamaThinkMode) {
                                 ForEach(OllamaThinkMode.allCases, id: \.self) { mode in
                                     Text(mode.displayLabel).tag(mode)
@@ -665,6 +680,84 @@ struct BenchmarkView: View {
                 )
             }
         }
+    }
+
+    // MARK: - Thinking Help Popover
+
+    /// Explainer attached to the (i) next to the Thinking picker.
+    /// Consolidates everything users need to know about the toggle
+    /// — what each mode does, which backends honour it, and what to
+    /// do when a model rejects the `think` field — in one spot,
+    /// rather than discovering it only via the error message.
+    private var thinkingHelpPopover: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            HStack(spacing: 6) {
+                Image(systemName: "brain.head.profile")
+                    .foregroundStyle(.purple)
+                Text("Ollama Thinking Mode")
+                    .font(.headline)
+            }
+
+            Text("Controls the `think` field sent on each Ollama generate request — Ollama's switch for showing or hiding a model's chain-of-thought.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Group {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Auto").fontWeight(.semibold)
+                        Text("Omits the field entirely so the model uses its server-side default. Safest with older Ollama versions and non-reasoning models, which reject the field outright.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: { Image(systemName: "wand.and.stars").foregroundStyle(.blue) }
+
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("On").fontWeight(.semibold)
+                        Text("Sends `think: true` to force chain-of-thought. Reasoning tokens are tracked separately so tok/s reflects output only, not thinking time.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: { Image(systemName: "checkmark.circle").foregroundStyle(.green) }
+
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Off").fontWeight(.semibold)
+                        Text("Sends `think: false` to suppress chain-of-thought even on models that reason by default. Output goes straight to the final answer.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: { Image(systemName: "xmark.circle").foregroundStyle(.orange) }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Backend support varies", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                Text("Only **Ollama** exposes a `think` parameter, so this control hides for OpenAI-compatible backends (LM Studio, MLX, vLLM, etc.). Those backends generally surface or hide reasoning via the model's own template or a server-side flag.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Got a model rejection error?", systemImage: "arrow.uturn.backward.circle")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.blue)
+                Text("If a benchmark fails with a message that the model doesn't accept the `think` field, switch back to **Auto** (or **Off** for non-reasoning models). Anubis already shows a friendly error in that case — this picker is where you act on it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(Spacing.md)
+        .frame(width: 360)
     }
 
     // MARK: - Metrics Cards Section

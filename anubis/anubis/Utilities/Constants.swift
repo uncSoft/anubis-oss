@@ -100,6 +100,14 @@ enum Constants {
         // leaderboard. Default false; only enabled when the user has
         // both flipped this toggle AND set a display name.
         static let autoSubmitLeaderboard = "anubis.autoSubmitLeaderboard"
+
+        // Disclosure-group expansion state for the two collapsible
+        // sections on the benchmark dashboard. Defaults to expanded
+        // so first-time users see the N-runs + Thinking-toggle
+        // affordances at least once; collapsed state then persists
+        // after user changes it.
+        static let benchmarkParametersExpanded = "anubis.benchmarkParametersExpanded"
+        static let benchmarkPerformanceExpanded = "anubis.benchmarkPerformanceExpanded"
         // Last-used backend + model, restored on launch so the user lands
         // back on whatever they ran most recently (not the historical
         // Ollama default).
