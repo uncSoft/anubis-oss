@@ -8,7 +8,14 @@
 
 **Local LLM Testing & Benchmarking for Apple Silicon** | [Community Leaderboard](https://devpadapp.com/leaderboard.html)
 
-> 🚨 Benchmark analysis is live! Check out the results here, over 375+ community submitted runs analyzed [Benchmark Report](https://uncsoft.github.io/anubis-oss/analysis.html)
+```bash
+brew install --cask uncsoft/anubis/anubis-oss
+```
+
+Or download the zip directly from the [Releases page](https://github.com/uncSoft/anubis-oss/releases) and drag to `/Applications`.
+d4t5r
+
+> 🚨 Benchmark analysis is live! Check out the results here, over 400+ community submitted runs analyzed [Benchmark Report](https://uncsoft.github.io/anubis-oss/analysis.html)
 
 <img width=500 alt="image" src= "https://github.com/user-attachments/assets/02ff3976-21ed-446b-974b-1f573c5cf69b" />
 
