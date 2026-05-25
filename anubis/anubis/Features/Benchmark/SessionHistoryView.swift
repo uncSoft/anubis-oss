@@ -12,13 +12,68 @@ import UniformTypeIdentifiers
 /// View displaying benchmark session history (presented as a window)
 struct SessionHistoryView: View {
     @ObservedObject var viewModel: BenchmarkViewModel
-    @State private var selectedSession: BenchmarkSession?
+    /// Multi-select set of session ids. cmd-click toggles, shift-click
+    /// range-selects natively in SwiftUI's List. When exactly one is
+    /// selected the detail panel binds to it; bulk-delete acts on the
+    /// whole set.
+    @State private var selectedSessionIds: Set<Int64> = []
     @State private var showingClearConfirmation = false
+    @State private var showingBulkDeleteConfirmation = false
     @State private var showingExportOptions = false
     @State private var exportedFileURL: URL?
 
+    // Filters & pagination (issue #26 — users couldn't see past 20 rows,
+    // had no way to filter or delete selectively without "Clear All").
+    @State private var filterModel: String = ""        // "" = All
+    @State private var filterBackend: String = ""
+    @State private var filterStatus: String = ""       // raw value of BenchmarkStatus
+    @State private var fetchLimit: Int = 200           // 50 / 200 / 500 / .max (All)
+
+    /// Sentinel that maps to "fetch everything". Real value is capped
+    /// inside the DB call so we don't accidentally hold a 100k-row
+    /// array in memory if someone has been heavy on group runs.
+    private static let allRecordsSentinel = 100_000
+
     private var runningSessionCount: Int {
-        viewModel.recentSessions.filter { $0.status == .running }.count
+        filteredSessions.filter { $0.status == .running }.count
+    }
+
+    /// Sessions after applying the model / backend / status filters.
+    /// Recomputed on every render — cheap at ≤500 rows, no need to
+    /// cache.
+    private var filteredSessions: [BenchmarkSession] {
+        viewModel.recentSessions.filter { s in
+            if !filterModel.isEmpty   && s.modelName != filterModel     { return false }
+            if !filterBackend.isEmpty && s.backend   != filterBackend   { return false }
+            if !filterStatus.isEmpty  && s.status.rawValue != filterStatus { return false }
+            return true
+        }
+    }
+
+    private var hasActiveFilters: Bool {
+        !filterModel.isEmpty || !filterBackend.isEmpty || !filterStatus.isEmpty
+    }
+
+    private var uniqueModels: [String] {
+        Array(Set(viewModel.recentSessions.map { $0.modelName }.filter { !$0.isEmpty })).sorted()
+    }
+    private var uniqueBackends: [String] {
+        Array(Set(viewModel.recentSessions.map { $0.backend }.filter { !$0.isEmpty })).sorted()
+    }
+
+    /// The single session shown in the detail pane. Bound from the
+    /// multi-select set: when exactly one row is highlighted, that's
+    /// the detail; otherwise nothing is shown.
+    private var sessionForDetail: BenchmarkSession? {
+        guard selectedSessionIds.count == 1, let id = selectedSessionIds.first else { return nil }
+        return viewModel.recentSessions.first(where: { $0.id == id })
+    }
+
+    /// Filtered ids — what "Select All Filtered" populates and what the
+    /// selection bar's count reads against when no manual selection has
+    /// been made.
+    private var filteredIds: [Int64] {
+        filteredSessions.compactMap { $0.id }
     }
 
     var body: some View {
@@ -52,7 +107,7 @@ struct SessionHistoryView: View {
                     }
                     .disabled(viewModel.recentSessions.isEmpty)
 
-                    if let session = selectedSession {
+                    if let session = sessionForDetail {
                         Button {
                             Task {
                                 await exportSelectedSession(session)
@@ -67,6 +122,45 @@ struct SessionHistoryView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+
+                // Select All Filtered — populates the multi-select set
+                // with whatever rows match the active filters. Lets users
+                // "filter to cancelled, select all, delete" without N
+                // right-click cycles. Hidden when nothing is loaded.
+                if !filteredSessions.isEmpty {
+                    Button {
+                        if selectedSessionIds.count == filteredIds.count && !filteredIds.isEmpty {
+                            selectedSessionIds.removeAll()
+                        } else {
+                            selectedSessionIds = Set(filteredIds)
+                        }
+                    } label: {
+                        Label(
+                            selectedSessionIds.count == filteredIds.count && !filteredIds.isEmpty
+                                ? "Deselect All"
+                                : "Select All\(hasActiveFilters ? " Filtered" : "")",
+                            systemImage: "checkmark.circle"
+                        )
+                        .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                // Delete selected (bulk) — appears when ≥1 row is in
+                // the multi-select set. Distinct from "Clear All" so
+                // people can prune subsets without nuking everything.
+                if !selectedSessionIds.isEmpty {
+                    Button(role: .destructive) {
+                        showingBulkDeleteConfirmation = true
+                    } label: {
+                        Label("Delete \(selectedSessionIds.count) Selected", systemImage: "trash")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .tint(.red)
+                }
 
                 // Clear all
                 Button(role: .destructive) {
@@ -93,14 +187,22 @@ struct SessionHistoryView: View {
 
             Divider()
 
+            // Filter bar
+            filterBar
+                .padding(.horizontal, Spacing.md)
+                .padding(.vertical, Spacing.xs)
+                .background(Color(NSColor.windowBackgroundColor).opacity(0.4))
+
+            Divider()
+
             // Main content
             HSplitView {
                 // Session List
                 sessionList
                     .frame(minWidth: 320, idealWidth: 320, maxWidth: 450)
 
-                // Session Detail
-                if let session = selectedSession {
+                // Session Detail (only when exactly one row is selected)
+                if let session = sessionForDetail {
                     SessionDetailView(session: session, viewModel: viewModel)
                         .frame(minWidth: 480)
                 } else {
@@ -117,27 +219,102 @@ struct SessionHistoryView: View {
                 Button("Delete All Sessions", role: .destructive) {
                     Task {
                         await viewModel.deleteAllSessions()
-                        selectedSession = nil
+                        selectedSessionIds.removeAll()
                     }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This will permanently delete all \(viewModel.recentSessions.count) benchmark sessions and their data.")
+                Text("This will permanently delete every benchmark session and its sample data — including any not currently shown by the active filters or row limit.")
             }
         .frame(minWidth: 600, minHeight: 400)
         .task {
-            await viewModel.loadRecentSessions()
-            if selectedSession == nil, let latest = viewModel.recentSessions.first {
-                selectedSession = latest
+            await viewModel.loadRecentSessions(limit: fetchLimit)
+            if selectedSessionIds.isEmpty, let latestId = filteredSessions.first?.id {
+                selectedSessionIds = [latestId]
             }
+        }
+        .onChange(of: fetchLimit) { _, newLimit in
+            Task { await viewModel.loadRecentSessions(limit: newLimit) }
+        }
+        .confirmationDialog(
+            "Delete \(selectedSessionIds.count) selected session\(selectedSessionIds.count == 1 ? "" : "s")?",
+            isPresented: $showingBulkDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete \(selectedSessionIds.count)", role: .destructive) {
+                let toDelete = selectedSessionIds
+                Task {
+                    await viewModel.deleteSessions(ids: toDelete, reloadLimit: fetchLimit)
+                    selectedSessionIds.removeAll()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will permanently delete the selected sessions and their sample data. The other \(viewModel.recentSessions.count - selectedSessionIds.count) sessions and any rows outside the current filter remain untouched.")
+        }
+    }
+
+    /// Filter + pagination strip that sits above the split-view.
+    /// Models / Backends are derived from currently-loaded sessions so
+    /// the dropdowns auto-populate without a separate query.
+    private var filterBar: some View {
+        HStack(spacing: Spacing.sm) {
+            Picker("", selection: $filterModel) {
+                Text("All Models").tag("")
+                ForEach(uniqueModels, id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 200)
+
+            Picker("", selection: $filterBackend) {
+                Text("All Backends").tag("")
+                ForEach(uniqueBackends, id: \.self) { Text($0).tag($0) }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 160)
+
+            Picker("", selection: $filterStatus) {
+                Text("Any Status").tag("")
+                Text("Completed").tag("completed")
+                Text("Failed").tag("failed")
+                Text("Cancelled").tag("cancelled")
+                Text("Running").tag("running")
+            }
+            .labelsHidden()
+            .frame(maxWidth: 140)
+
+            if hasActiveFilters {
+                Button("Clear") {
+                    filterModel = ""
+                    filterBackend = ""
+                    filterStatus = ""
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+
+            Spacer()
+
+            Text("Show:")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Picker("", selection: $fetchLimit) {
+                Text("50").tag(50)
+                Text("200").tag(200)
+                Text("500").tag(500)
+                Text("All").tag(Self.allRecordsSentinel)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 220)
         }
     }
 
     private var sessionList: some View {
         VStack(spacing: 0) {
-            List(viewModel.recentSessions, selection: $selectedSession) { session in
+            List(filteredSessions, selection: $selectedSessionIds) { session in
                 SessionRow(session: session)
-                    .tag(session)
+                    .tag(session.id ?? -1)
                     .background(DoubleClickHandler {
                         viewModel.openSessionDetailTab(session: session)
                     })
@@ -158,15 +335,28 @@ struct SessionHistoryView: View {
                             }
                         }
 
-                        Button(role: .destructive) {
-                            Task {
-                                await viewModel.deleteSession(session)
-                                if selectedSession?.id == session.id {
-                                    selectedSession = nil
-                                }
+                        // Context-menu delete behaviour: if the right-clicked
+                        // row is part of an existing multi-selection, treat it
+                        // as a bulk-delete request for the whole selection.
+                        // If the click is on a row outside the current
+                        // selection, delete only that one row.
+                        if let id = session.id, selectedSessionIds.contains(id), selectedSessionIds.count > 1 {
+                            Button(role: .destructive) {
+                                showingBulkDeleteConfirmation = true
+                            } label: {
+                                Label("Delete \(selectedSessionIds.count) Selected", systemImage: "trash")
                             }
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                        } else {
+                            Button(role: .destructive) {
+                                Task {
+                                    await viewModel.deleteSession(session)
+                                    if let id = session.id {
+                                        selectedSessionIds.remove(id)
+                                    }
+                                }
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
                         }
                     }
             }
@@ -174,9 +364,15 @@ struct SessionHistoryView: View {
 
             // Bottom status bar
             HStack {
-                Text("\(viewModel.recentSessions.count) sessions")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if hasActiveFilters {
+                    Text("\(filteredSessions.count) of \(viewModel.recentSessions.count) sessions")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("\(viewModel.recentSessions.count) sessions")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
                 if runningSessionCount > 0 {
                     Text("• \(runningSessionCount) running")

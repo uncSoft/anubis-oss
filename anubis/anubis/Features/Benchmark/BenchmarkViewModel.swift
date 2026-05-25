@@ -1005,10 +1005,17 @@ final class BenchmarkViewModel: ObservableObject {
     }
 
     /// Load recent benchmark sessions from database
-    func loadRecentSessions() async {
+    /// Load recent benchmark sessions for the sidebar / history view.
+    ///
+    /// Default limit bumped from 20 → 200 after profiling on a typical
+    /// machine showed no perceptible load delay even at 200 rows
+    /// (issue #26 — users couldn't see or delete sessions past the
+    /// first 20). The History view passes its own larger limit when
+    /// the user picks "Show: 500 / All".
+    func loadRecentSessions(limit: Int = 200) async {
         do {
             recentSessions = try await databaseManager.queue.read { db in
-                try BenchmarkSession.fetchRecent(db: db, limit: 20)
+                try BenchmarkSession.fetchRecent(db: db, limit: limit)
             }
         } catch {
             Log.benchmark.error("Failed to load recent sessions: \(error.localizedDescription)")
@@ -1041,6 +1048,24 @@ final class BenchmarkViewModel: ObservableObject {
             await loadRecentSessions()
         } catch {
             Log.benchmark.error("Failed to delete session: \(error.localizedDescription)")
+        }
+    }
+
+    /// Delete a set of sessions by id in one DB transaction.
+    /// Used by the History view's multi-select bulk delete (issue #26).
+    /// Reloads the current limit after deletion so the list refreshes.
+    func deleteSessions(ids: Set<Int64>, reloadLimit: Int = 200) async {
+        guard !ids.isEmpty else { return }
+        do {
+            try await databaseManager.queue.write { db in
+                for id in ids {
+                    try BenchmarkSample.deleteForSession(db: db, sessionId: id)
+                    try db.execute(sql: "DELETE FROM benchmark_session WHERE id = ?", arguments: [id])
+                }
+            }
+            await loadRecentSessions(limit: reloadLimit)
+        } catch {
+            Log.benchmark.error("Failed to delete \(ids.count) sessions: \(error.localizedDescription)")
         }
     }
 
