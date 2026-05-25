@@ -293,7 +293,19 @@ ollama serve
 ollama pull llama3.2:3b
 ```
 
-### 2. Build & Run Anubis
+### 2. Install Anubis
+
+The easiest path is **Homebrew** — installs the signed, notarized .app from the latest GitHub release:
+
+```bash
+brew install --cask uncsoft/anubis/anubis-oss
+```
+
+Or download the zip directly from the [Releases page](https://github.com/uncSoft/anubis-oss/releases) and drag to `/Applications`.
+
+Anubis auto-updates via Sparkle in either case. Once installed, Anubis will auto-detect Ollama on launch. Other backends can be added in Settings.
+
+#### Or build from source
 
 ```bash
 git clone https://github.com/uncSoft/anubis-oss.git
@@ -304,8 +316,6 @@ open anubis.xcodeproj
 In Xcode:
 1. Set your development team in **Signing & Capabilities**
 2. Build and run (`Cmd+R`)
-
-Anubis will auto-detect Ollama on launch. Other backends can be added in Settings.
 
 ### 3. Run Your First Benchmark
 
