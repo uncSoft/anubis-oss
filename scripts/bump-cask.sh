@@ -26,7 +26,11 @@ set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
     echo "usage: bump-cask.sh <version> [--tap <path>] [--pr] [--cask <path>]" >&2
-    echo "  <version>      Marketing version, e.g. 3.7 (no leading 'v')" >&2
+    echo "  <version>      Marketing version. Either X.Y (e.g. 3.7) or" >&2
+    echo "                 X.Y.Z (e.g. 3.7.0); both are accepted. The cask" >&2
+    echo "                 file always writes the X.Y.0 form to match the" >&2
+    echo "                 GH release tag, and constructs the zip URL via" >&2
+    echo "                 version.major_minor." >&2
     echo "  --tap <path>   Path to a checked-out homebrew-anubis tap repo." >&2
     echo "                 When set, edits Casks/anubis-oss.rb in that repo," >&2
     echo "                 commits, and pushes." >&2
@@ -40,6 +44,21 @@ fi
 
 VERSION="$1"
 shift || true
+
+# Normalize: cask wants X.Y.Z to match the GH tag (vX.Y.Z), but the
+# zip on the release is named with X.Y only. If the user passed X.Y,
+# tack on .0; if they passed X.Y.Z, keep it.
+if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    CASK_VERSION="${VERSION}.0"
+    ZIP_VERSION="$VERSION"
+elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    CASK_VERSION="$VERSION"
+    # major.minor of X.Y.Z (zip name still uses X.Y today)
+    ZIP_VERSION="$(echo "$VERSION" | cut -d. -f1-2)"
+else
+    echo "Version must be X.Y or X.Y.Z (got: $VERSION)" >&2
+    exit 1
+fi
 TAP_PATH=""
 CASK_PATH=""
 OPEN_PR=0
@@ -82,15 +101,15 @@ fi
 
 # --- Fetch + hash the release asset --------------------------------
 
-ASSET_URL="https://github.com/uncSoft/anubis-oss/releases/download/v${VERSION}.0/Anubis-OSS-${VERSION}.zip"
+ASSET_URL="https://github.com/uncSoft/anubis-oss/releases/download/v${CASK_VERSION}/Anubis-OSS-${ZIP_VERSION}.zip"
 echo "==> Fetching ${ASSET_URL}"
 
 # HEAD-check first so we fail fast with a clean error if the asset
 # isn't uploaded yet (common race: tag exists but the zip is still
 # being attached).
 if ! curl -sIfL "$ASSET_URL" > /dev/null; then
-    echo "Release asset not reachable. Has the v${VERSION}.0 release been published" >&2
-    echo "with Anubis-OSS-${VERSION}.zip attached?" >&2
+    echo "Release asset not reachable. Has the v${CASK_VERSION} release been published" >&2
+    echo "with Anubis-OSS-${ZIP_VERSION}.zip attached?" >&2
     exit 1
 fi
 
@@ -109,13 +128,13 @@ cp "$CASK_PATH" "$CASK_PATH.bak"
 # Use a sed pattern that's strict about the line shape so we never
 # accidentally overwrite something elsewhere in the cask file.
 sed -i.tmp \
-    -e "s|^  version \"[^\"]*\"|  version \"${VERSION}\"|" \
+    -e "s|^  version \"[^\"]*\"|  version \"${CASK_VERSION}\"|" \
     -e "s|^  sha256 \"[a-f0-9]*\"|  sha256 \"${SHA256}\"|" \
     "$CASK_PATH"
 rm -f "$CASK_PATH.tmp"
 
 # Sanity-check the edit landed
-if ! grep -q "version \"${VERSION}\"" "$CASK_PATH"; then
+if ! grep -q "version \"${CASK_VERSION}\"" "$CASK_PATH"; then
     echo "Version line did not update. Restoring backup." >&2
     mv "$CASK_PATH.bak" "$CASK_PATH"
     exit 1
@@ -143,30 +162,30 @@ fi
 cd "$TAP_PATH"
 
 if ! git diff --quiet -- Casks/anubis-oss.rb; then
-    BRANCH="bump-anubis-oss-${VERSION}"
+    BRANCH="bump-anubis-oss-${CASK_VERSION}"
     if [[ "$OPEN_PR" -eq 1 ]]; then
         git checkout -b "$BRANCH"
     fi
 
     git add Casks/anubis-oss.rb
-    git commit -m "anubis-oss ${VERSION}
+    git commit -m "anubis-oss ${CASK_VERSION}
 
-Bump cask to v${VERSION}.0 release.
+Bump cask to v${CASK_VERSION} release.
 - new sha256 ${SHA256}
 - asset: ${ASSET_URL}"
 
     if [[ "$OPEN_PR" -eq 1 ]]; then
         git push -u origin "$BRANCH"
         gh pr create \
-            --title "anubis-oss ${VERSION}" \
-            --body "Cask bump for the v${VERSION}.0 release of Anubis OSS.
+            --title "anubis-oss ${CASK_VERSION}" \
+            --body "Cask bump for the v${CASK_VERSION} release of Anubis OSS.
 
-Source release: https://github.com/uncSoft/anubis-oss/releases/tag/v${VERSION}.0
+Source release: https://github.com/uncSoft/anubis-oss/releases/tag/v${CASK_VERSION}
 Asset SHA256: \`${SHA256}\`"
     else
         git push
         echo "==> Pushed cask bump to $(git remote get-url origin)"
     fi
 else
-    echo "==> No change to commit (cask was already at ${VERSION})."
+    echo "==> No change to commit (cask was already at ${CASK_VERSION})."
 fi

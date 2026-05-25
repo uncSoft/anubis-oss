@@ -1,8 +1,12 @@
 cask "anubis-oss" do
-  version "3.6"
+  version "3.6.0"
   sha256 "40f654488803ac9410334eee3abb25260d5d0b7609ca38e9228cee31318c8124"
 
-  url "https://github.com/uncSoft/anubis-oss/releases/download/v#{version}.0/Anubis-OSS-#{version}.zip"
+  # Tag is v#{version} (e.g. v3.6.0), but the released zip is named
+  # with the major.minor only (Anubis-OSS-3.6.zip). version.major_minor
+  # bridges those so livecheck (which sees the full tag) and the URL
+  # template stay in sync.
+  url "https://github.com/uncSoft/anubis-oss/releases/download/v#{version}/Anubis-OSS-#{version.major_minor}.zip"
   name "Anubis OSS"
   desc "Local LLM benchmarking on Apple Silicon"
   homepage "https://github.com/uncSoft/anubis-oss"
@@ -21,11 +25,10 @@ cask "anubis-oss" do
   # Sparkle ran). Users get updates either via Sparkle's prompt or
   # by running `brew upgrade --cask anubis-oss`.
   auto_updates true
-
   # Built against macOS 15.0 (Sequoia). MARKETING_VERSION is bumped
   # in lockstep with this — if the deployment target ever changes,
   # update both.
-  depends_on macos: ">= :sequoia"
+  depends_on macos: :sequoia
 
   # The .app bundle on disk is `anubis.app` (PRODUCT_NAME), but the
   # display name we want in /Applications and Spotlight is
@@ -37,8 +40,8 @@ cask "anubis-oss" do
   # who want a true uninstall get one.
   zap trash: [
     "~/Library/Application Support/com.uncsoft.anubisoss",
-    "~/Library/Preferences/com.uncsoft.anubisoss.plist",
     "~/Library/Caches/com.uncsoft.anubisoss",
+    "~/Library/Preferences/com.uncsoft.anubisoss.plist",
     "~/Library/Saved Application State/com.uncsoft.anubisoss.savedState",
   ]
 end
