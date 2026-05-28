@@ -273,3 +273,141 @@ extension Flow {
         try Flow.fetchOne(db, key: id)
     }
 }
+
+// MARK: - Tree mutation primitives
+
+/// Path through the step tree. `[2, 1, 0]` means root[2].children[1].children[0].
+typealias FlowStepPath = IndexPath
+
+extension Array where Element == FlowStep {
+    /// Read-only step at a path. Returns nil for invalid paths or
+    /// paths into non-container children.
+    func step(at path: FlowStepPath) -> FlowStep? {
+        guard let first = path.first, first >= 0, first < count else { return nil }
+        if path.count == 1 { return self[first] }
+        guard let children = self[first].kind.children else { return nil }
+        return children.step(at: path.dropFirst().asIndexPath)
+    }
+
+    /// Remove and return the step at `path`. No-op for invalid paths.
+    @discardableResult
+    mutating func removeStep(at path: FlowStepPath) -> FlowStep? {
+        guard let first = path.first, first >= 0, first < count else { return nil }
+        if path.count == 1 {
+            return self.remove(at: first)
+        }
+        guard var children = self[first].kind.children else { return nil }
+        let removed = children.removeStep(at: path.dropFirst().asIndexPath)
+        self[first].kind.setChildren(children)
+        return removed
+    }
+
+    /// Insert `step` so it ends up at `path` (i.e. `path.last` is the
+    /// position in its parent's array). Indices past the end are
+    /// clamped to append. No-op if any non-leaf path segment doesn't
+    /// resolve to a container.
+    mutating func insertStep(_ step: FlowStep, at path: FlowStepPath) {
+        guard let first = path.first, first >= 0 else { return }
+        if path.count == 1 {
+            let clamped = Swift.min(first, count)
+            self.insert(step, at: clamped)
+            return
+        }
+        guard first < count, self[first].kind.isContainer,
+              var children = self[first].kind.children else { return }
+        children.insertStep(step, at: path.dropFirst().asIndexPath)
+        self[first].kind.setChildren(children)
+    }
+
+    /// Apply `transform` to the step at `path`. No-op for invalid
+    /// paths.
+    mutating func updateStep(at path: FlowStepPath, _ transform: (inout FlowStep) -> Void) {
+        guard let first = path.first, first >= 0, first < count else { return }
+        if path.count == 1 {
+            transform(&self[first])
+            return
+        }
+        guard var children = self[first].kind.children else { return }
+        children.updateStep(at: path.dropFirst().asIndexPath, transform)
+        self[first].kind.setChildren(children)
+    }
+
+    /// Swap siblings within the same parent. `path` is the step to
+    /// move; `delta` is +1 (down) or -1 (up). No-op if the move would
+    /// fall off either end.
+    mutating func moveSibling(at path: FlowStepPath, by delta: Int) {
+        guard let last = path.last else { return }
+        let parentPath = path.dropLast().asIndexPath
+        // Read siblings via a transient remove/insert into a holder
+        // — keeps the recursive path resolution centralized.
+        let target = last + delta
+        if parentPath.isEmpty {
+            guard target >= 0, target < count else { return }
+            let item = self.remove(at: last)
+            self.insert(item, at: target)
+        } else {
+            guard let parent = step(at: parentPath),
+                  var children = parent.kind.children else { return }
+            guard target >= 0, target < children.count else { return }
+            let item = children.remove(at: last)
+            children.insert(item, at: target)
+            updateStep(at: parentPath) { step in
+                step.kind.setChildren(children)
+            }
+        }
+    }
+
+    /// Recursive search for the path of a step by id.
+    func path(forID id: UUID) -> FlowStepPath? {
+        for (i, step) in enumerated() {
+            if step.id == id { return [i] }
+            if let children = step.kind.children,
+               let nested = children.path(forID: id) {
+                var p: FlowStepPath = [i]
+                p.append(nested)
+                return p
+            }
+        }
+        return nil
+    }
+
+    /// Most-recent `setBackend` step in document order at or before
+    /// the step with the given id — i.e. the backend that *would be*
+    /// in effect when execution reaches that step. Walks the tree
+    /// depth-first, pre-order so a setBackend in an earlier sibling
+    /// (or in an enclosing container that ran before) is honored.
+    /// Returns nil if no setBackend precedes the target.
+    func impliedBackend(beforeStepID id: UUID) -> FlowBackendRef? {
+        var current: FlowBackendRef?
+        _ = Self.walkLookingForBackend(steps: self, target: id, current: &current)
+        return current
+    }
+
+    /// Depth-first walker. Returns true once `target` is found so the
+    /// caller stops mutating `current`.
+    private static func walkLookingForBackend(
+        steps: [FlowStep],
+        target: UUID,
+        current: inout FlowBackendRef?
+    ) -> Bool {
+        for step in steps {
+            if step.id == target { return true }
+            if case .setBackend(let ref) = step.kind {
+                current = ref
+            }
+            if let children = step.kind.children {
+                if walkLookingForBackend(steps: children, target: target, current: &current) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+}
+
+// IndexPath.dropFirst() returns IndexPath.SubSequence — which on
+// Foundation is `IndexPath` itself, but the compiler still wants an
+// explicit bridge through Array<Int> in our recursive call sites.
+private extension IndexPath.SubSequence {
+    var asIndexPath: IndexPath { IndexPath(indexes: Array(self)) }
+}

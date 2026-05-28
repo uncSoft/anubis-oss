@@ -156,12 +156,22 @@ struct FlowsView: View {
     @ViewBuilder
     private var detail: some View {
         if let flow = viewModel.selectedFlow {
-            EmptyFlowEditorPlaceholder(
-                flow: flow,
-                onRename: { newName in
+            VStack(spacing: 0) {
+                // Inline-editable name header sits above the editor so
+                // renames don't require switching contexts.
+                FlowDetailHeader(flow: flow) { newName in
                     viewModel.renameFlow(flow, to: newName)
                 }
-            )
+                Divider()
+                FlowEditorView(
+                    flow: flow,
+                    parent: viewModel,
+                    inferenceService: inferenceService
+                )
+                // Re-mount the editor (and reset its in-memory state)
+                // whenever the selected flow changes.
+                .id(flow.id)
+            }
         } else {
             FlowsWelcomePane(onCreate: { presentNewFlowSheet() })
         }
@@ -217,69 +227,50 @@ private struct FlowsWelcomePane: View {
     }
 }
 
-// MARK: - Phase 1 placeholder (Phase 2 replaces this with FlowEditorView)
+// MARK: - Detail header (inline rename)
 
-private struct EmptyFlowEditorPlaceholder: View {
+private struct FlowDetailHeader: View {
     let flow: Flow
     let onRename: (String) -> Void
 
     /// Local editable copy of the name. We sync it from `flow.name`
-    /// when the selection changes (via .onChange below) and push back
-    /// to the viewmodel on submit/blur — debouncing every keystroke
-    /// into a DB write would be wasteful for a string the user is
-    /// actively typing.
+    /// when the selection changes and push back to the viewmodel on
+    /// submit/blur — debouncing every keystroke into a DB write would
+    /// be wasteful for a string the user is actively typing.
     @State private var nameDraft: String = ""
     @FocusState private var nameFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.md) {
-            HStack(alignment: .firstTextBaseline) {
-                TextField("Flow name", text: $nameDraft)
-                    .textFieldStyle(.plain)
-                    .font(.title2.weight(.semibold))
-                    .focused($nameFocused)
-                    .onSubmit { commitNameIfChanged() }
-                    .onChange(of: nameFocused) { _, focused in
-                        if !focused { commitNameIfChanged() }
-                    }
-                Spacer()
-                Text("Updated \(flow.updatedAt, style: .relative) ago")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .onAppear { nameDraft = flow.name }
-            .onChange(of: flow.id) { _, _ in nameDraft = flow.name }
-            .onChange(of: flow.name) { _, newName in
-                // Reflect renames made elsewhere (e.g. sidebar context menu)
-                // unless the user is actively editing the field.
-                if !nameFocused { nameDraft = newName }
-            }
-
-            Divider()
-
-            VStack(spacing: Spacing.sm) {
-                Image(systemName: "hammer")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.secondary)
-                Text("Editor coming in the next phase")
-                    .font(.headline)
-                Text("Phase 1 wires up the data layer, navigation, and storage so flows can be created, renamed, and deleted. The drag-and-drop step palette + inspector ship in Phase 2.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 480)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+        HStack(alignment: .firstTextBaseline) {
+            TextField("Flow name", text: $nameDraft)
+                .textFieldStyle(.plain)
+                .font(.title2.weight(.semibold))
+                .focused($nameFocused)
+                .onSubmit { commitNameIfChanged() }
+                .onChange(of: nameFocused) { _, focused in
+                    if !focused { commitNameIfChanged() }
+                }
             Spacer()
+            // Static timestamp — no live second-by-second updates.
+            // Refreshes naturally when the view re-renders after a save.
+            Text("Updated \(flow.updatedAt.formatted(date: .abbreviated, time: .shortened))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
-        .padding(Spacing.lg)
+        .padding(.horizontal, Spacing.lg)
+        .padding(.vertical, Spacing.sm)
+        .onAppear { nameDraft = flow.name }
+        .onChange(of: flow.id) { _, _ in nameDraft = flow.name }
+        .onChange(of: flow.name) { _, newName in
+            // Reflect renames made elsewhere (e.g. sidebar context menu)
+            // unless the user is actively editing the field.
+            if !nameFocused { nameDraft = newName }
+        }
     }
 
     private func commitNameIfChanged() {
         let trimmed = nameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            // Snap back rather than persist an empty name.
             nameDraft = flow.name
             return
         }
