@@ -16,15 +16,15 @@ Or download the zip directly from the [Releases page](https://github.com/uncSoft
 
 > 🚨 Benchmark analysis is live! Check out the results here, over 400+ community submitted runs analyzed [Benchmark Report](https://uncsoft.github.io/anubis-oss/analysis.html)
 
-<img width=500 alt="image" src= "https://github.com/user-attachments/assets/02ff3976-21ed-446b-974b-1f573c5cf69b" />
-
 Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any OpenAI-compatible endpoint - Ollama, MLX, oMLX, LM Studio Server, OpenWebUI, Docker Models, etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance - something no CLI tool or chat wrapper offers. Export benchmarks directly without having to screenshot, and export the raw data as .MD or .CSV from the history. You can even `OLLAMA PULL` models directly within the app.
+
+<img width="1462" alt="Screenshot 2026-05-28 at 4 21 34 PM" src="https://github.com/user-attachments/assets/4ddea3ba-a46c-47ff-a90e-675bfd5164ef" />
+
+___
 
 **New in 3.7:** the **Flow Builder** — drag-and-drop sequencer for multi-model / multi-prompt / N-rep benchmark runs, with share-ready 16:9 or 1:1 report cards. Build it once, run it hands-off, post the PNG.
 
-<img width="780" height="1100" alt="image" src="https://github.com/user-attachments/assets/c4b81dca-1a81-4b1e-8bbb-109a99a7e7bb" />
-
-<img width="950" height="600" alt="image" src="https://github.com/user-attachments/assets/5da02ee4-ef48-4785-9c46-1803b07d553f" />
+<img width="1215" height="712" alt="Screenshot 2026-05-28 at 1 15 15 PM" src="https://github.com/user-attachments/assets/7a2ab097-3fc4-4a3c-92e9-d0aae95836b9" />
 
 ---
 
@@ -34,7 +34,6 @@ Anubis is a native macOS app for benchmarking, comparing, and managing local lar
 
 Build, save, and share repeatable benchmark recipes — a Shortcuts-style editor where you sequence steps like *Set Backend → Set Model → Repeat × 5 → Run Benchmark → Unload* and play them back hands-off. Every individual run still lands in normal Run History, and the whole sequence gets a single share-ready report.
 
-<!-- TODO: drop a Flows tab screenshot here -->
 
 **Why use a flow instead of clicking Run repeatedly?**
 - Sweep multiple models or quantizations in one go (For Each Model, For Each Prompt)
@@ -82,6 +81,10 @@ Bundle N consecutive runs of the same configuration into one benchmark with mean
 - **LM Studio reliability** — fixed the alternating-failure pattern in N>1 groups (the `Connection: close` header we'd added for Ollama chunk pacing was causing LM Studio to reject the immediately-following request). Auto-detection now correctly identifies the inference worker at `~/.lmstudio/.internal/utils/node`, with a self-healing soft pin that re-evaluates every 2 s. Stops mis-attributing to Ollama after a model switch.
 - **M5 Max GPU frequency** — fixed the pinned-at-1084-MHz bug from an inverted Hz/KHz/MHz scale heuristic.
 - **Streaming hardening** — TextKit 1 retained (TK2 had viewport-layout issues on appended text); stream consume task promoted to `.userInteractive` priority; `@Published` cascades batched at 1 Hz during multi-rep group streaming; font-level ligature disable bypasses the `CopyOfFontWithLigatureSetting` hot path that caused the 25-rep hang.
+
+### Search and Download Ollama Models right from inside the app!
+- Find, download, run and benchmark models straight from Ollama's API
+<img width="681" alt="Screenshot 2026-05-28 at 4 22 25 PM" src="https://github.com/user-attachments/assets/2d155593-7943-4b28-8259-26d65762bd86" />
 
 ### Ollama Thinking Toggle *(New in 3.2)*
 
@@ -135,8 +138,10 @@ Push your Apple Silicon to its limits and observe power draw, thermal throttling
 - **GPU stress** - Metal compute shader renders a Mandelbrot fractal zoom in a separate window. Randomized zoom targets and color palettes on each run. Four intensity levels (Low / Medium / High / Extreme) control iterations, supersampling, and passes per frame
 - **Memory bandwidth stress** - allocates memory then continuously streams through it with `memcpy` to saturate the memory bus. Reports measured bandwidth in GB/s, directly comparable to your chip's theoretical max. Three pressure levels (Light 25% / Moderate 50% / Heavy 75% of free memory)
 - **Safety mechanisms** - 5-minute auto-timeout, thermal watchdog (auto-stop at critical), GPU auto-downgrade if FPS drops below 5, cleanup on view disappear and app quit
+<img width="900" alt="Screenshot 2026-05-28 at 4 21 50 PM" src="https://github.com/user-attachments/assets/7c917eaa-b5a1-4d3b-bdc0-8e6fa339d0c7" />
 
 ### Floating Monitor HUD *(New in 2.9)*
+<img width="246" height="140" alt="Screenshot 2026-05-28 at 4 37 09 PM" src="https://github.com/user-attachments/assets/d2389c0b-f7fa-4587-9350-7f8e4286a751" />
 
 A compact, frameless, always-on-top overlay showing live system metrics - launchable from any tab via the sidebar or from the Monitor's Float button.
 
@@ -264,9 +269,9 @@ Anubis checks for updates automatically via [Sparkle](https://sparkle-project.or
 
 ## Screenshots
 
-<!-- TODO: Flow Builder editor screenshot (palette + step list + inspector) -->
-
-<!-- TODO: Flow Report card (16:9) screenshot -->
+Reports and Exports
+<img width="904"  alt="Screenshot 2026-05-28 at 4 35 19 PM" src="https://github.com/user-attachments/assets/9bb601e8-7b4f-48ec-ba79-09fb2a065ba1" />
+<img width="905"  alt="Screenshot 2026-05-28 at 4 22 51 PM" src="https://github.com/user-attachments/assets/c20fb4e2-3ced-484c-b371-7b2143e38aab" />
 
 GPU Core detail
 <img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 08 44 PM" src="https://github.com/user-attachments/assets/7cf7d6f2-bcb5-4f96-b04b-19d96df29e87" />
@@ -275,7 +280,7 @@ Arena Mode
 <img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 21 50 PM" src="https://github.com/user-attachments/assets/c364bd43-4300-4565-8e6b-7fcae9e8dcd8" />
 
 Settings (add connections with quick presets)
-<img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 24 00 PM" src="https://github.com/user-attachments/assets/ff9bb9fa-aa6e-472a-a787-5583a3883105" />
+<img width="1360" height="1288" alt="Screenshot 2026-05-28 at 4 33 49 PM" src="https://github.com/user-attachments/assets/51da7bcb-9d23-4e3c-9a5d-b65fa2ad77bc" />
 
 Vault - View model details, unload, and Pull models directly for Ollama
 <img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 14 57 PM" src="https://github.com/user-attachments/assets/795157b5-efe8-4895-b499-beef25de9683" />
