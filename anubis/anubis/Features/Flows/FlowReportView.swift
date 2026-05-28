@@ -27,6 +27,10 @@ struct FlowReportView: View {
     let data: FlowReportData
     let onClose: (() -> Void)?
 
+    /// Active card aspect for the on-screen preview. Each value also
+    /// drives which renderer is used for Copy Image and Save PNG.
+    @State private var aspect: ReportAspect = .landscape16x9
+
     init(data: FlowReportData, onClose: (() -> Void)? = nil) {
         self.data = data
         self.onClose = onClose
@@ -36,16 +40,24 @@ struct FlowReportView: View {
         VStack(spacing: 0) {
             topBar
             Divider()
+            aspectToggle
+            Divider()
 
-            // Aspect-fit the 1920x1080 card to whatever the sheet's
-            // current bounds give us. scaleEffect alone doesn't shrink
-            // the layout footprint, which is why the previous version
-            // showed mostly black — the ScrollView was sized to the
-            // full 1920px content while only the top-left ~864px was
-            // visible. The container below scales-to-fit *and* claims
-            // the right aspect ratio, so the card actually appears.
-            FixedAspectScaler(designWidth: 1920, designHeight: 1080) {
-                FlowReportCard16x9(data: data)
+            // Aspect-fit whichever card variant is selected. The
+            // FixedAspectScaler ensures the design-time canvas (1920x1080
+            // or 1080x1080) renders pixel-correct then scales to fit
+            // the sheet without clipping or overflow.
+            Group {
+                switch aspect {
+                case .landscape16x9:
+                    FixedAspectScaler(designWidth: 1920, designHeight: 1080) {
+                        FlowReportCard16x9(data: data)
+                    }
+                case .square1x1:
+                    FixedAspectScaler(designWidth: 1080, designHeight: 1080) {
+                        FlowReportCard1x1(data: data)
+                    }
+                }
             }
             .padding(Spacing.md)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -54,6 +66,28 @@ struct FlowReportView: View {
             Divider()
             exportBar
         }
+    }
+
+    /// Two-button segmented toggle pinned above the preview. Reading
+    /// "16:9 / 1:1" so users immediately know which export each
+    /// button will produce.
+    private var aspectToggle: some View {
+        HStack(spacing: Spacing.md) {
+            Picker("Aspect", selection: $aspect) {
+                ForEach(ReportAspect.allCases) { a in
+                    Text(a.label).tag(a)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 220)
+            Spacer()
+            Text("Card: \(aspect.canvasLabel)")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.xs)
     }
 
     // MARK: - Top bar
@@ -91,7 +125,7 @@ struct FlowReportView: View {
             Button {
                 saveImage()
             } label: {
-                Label("Save PNG (16:9)", systemImage: "square.and.arrow.down")
+                Label("Save PNG (\(aspect.label))", systemImage: "square.and.arrow.down")
             }
             .buttonStyle(.borderedProminent)
             Button {
@@ -100,7 +134,7 @@ struct FlowReportView: View {
                 Label("Save CSV", systemImage: "tablecells")
             }
             Spacer()
-            Text("1920 × 1080 · 2× retina")
+            Text("\(aspect.canvasLabel) · 2× retina")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -111,11 +145,20 @@ struct FlowReportView: View {
 
     @MainActor
     private func renderImage() -> NSImage? {
-        let content = FlowReportCard16x9(data: data)
-            .frame(width: 1920, height: 1080)
+        let size = aspect.designSize
+        let content: AnyView = {
+            switch aspect {
+            case .landscape16x9:
+                return AnyView(FlowReportCard16x9(data: data)
+                    .frame(width: size.width, height: size.height))
+            case .square1x1:
+                return AnyView(FlowReportCard1x1(data: data)
+                    .frame(width: size.width, height: size.height))
+            }
+        }()
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2.0
-        renderer.proposedSize = .init(width: 1920, height: 1080)
+        renderer.proposedSize = .init(width: size.width, height: size.height)
         return renderer.nsImage
     }
 
@@ -159,7 +202,38 @@ struct FlowReportView: View {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate]
         let datePart = formatter.string(from: data.flowRun.startedAt)
-        return "anubis-report-\(nameSlug)-\(datePart)"
+        return "anubis-report-\(nameSlug)-\(datePart)-\(aspect.filenameTag)"
+    }
+}
+
+// MARK: - Aspect
+
+enum ReportAspect: String, CaseIterable, Identifiable {
+    case landscape16x9 = "16:9"
+    case square1x1 = "1:1"
+
+    var id: String { rawValue }
+    var label: String { rawValue }
+
+    var designSize: CGSize {
+        switch self {
+        case .landscape16x9: return CGSize(width: 1920, height: 1080)
+        case .square1x1:     return CGSize(width: 1080, height: 1080)
+        }
+    }
+
+    var canvasLabel: String {
+        switch self {
+        case .landscape16x9: return "1920 × 1080"
+        case .square1x1:     return "1080 × 1080"
+        }
+    }
+
+    var filenameTag: String {
+        switch self {
+        case .landscape16x9: return "16x9"
+        case .square1x1:     return "1x1"
+        }
     }
 }
 
@@ -779,6 +853,304 @@ private struct SpotlightModelCard: View {
             .tracking(1.5)
             .foregroundStyle(.white.opacity(0.4))
             .frame(width: width, alignment: alignment)
+    }
+}
+
+// MARK: - 1:1 square card (Instagram / X friendly)
+
+/// 1080×1080 variant optimised for social-square aspect. Stacked
+/// hero → leaderboard list → methodology footer. Up to 4 models
+/// shown as full-width strip cards; if there are more, the rest
+/// are summarised on the last strip ("+ N more — see CSV").
+struct FlowReportCard1x1: View {
+    let data: FlowReportData
+
+    /// Tighter cap than 16:9 since vertical space is the bottleneck.
+    private let maxModelCards = 4
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.08, green: 0.09, blue: 0.12),
+                         Color(red: 0.04, green: 0.05, blue: 0.07)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            VStack(alignment: .leading, spacing: 0) {
+                hero
+                    .padding(.horizontal, 56)
+                    .padding(.top, 44)
+                    .padding(.bottom, 22)
+
+                Divider().background(Color.white.opacity(0.10))
+
+                leaderboard
+                    .padding(.horizontal, 56)
+                    .padding(.vertical, 22)
+
+                Spacer(minLength: 0)
+
+                Divider().background(Color.white.opacity(0.10))
+                methodology
+                    .padding(.horizontal, 56)
+                    .padding(.top, 18)
+                    .padding(.bottom, 30)
+            }
+        }
+        .frame(width: 1080, height: 1080)
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+    }
+
+    // MARK: Hero
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "eye.trianglebadge.exclamationmark")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.orange)
+                Text("ANUBIS")
+                    .font(.system(size: 18, weight: .black))
+                    .tracking(3)
+                Text("BENCHMARK REPORT")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .tracking(2)
+                Spacer()
+            }
+
+            Text(data.flowRun.flowNameSnapshot)
+                .font(.system(size: 42, weight: .heavy))
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+
+            // Pill row — same content as 16:9 but smaller.
+            HStack(spacing: 12) {
+                heroPill(value: "\(data.completedSessionCount) runs",
+                         icon: "play.fill")
+                heroPill(value: "\(data.modelRows.count) model\(data.modelRows.count == 1 ? "" : "s")",
+                         icon: "cube.box")
+                if let duration = data.duration {
+                    heroPill(value: formatDuration(duration), icon: "clock")
+                }
+                if data.failedSessionCount > 0 {
+                    heroPill(value: "\(data.failedSessionCount) failed",
+                             icon: "exclamationmark.triangle",
+                             tint: Color.red.opacity(0.85))
+                }
+                Spacer()
+            }
+            .padding(.top, 4)
+
+            // Inline winner callout (one row, big number) so the
+            // square layout still leads with the key result.
+            if let winner = data.winner {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("🥇")
+                        .font(.system(size: 22))
+                    Text(winner.modelName)
+                        .font(.system(size: 20, weight: .bold))
+                        .lineLimit(1)
+                    Spacer()
+                    Text(formatTPS(winner.meanTPS))
+                        .font(.system(size: 36, weight: .black, design: .rounded))
+                        .monospacedDigit()
+                    Text("tok/s")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+                .padding(.top, 6)
+                if let lo = winner.ciLowTPS, let hi = winner.ciHighTPS {
+                    Text(String(format: "95%% CI %.1f – %.1f · n=%d", lo, hi, winner.n))
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.55))
+                }
+            }
+        }
+    }
+
+    private func heroPill(value: String, icon: String, tint: Color = .white.opacity(0.85)) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+            Text(value)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+    }
+
+    // MARK: Leaderboard
+
+    private var leaderboard: some View {
+        let rows = data.modelRows
+        let visible = Array(rows.prefix(maxModelCards))
+        let overflow = rows.count - visible.count
+
+        return VStack(alignment: .leading, spacing: 10) {
+            ForEach(visible) { row in
+                SquareModelStrip(row: row, maxTPS: rows.first?.meanTPS ?? 0)
+            }
+            if overflow > 0 {
+                Text("+ \(overflow) more model\(overflow == 1 ? "" : "s") — see full CSV")
+                    .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .padding(.top, 4)
+            }
+        }
+    }
+
+    // MARK: Methodology
+
+    private var methodology: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("METHODOLOGY")
+                        .font(.system(size: 11, weight: .black))
+                        .tracking(2)
+                        .foregroundStyle(.white.opacity(0.4))
+                    Text(methodologyLine)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .lineLimit(2)
+                    if let chip = data.chipInfo {
+                        Text(chipSummary(chip))
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "eye.trianglebadge.exclamationmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.orange.opacity(0.85))
+                        Text("Anubis OSS")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.85))
+                    }
+                    Text("github.com/uncsoft/anubis-oss")
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.45))
+                    Text(data.flowRun.startedAt.formatted(date: .abbreviated, time: .omitted))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+            }
+        }
+    }
+
+    private var methodologyLine: String {
+        let prompts = Set(data.allSessions.map { $0.prompt }).sorted()
+        if prompts.count == 1, let p = prompts.first {
+            return "Prompt: \(truncated(p, max: 90))"
+        } else if prompts.count > 1 {
+            return "Prompts: \(prompts.count) variants"
+        }
+        return "Prompt: (unknown)"
+    }
+
+    private func chipSummary(_ chip: ChipInfo) -> String {
+        var parts: [String] = [chip.name]
+        parts.append("\(chip.coreCount)C CPU")
+        parts.append("\(chip.gpuCores)C GPU")
+        parts.append("\(chip.unifiedMemoryGB)GB")
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// Wide one-line strip for each model in the 1:1 layout. Single
+/// horizontal row carrying rank, name, tok/s, CI line, and a
+/// relative bar — built to be scannable, not to compete with the
+/// 16:9 cards' depth.
+private struct SquareModelStrip: View {
+    let row: FlowReportData.PerModelRow
+    let maxTPS: Double
+
+    private var medal: String? {
+        switch row.rank {
+        case 1: return "🥇"
+        case 2: return "🥈"
+        case 3: return "🥉"
+        default: return nil
+        }
+    }
+
+    private var barFraction: CGFloat {
+        guard maxTPS > 0 else { return 0 }
+        return CGFloat(min(1.0, row.meanTPS / maxTPS))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                if let medal = medal {
+                    Text(medal).font(.system(size: 20))
+                } else {
+                    Text("#\(row.rank)")
+                        .font(.system(size: 14, weight: .black))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.white.opacity(0.08)))
+                }
+                Text(row.modelName)
+                    .font(.system(size: 18, weight: .bold))
+                    .lineLimit(1)
+                Spacer()
+                Text(formatTPS(row.meanTPS))
+                    .font(.system(size: 26, weight: .black, design: .rounded))
+                    .monospacedDigit()
+                Text("tok/s")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.55))
+            }
+
+            // Compact secondary metrics line — TTFT + tokens + reps.
+            HStack(spacing: 12) {
+                if let ttft = row.meanTTFT {
+                    Text(String(format: "TTFT %.0fms", ttft * 1000))
+                }
+                if let tokens = row.meanTotalTokens {
+                    Text(String(format: "%.0f tok", tokens))
+                }
+                Text("n=\(row.n)")
+                if let lo = row.ciLowTPS, let hi = row.ciHighTPS, row.n > 1 {
+                    Text(String(format: "CI %.1f – %.1f", lo, hi))
+                }
+                Spacer()
+            }
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.white.opacity(0.6))
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.white.opacity(0.08))
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [Color.orange, Color.orange.opacity(0.6)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ))
+                        .frame(width: geo.size.width * barFraction)
+                }
+            }
+            .frame(height: 6)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color.white.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+        )
     }
 }
 

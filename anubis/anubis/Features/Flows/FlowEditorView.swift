@@ -323,27 +323,95 @@ private struct PaletteItemButton: View {
     let label: String
     let onPick: (FlowStepKind) -> Void
 
+    @State private var isHovering: Bool = false
+
     var body: some View {
-        Button {
-            onPick(kind)
-        } label: {
-            HStack(spacing: Spacing.xs) {
-                Image(systemName: kind.iconName)
-                    .frame(width: 18)
-                    .foregroundStyle(.tint)
-                Text(label)
-                    .font(.system(size: 12, weight: .medium))
-                Spacer(minLength: 0)
-                Image(systemName: "plus.circle")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, Spacing.xs)
-            .padding(.vertical, 5)
-            .frame(maxWidth: .infinity)
-            .background(Color.gray.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.sm))
+        // NOTE: must NOT be a Button. macOS SwiftUI's Button gesture
+        // eats the mouse-down before .draggable can convert it into
+        // a drag session — leaving the click working but the drag
+        // never engaging. Same .onTapGesture + .draggable pattern as
+        // FlowStepRow, which is why rows have always been draggable.
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: kind.iconName)
+                .frame(width: 18)
+                .foregroundStyle(.tint)
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+            Spacer(minLength: 0)
+            Image(systemName: "plus.circle")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
+        .padding(.horizontal, Spacing.xs)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: CornerRadius.sm)
+                .fill(isHovering ? Color.gray.opacity(0.16) : Color.gray.opacity(0.08))
+        )
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .onTapGesture {
+            onPick(kind)
+        }
+        // Drag a new step from the palette into the step list. Click
+        // still appends; drag offers precise placement.
+        .draggable(FlowDragPayload(source: .newStep(kind: kind))) {
+            HStack(spacing: 6) {
+                Image(systemName: kind.iconName)
+                Text(label).font(.system(size: 12, weight: .semibold))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.85), in: Capsule())
+            .foregroundStyle(.white)
+        }
+    }
+}
+
+// MARK: - Drop zone
+
+/// Thin horizontal target slot that appears between rows (and at the
+/// end of each list level). Invisible at rest; lights up with an
+/// accent capsule while a drag is hovering. On drop, routes the
+/// payload to the editor — palette payload inserts a fresh step,
+/// existing-step payload moves the step to this slot.
+struct FlowDropZone: View {
+    let targetPath: FlowStepPath
+    @ObservedObject var editor: FlowEditorViewModel
+
+    @State private var isTargeted: Bool = false
+
+    var body: some View {
+        Capsule()
+            .fill(isTargeted ? Color.accentColor : Color.clear)
+            .frame(height: isTargeted ? 4 : 3)
+            .padding(.horizontal, Spacing.xs)
+            .contentShape(Rectangle().inset(by: -4)) // generous hit area
+            .dropDestination(for: FlowDragPayload.self) { payloads, location in
+                print("[DragDrop] DropZone action fired — path=\(Array(targetPath)) payloadCount=\(payloads.count) location=\(location)")
+                guard let payload = payloads.first else {
+                    print("[DragDrop]   no payloads — drop refused")
+                    return false
+                }
+                print("[DragDrop]   payload.source=\(payload.source)")
+                withAnimation(stepEditAnimation) {
+                    switch payload.source {
+                    case .newStep(let kind):
+                        print("[DragDrop]   inserting new \(kind.displayName) at \(Array(targetPath))")
+                        editor.insertNewStep(kind: kind, at: targetPath)
+                    case .existingStep(let id):
+                        print("[DragDrop]   moving existing \(id) to \(Array(targetPath))")
+                        editor.moveStep(id: id, to: targetPath)
+                    }
+                }
+                return true
+            } isTargeted: { hovering in
+                print("[DragDrop] DropZone isTargeted=\(hovering) path=\(Array(targetPath))")
+                withAnimation(.easeInOut(duration: 0.10)) {
+                    isTargeted = hovering
+                }
+            }
     }
 }
 
@@ -393,7 +461,10 @@ struct FlowStepListView: View {
     }
 }
 
-/// One level of the step tree. Recurses for container bodies.
+/// One level of the step tree. Recurses for container bodies. Each
+/// row is preceded by a FlowDropZone for the insertion slot above it,
+/// and a final zone caps the bottom of the level so users can drop
+/// at the end without precision-aiming the last row.
 private struct FlowStepListLevel: View {
     let steps: [FlowStep]
     @ObservedObject var editor: FlowEditorViewModel
@@ -404,6 +475,9 @@ private struct FlowStepListLevel: View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
             ForEach(Array(steps.enumerated()), id: \.element.id) { idx, step in
                 let path: FlowStepPath = parentPath + [idx]
+
+                FlowDropZone(targetPath: path, editor: editor)
+
                 FlowStepRow(
                     step: step,
                     path: path,
@@ -414,14 +488,16 @@ private struct FlowStepListLevel: View {
 
                 if step.kind.isContainer, let children = step.kind.children {
                     // Nested body — indented, with its own children list +
-                    // a footer "+ Add inside" hint.
+                    // a drop zone for "append inside" when the body's empty.
                     VStack(alignment: .leading, spacing: Spacing.xs) {
                         if children.isEmpty {
-                            Text("Empty — select this container, then click a palette block.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 4)
-                                .padding(.leading, Spacing.sm)
+                            // Empty container: a single drop zone takes
+                            // the place of the prior "click a palette
+                            // block" hint, so users can drag right in.
+                            FlowContainerEmptyDropZone(
+                                containerPath: path,
+                                editor: editor
+                            )
                         } else {
                             FlowStepListLevel(
                                 steps: children,
@@ -440,6 +516,72 @@ private struct FlowStepListLevel: View {
                             .padding(.leading, Spacing.xs)
                     }
                 }
+            }
+            // Trailing drop zone — append to this level.
+            FlowDropZone(
+                targetPath: parentPath + [steps.count],
+                editor: editor
+            )
+        }
+    }
+}
+
+/// Specialised drop target shown when a container has no children
+/// yet. Same payload handling as a regular FlowDropZone but with a
+/// hint label and a slightly bigger hit area, since this is the
+/// user's *first* introduction to "drop here to fill the body".
+private struct FlowContainerEmptyDropZone: View {
+    let containerPath: FlowStepPath
+    @ObservedObject var editor: FlowEditorViewModel
+
+    @State private var isTargeted: Bool = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.down.to.line")
+                .font(.system(size: 11))
+            Text("Drag a palette block here, or select this container and click one.")
+                .font(.caption)
+        }
+        .foregroundStyle(isTargeted ? Color.accentColor : .secondary)
+        .padding(.vertical, 6)
+        .padding(.horizontal, Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: CornerRadius.sm)
+                .strokeBorder(
+                    isTargeted ? Color.accentColor : Color.gray.opacity(0.3),
+                    style: StrokeStyle(lineWidth: 1, dash: [4])
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: CornerRadius.sm)
+                        .fill(isTargeted ? Color.accentColor.opacity(0.10) : Color.clear)
+                )
+        )
+        .dropDestination(for: FlowDragPayload.self) { payloads, location in
+            print("[DragDrop] EmptyContainerDrop action fired — container=\(Array(containerPath)) payloadCount=\(payloads.count) location=\(location)")
+            guard let payload = payloads.first else {
+                print("[DragDrop]   no payloads — drop refused")
+                return false
+            }
+            print("[DragDrop]   payload.source=\(payload.source)")
+            // Drop into an empty body means insert at index 0 of that body.
+            let target = containerPath + [0]
+            withAnimation(stepEditAnimation) {
+                switch payload.source {
+                case .newStep(let kind):
+                    print("[DragDrop]   inserting new \(kind.displayName) at \(Array(target))")
+                    editor.insertNewStep(kind: kind, at: target)
+                case .existingStep(let id):
+                    print("[DragDrop]   moving existing \(id) to \(Array(target))")
+                    editor.moveStep(id: id, to: target)
+                }
+            }
+            return true
+        } isTargeted: { hovering in
+            print("[DragDrop] EmptyContainerDrop isTargeted=\(hovering) container=\(Array(containerPath))")
+            withAnimation(.easeInOut(duration: 0.10)) {
+                isTargeted = hovering
             }
         }
     }
@@ -544,6 +686,20 @@ private struct FlowStepRow: View {
                     editor.delete(at: path)
                 }
             }
+        }
+        // Drag to reorder. The chevrons still work for keyboard-style
+        // adjustment; drag is for precise placement across nesting.
+        .draggable(FlowDragPayload(source: .existingStep(id: step.id))) {
+            // Compact drag preview — same icon + name, no controls.
+            HStack(spacing: 6) {
+                Image(systemName: step.kind.iconName)
+                Text(step.kind.displayName)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.85), in: Capsule())
+            .foregroundStyle(.white)
         }
     }
 

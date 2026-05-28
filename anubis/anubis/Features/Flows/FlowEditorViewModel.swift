@@ -79,6 +79,65 @@ final class FlowEditorViewModel: ObservableObject {
         markDirty()
     }
 
+    /// Move the step identified by `id` so that it ends up at
+    /// `targetPath`. Handles three edge cases that would otherwise
+    /// corrupt the tree:
+    ///
+    /// 1. **Self-drop / no-op** — dropping a step on its own current
+    ///    slot does nothing.
+    /// 2. **Cycle** — dropping a container into its own subtree is
+    ///    refused (would orphan its descendants).
+    /// 3. **Same-parent shift** — when both source and target share a
+    ///    parent and source comes before target, removing the source
+    ///    shifts the target index down by one; we adjust before
+    ///    inserting.
+    func moveStep(id: UUID, to targetPath: FlowStepPath) {
+        guard let sourcePath = steps.path(forID: id) else { return }
+
+        // Drop on self — no-op.
+        if sourcePath == targetPath { return }
+
+        // Drop into own subtree — refuse (would lose the subtree).
+        if pathStartsWith(targetPath, prefix: sourcePath) { return }
+
+        // Pluck the step out (mutates `steps`, shifts later indices).
+        guard let plucked = steps.removeStep(at: sourcePath) else { return }
+
+        // If the source and target share a parent and source came
+        // before target, the remove just shifted target down by one.
+        var adjustedTarget = targetPath
+        let sourceParent = sourcePath.dropLast()
+        let targetParent = targetPath.dropLast()
+        if Array(sourceParent) == Array(targetParent),
+           let s = sourcePath.last, let t = targetPath.last,
+           s < t {
+            adjustedTarget[adjustedTarget.count - 1] = t - 1
+        }
+
+        steps.insertStep(plucked, at: adjustedTarget)
+        selectedStepID = plucked.id
+        markDirty()
+    }
+
+    /// True when `path` begins with `prefix` (i.e. is at-or-below
+    /// `prefix` in the tree).
+    private func pathStartsWith(_ path: FlowStepPath, prefix: FlowStepPath) -> Bool {
+        guard path.count >= prefix.count else { return false }
+        for i in 0..<prefix.count where path[i] != prefix[i] {
+            return false
+        }
+        return true
+    }
+
+    /// Drop-target-aware insert from the palette. Generates a fresh
+    /// UUID and routes through the tree primitives.
+    func insertNewStep(kind: FlowStepKind, at targetPath: FlowStepPath) {
+        let step = FlowStep(kind: kind)
+        steps.insertStep(step, at: targetPath)
+        selectedStepID = step.id
+        markDirty()
+    }
+
     /// Update the currently-selected step in place.
     func updateSelectedStep(_ transform: (inout FlowStep) -> Void) {
         guard let id = selectedStepID,

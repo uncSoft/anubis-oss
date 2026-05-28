@@ -161,6 +161,40 @@ final class FlowsViewModel: ObservableObject {
         }
     }
 
+    /// Create a new flow pre-populated from a built-in template. The
+    /// template's step UUIDs are re-generated on insert so two flows
+    /// from the same template don't share ids (which would break the
+    /// editor's per-step state).
+    func createFlow(from template: FlowTemplate, name: String? = nil) {
+        let resolvedName = name ?? template.name
+        var flow = Flow(name: resolvedName, steps: regenerateIDs(template.steps))
+        do {
+            try databaseManager.queue.write { db in
+                try flow.insert(db)
+            }
+            reload()
+            selectedFlowID = flow.id
+        } catch {
+            log.error("Failed to create flow from template: \(error.localizedDescription)")
+            lastError = "Failed to create flow: \(error.localizedDescription)"
+        }
+    }
+
+    /// Re-assign UUIDs throughout a step tree. Templates are static
+    /// so their ids are the same every time — without this every
+    /// new-from-template flow would share step ids with every other,
+    /// and SwiftUI's ForEach would diff them as the same row.
+    private func regenerateIDs(_ steps: [FlowStep]) -> [FlowStep] {
+        steps.map { step in
+            var copy = step
+            copy.id = UUID()
+            if let children = step.kind.children {
+                copy.kind.setChildren(regenerateIDs(children))
+            }
+            return copy
+        }
+    }
+
     /// Rename an existing flow.
     func renameFlow(_ flow: Flow, to newName: String) {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)

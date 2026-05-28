@@ -40,6 +40,26 @@
 				</array>
 			</dict>
 		</dict>
+		<!--
+		In-memory drag payload used by the Flow Builder for palette
+		new-step and existing-step reorders. No filename extension and
+		no MIME type — it never touches disk. Without this entry the
+		drag pasteboard advertises a UTI the system doesn't recognize
+		and dropDestination(for: FlowDragPayload.self) silently rejects
+		every drop.
+		-->
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.uncsoft.anubis.flowdrag</string>
+			<key>UTTypeDescription</key>
+			<string>Anubis Flow Drag Payload</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict/>
+		</dict>
 	</array>
 	<key>CFBundleDocumentTypes</key>
 	<array>

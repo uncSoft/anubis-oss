@@ -34,6 +34,9 @@ struct FlowsView: View {
     /// Drives the "Clear All Run History?" confirmation alert.
     @State private var confirmClearHistory: Bool = false
 
+    /// Toggles the Flow Builder help sheet.
+    @State private var showHelp: Bool = false
+
     init(inferenceService: InferenceService, databaseManager: DatabaseManager) {
         self.inferenceService = inferenceService
         self.databaseManager = databaseManager
@@ -48,6 +51,9 @@ struct FlowsView: View {
                 .frame(minWidth: 400)
         }
         .onAppear { viewModel.reload() }
+        .sheet(isPresented: $showHelp) {
+            FlowHelpView { showHelp = false }
+        }
         .alert("Clear all run history?", isPresented: $confirmClearHistory) {
             Button("Cancel", role: .cancel) { }
             Button("Clear", role: .destructive) {
@@ -137,14 +143,35 @@ struct FlowsView: View {
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: Spacing.xs) {
                 Text("My Flows")
                     .font(.headline)
                 Spacer()
+                // Quick-access help — opens the FlowHelpView sheet.
+                // Sitting in the sidebar means it's visible whether
+                // or not a flow is selected.
+                Button {
+                    showHelp = true
+                } label: {
+                    Image(systemName: "questionmark.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("How to use the Flow Builder")
+
                 // Menu instead of bare + so the sidebar header carries
-                // both create and import without a second button.
+                // create / template / import without three buttons.
                 Menu {
-                    Button("New Flow…") { presentNewFlowSheet() }
+                    Button("New Empty Flow…") { presentNewFlowSheet() }
+                    Menu("New from Template") {
+                        ForEach(FlowTemplate.catalog) { template in
+                            Button {
+                                viewModel.createFlow(from: template)
+                            } label: {
+                                Label(template.name, systemImage: template.iconName)
+                            }
+                        }
+                    }
+                    Divider()
                     Button("Import .anubisflow…") { presentImportPanel() }
                 } label: {
                     Image(systemName: "plus")
@@ -152,7 +179,7 @@ struct FlowsView: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("New Flow or Import")
+                .help("New Flow, From Template, or Import")
             }
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
@@ -252,6 +279,18 @@ struct FlowsView: View {
                 Button("New Flow") { presentNewFlowSheet() }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
+                Menu("From Template") {
+                    ForEach(FlowTemplate.catalog) { template in
+                        Button {
+                            viewModel.createFlow(from: template)
+                        } label: {
+                            Label(template.name, systemImage: template.iconName)
+                        }
+                    }
+                }
+                .menuStyle(.button)
+                .controlSize(.small)
+                .fixedSize()
                 Button("Import…") { presentImportPanel() }
                     .controlSize(.small)
             }
