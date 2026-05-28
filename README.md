@@ -13,7 +13,6 @@ brew install --cask uncsoft/anubis/anubis-oss
 ```
 
 Or download the zip directly from the [Releases page](https://github.com/uncSoft/anubis-oss/releases) and drag to `/Applications`.
-d4t5r
 
 > 🚨 Benchmark analysis is live! Check out the results here, over 400+ community submitted runs analyzed [Benchmark Report](https://uncsoft.github.io/anubis-oss/analysis.html)
 
