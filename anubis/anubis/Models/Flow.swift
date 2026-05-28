@@ -444,3 +444,242 @@ extension Array where Element == FlowStep {
 private extension IndexPath.SubSequence {
     var asIndexPath: IndexPath { IndexPath(indexes: Array(self)) }
 }
+
+// MARK: - Lint
+
+/// A static check failure found in a flow's step tree.
+struct FlowWarning: Identifiable, Hashable {
+    let id = UUID()
+    /// The offending step's id (so the editor can render the badge
+    /// next to that row).
+    let stepID: UUID
+    let kind: Kind
+
+    enum Kind: Hashable {
+        /// Set Backend / Model / Prompt followed by no Run Benchmark
+        /// before the next override of that kind or end-of-flow.
+        case danglingSetBackend
+        case danglingSetModel
+        case danglingSetPrompt
+        /// Set step's payload is blank — runs depending on it will
+        /// throw at execution time.
+        case setModelEmpty
+        case setPromptEmpty
+        /// Set Prompt source isn't supported yet (library / file).
+        case setPromptUnsupportedSource
+        /// For Each contains an entry that's blank/whitespace — that
+        /// iteration will fail at runtime.
+        case forEachEmptyEntry(index: Int)
+        /// Run Benchmark reached without a preceding state setter.
+        case runMissingBackend
+        case runMissingModel
+        case runMissingPrompt
+        /// Container with no children.
+        case emptyContainer
+        /// For Each with an empty values list (won't iterate, won't run).
+        case emptyForEachValues
+    }
+
+    var message: String {
+        switch kind {
+        case .danglingSetBackend:
+            return "Set Backend has no Run Benchmark after it — the backend choice is never used."
+        case .danglingSetModel:
+            return "Set Model has no Run Benchmark after it — the model choice is never used."
+        case .danglingSetPrompt:
+            return "Set Prompt has no Run Benchmark after it — the prompt is never used."
+        case .setModelEmpty:
+            return "Set Model has no model name — any Run Benchmark using it will fail at run time."
+        case .setPromptEmpty:
+            return "Set Prompt has no text — any Run Benchmark using it will fail at run time."
+        case .setPromptUnsupportedSource:
+            return "Set Prompt is using a source type (library/file) that isn't wired up yet — only inline text runs today."
+        case .forEachEmptyEntry(let index):
+            return "For Each entry #\(index + 1) is blank — that iteration will fail at run time."
+        case .runMissingBackend:
+            return "Run Benchmark needs a Set Backend step before it."
+        case .runMissingModel:
+            return "Run Benchmark needs a Set Model step (or a For Each Model wrapper) before it."
+        case .runMissingPrompt:
+            return "Run Benchmark needs a Set Prompt step (or a For Each Prompt wrapper) before it."
+        case .emptyContainer:
+            return "Container has no child steps — it'll be skipped at run time."
+        case .emptyForEachValues:
+            return "For Each has no values — add at least one model or prompt or the loop won't run."
+        }
+    }
+}
+
+extension Array where Element == FlowStep {
+    /// Run the lint walker over this tree and return every warning
+    /// found, paired with the offending step's id.
+    func lintWarnings() -> [FlowWarning] {
+        var state = LintState()
+        var warnings: [FlowWarning] = []
+        Self.lintWalk(steps: self, state: &state, warnings: &warnings)
+        Self.flushDanglingSets(state: state, warnings: &warnings)
+        return warnings
+    }
+
+    /// `lintWarnings()` keyed by step id for cheap row lookup.
+    func lintWarningsByStepID() -> [UUID: [FlowWarning]] {
+        Dictionary(grouping: lintWarnings(), by: { $0.stepID })
+    }
+
+    // MARK: Internals
+
+    /// Mutable state threaded through the walker. Tracks the most
+    /// recent Set step of each kind whose value hasn't been consumed
+    /// by a Run Benchmark yet, plus a "have we ever seen any Set of
+    /// this kind" flag so we can flag Runs that come too early.
+    fileprivate struct LintState {
+        var lastBackendSetID: UUID?
+        var lastModelSetID: UUID?
+        var lastPromptSetID: UUID?
+
+        var sawBackend: Bool = false
+        var sawModel: Bool = false
+        var sawPrompt: Bool = false
+    }
+
+    /// Depth-first pre-order walk. The state is in-out so nested
+    /// containers naturally inherit and update the outer context.
+    fileprivate static func lintWalk(
+        steps: [FlowStep],
+        state: inout LintState,
+        warnings: inout [FlowWarning]
+    ) {
+        for step in steps {
+            switch step.kind {
+            case .setBackend:
+                if let prev = state.lastBackendSetID {
+                    warnings.append(FlowWarning(stepID: prev, kind: .danglingSetBackend))
+                }
+                state.lastBackendSetID = step.id
+                state.sawBackend = true
+
+            case .setModel(let name):
+                if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    warnings.append(FlowWarning(stepID: step.id, kind: .setModelEmpty))
+                }
+                if let prev = state.lastModelSetID {
+                    warnings.append(FlowWarning(stepID: prev, kind: .danglingSetModel))
+                }
+                state.lastModelSetID = step.id
+                // Mark seen even when empty — the user *intended* to set
+                // a model; the downstream warning belongs on this step,
+                // not on every Run after it.
+                state.sawModel = true
+
+            case .setPrompt(let source):
+                switch source {
+                case .inline(let text):
+                    if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        warnings.append(FlowWarning(stepID: step.id, kind: .setPromptEmpty))
+                    }
+                case .library, .file:
+                    // The executor logs these as no-ops today; flag at
+                    // lint so the user isn't surprised.
+                    warnings.append(FlowWarning(stepID: step.id, kind: .setPromptUnsupportedSource))
+                }
+                if let prev = state.lastPromptSetID {
+                    warnings.append(FlowWarning(stepID: prev, kind: .danglingSetPrompt))
+                }
+                state.lastPromptSetID = step.id
+                state.sawPrompt = true
+
+            case .setParameters:
+                // Parameters have implicit defaults — never a lint hit.
+                break
+
+            case .runBenchmark:
+                if !state.sawBackend {
+                    warnings.append(FlowWarning(stepID: step.id, kind: .runMissingBackend))
+                }
+                if !state.sawModel {
+                    warnings.append(FlowWarning(stepID: step.id, kind: .runMissingModel))
+                }
+                if !state.sawPrompt {
+                    warnings.append(FlowWarning(stepID: step.id, kind: .runMissingPrompt))
+                }
+                // Consume — any preceding Set steps are now "used".
+                state.lastBackendSetID = nil
+                state.lastModelSetID = nil
+                state.lastPromptSetID = nil
+
+            case .repeatN(_, let body):
+                if body.isEmpty {
+                    warnings.append(FlowWarning(stepID: step.id, kind: .emptyContainer))
+                } else {
+                    lintWalk(steps: body, state: &state, warnings: &warnings)
+                }
+
+            case .forEachModel(let values, let body):
+                // For Each Model overrides the outer model for each
+                // iteration, so a Set Model before this container is
+                // dangling — its value never reaches a Run Benchmark.
+                if let prev = state.lastModelSetID {
+                    warnings.append(FlowWarning(stepID: prev, kind: .danglingSetModel))
+                }
+                state.lastModelSetID = nil
+                state.sawModel = true  // the container provides the model
+
+                if values.isEmpty {
+                    warnings.append(FlowWarning(stepID: step.id, kind: .emptyForEachValues))
+                } else {
+                    for (idx, v) in values.enumerated()
+                    where v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        warnings.append(FlowWarning(stepID: step.id, kind: .forEachEmptyEntry(index: idx)))
+                    }
+                }
+                if body.isEmpty {
+                    warnings.append(FlowWarning(stepID: step.id, kind: .emptyContainer))
+                } else if !values.isEmpty {
+                    lintWalk(steps: body, state: &state, warnings: &warnings)
+                }
+
+            case .forEachPrompt(let values, let body):
+                if let prev = state.lastPromptSetID {
+                    warnings.append(FlowWarning(stepID: prev, kind: .danglingSetPrompt))
+                }
+                state.lastPromptSetID = nil
+                state.sawPrompt = true
+
+                if values.isEmpty {
+                    warnings.append(FlowWarning(stepID: step.id, kind: .emptyForEachValues))
+                } else {
+                    for (idx, v) in values.enumerated()
+                    where v.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        warnings.append(FlowWarning(stepID: step.id, kind: .forEachEmptyEntry(index: idx)))
+                    }
+                }
+                if body.isEmpty {
+                    warnings.append(FlowWarning(stepID: step.id, kind: .emptyContainer))
+                } else if !values.isEmpty {
+                    lintWalk(steps: body, state: &state, warnings: &warnings)
+                }
+
+            case .unloadModel, .resetConnection, .coolDown, .annotate:
+                // These don't affect the dangling-set bookkeeping.
+                break
+            }
+        }
+    }
+
+    /// At end-of-flow, any Set step still in flight was never
+    /// consumed by a Run Benchmark — emit one dangling warning each.
+    fileprivate static func flushDanglingSets(
+        state: LintState,
+        warnings: inout [FlowWarning]
+    ) {
+        if let prev = state.lastBackendSetID {
+            warnings.append(FlowWarning(stepID: prev, kind: .danglingSetBackend))
+        }
+        if let prev = state.lastModelSetID {
+            warnings.append(FlowWarning(stepID: prev, kind: .danglingSetModel))
+        }
+        if let prev = state.lastPromptSetID {
+            warnings.append(FlowWarning(stepID: prev, kind: .danglingSetPrompt))
+        }
+    }
+}

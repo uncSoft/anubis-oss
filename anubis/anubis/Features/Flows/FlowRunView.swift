@@ -15,15 +15,21 @@
 //
 
 import SwiftUI
+@preconcurrency import GRDB
 
 struct FlowRunView: View {
     @ObservedObject var executor: FlowExecutor
     let flow: Flow
+    let databaseManager: DatabaseManager
     let onClose: () -> Void
 
     /// Wall-clock elapsed time, ticked once a second while running.
     @State private var elapsed: TimeInterval = 0
     @State private var timer: Timer?
+
+    /// When non-nil, presents the FlowReportView sheet for the
+    /// just-completed run.
+    @State private var reportData: FlowReportData?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,7 +44,7 @@ struct FlowRunView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 760, minHeight: 520)
+        .frame(minWidth: 860, minHeight: 620)
         .onAppear { startTimerIfNeeded() }
         .onDisappear { stopTimer() }
         .onChange(of: executor.state) { _, _ in
@@ -210,12 +216,48 @@ struct FlowRunView: View {
                     .keyboardShortcut(".", modifiers: .command)
                     .tint(.red)
                 } else {
+                    if executor.completedSessionCount > 0 {
+                        Button {
+                            openReport()
+                        } label: {
+                            Label("View Report", systemImage: "chart.bar.doc.horizontal")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut("r", modifiers: [.command, .shift])
+                    }
                     Button("Close") { onClose() }
                         .keyboardShortcut(.cancelAction)
-                        .buttonStyle(.borderedProminent)
                 }
             }
             .padding(Spacing.md)
+        }
+        .sheet(item: $reportData) { data in
+            FlowReportView(data: data) {
+                reportData = nil
+            }
+            // Bigger default than the old 1000x720 so the 16:9 preview
+            // renders at ~1500px wide instead of cramped 950px.
+            .frame(
+                minWidth: 1380, idealWidth: 1600,
+                minHeight: 1000, idealHeight: 1080
+            )
+        }
+    }
+
+    /// Fetch the just-completed sessions from the DB and present the
+    /// report sheet. Read happens off the main thread (GRDB queue is
+    /// fine to use from MainActor — internally serialized).
+    private func openReport() {
+        guard let run = executor.flowRun else { return }
+        do {
+            let sessions = try databaseManager.queue.read { db in
+                try run.sessions(db: db)
+            }
+            reportData = FlowReportData.compute(flowRun: run, sessions: sessions)
+        } catch {
+            // Surfacing this in the log is enough — the only realistic
+            // failure mode is a deleted DB, which the user notices fast.
+            print("Failed to fetch flow report data: \(error)")
         }
     }
 

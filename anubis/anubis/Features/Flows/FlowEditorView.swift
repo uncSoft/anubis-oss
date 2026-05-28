@@ -30,6 +30,9 @@ struct FlowEditorView: View {
     /// Toggles the FlowRunView modal.
     @State private var isRunning: Bool = false
 
+    /// Drives the warnings popover anchored to the header chip.
+    @State private var showingWarningsPopover: Bool = false
+
     init(
         flow: Flow,
         parent: FlowsViewModel,
@@ -72,7 +75,11 @@ struct FlowEditorView: View {
             }
         }
         .sheet(isPresented: $isRunning) {
-            FlowRunView(executor: executor, flow: editor.flow) {
+            FlowRunView(
+                executor: executor,
+                flow: editor.flow,
+                databaseManager: databaseManager
+            ) {
                 // Close button — only enabled once the executor leaves
                 // .running, so this is safe.
                 isRunning = false
@@ -99,6 +106,13 @@ struct FlowEditorView: View {
             Text("\(editor.steps.count) step\(editor.steps.count == 1 ? "" : "s")")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            // Lint chip — clickable when there's anything to surface.
+            let allWarnings = editor.steps.lintWarnings()
+            if !allWarnings.isEmpty {
+                warningsChip(allWarnings)
+            }
+
             // Total expected Run Benchmark invocations across the flow,
             // multiplied through repeatN / forEach containers.
             let runs = editor.steps.expectedRunCount
@@ -134,6 +148,62 @@ struct FlowEditorView: View {
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
+    }
+
+    /// Yellow header chip showing the lint count. Tap to open a popover
+    /// listing every warning with a "Reveal" jump-to-step button.
+    private func warningsChip(_ warnings: [FlowWarning]) -> some View {
+        Button {
+            showingWarningsPopover.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                Text("\(warnings.count) warning\(warnings.count == 1 ? "" : "s")")
+            }
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.orange.opacity(0.18)))
+            .foregroundStyle(Color.orange)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $showingWarningsPopover, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: Spacing.xs) {
+                Text("Flow Warnings")
+                    .font(.headline)
+                Text("These won't block the run, but are likely mistakes.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Divider()
+                ForEach(warnings) { w in
+                    Button {
+                        editor.selectedStepID = w.stepID
+                        showingWarningsPopover = false
+                    } label: {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.orange)
+                            Text(w.message)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Divider()
+                }
+            }
+            .padding(Spacing.md)
+            .frame(width: 360)
+        }
     }
 
     /// Tooltip + accessibility label for the Run button, reflecting
@@ -256,6 +326,13 @@ private struct PaletteItemButton: View {
 struct FlowStepListView: View {
     @ObservedObject var editor: FlowEditorViewModel
 
+    /// Lint results keyed by step id. Recomputed cheaply on every body
+    /// rebuild (the walker is O(n) and the editor only re-renders on
+    /// mutations anyway).
+    private var warnings: [UUID: [FlowWarning]] {
+        editor.steps.lintWarningsByStepID()
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -265,7 +342,8 @@ struct FlowStepListView: View {
                     FlowStepListLevel(
                         steps: editor.steps,
                         editor: editor,
-                        parentPath: []
+                        parentPath: [],
+                        warnings: warnings
                     )
                 }
             }
@@ -294,6 +372,7 @@ private struct FlowStepListLevel: View {
     let steps: [FlowStep]
     @ObservedObject var editor: FlowEditorViewModel
     let parentPath: FlowStepPath
+    let warnings: [UUID: [FlowWarning]]
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -303,7 +382,8 @@ private struct FlowStepListLevel: View {
                     step: step,
                     path: path,
                     siblingCount: steps.count,
-                    editor: editor
+                    editor: editor,
+                    warnings: warnings[step.id] ?? []
                 )
 
                 if step.kind.isContainer, let children = step.kind.children {
@@ -320,7 +400,8 @@ private struct FlowStepListLevel: View {
                             FlowStepListLevel(
                                 steps: children,
                                 editor: editor,
-                                parentPath: path
+                                parentPath: path,
+                                warnings: warnings
                             )
                         }
                     }
@@ -345,6 +426,7 @@ private struct FlowStepRow: View {
     let path: FlowStepPath
     let siblingCount: Int
     @ObservedObject var editor: FlowEditorViewModel
+    let warnings: [FlowWarning]
 
     private var isSelected: Bool { editor.selectedStepID == step.id }
     private var siblingIndex: Int { path.last ?? 0 }
@@ -360,8 +442,16 @@ private struct FlowStepRow: View {
                 )
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(step.kind.displayName)
-                    .font(.system(size: 13, weight: .medium))
+                HStack(spacing: 4) {
+                    Text(step.kind.displayName)
+                        .font(.system(size: 13, weight: .medium))
+                    if !warnings.isEmpty {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.orange)
+                            .help(warnings.map { $0.message }.joined(separator: "\n"))
+                    }
+                }
                 Text(step.kind.summary)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
@@ -410,7 +500,7 @@ private struct FlowStepRow: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: CornerRadius.sm)
-                .strokeBorder(isSelected ? Color.tint.opacity(0.7) : Color.clear, lineWidth: 1)
+                .strokeBorder(borderColor, lineWidth: borderColor == .clear ? 0 : 1)
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -421,6 +511,15 @@ private struct FlowStepRow: View {
                 editor.delete(at: path)
             }
         }
+    }
+
+    /// Border highlight priority: selection (blue) beats warning
+    /// (yellow) beats nothing. Selected-and-warned rows still show
+    /// the tooltip on the inline icon.
+    private var borderColor: Color {
+        if isSelected { return Color.tint.opacity(0.7) }
+        if !warnings.isEmpty { return Color.orange.opacity(0.55) }
+        return .clear
     }
 }
 

@@ -26,6 +26,9 @@ struct FlowsView: View {
     /// from the trigger button.
     @State private var newFlowDraft: String?
 
+    /// When non-nil, opens FlowReportView for that historical run.
+    @State private var historyReport: FlowReportData?
+
     init(inferenceService: InferenceService, databaseManager: DatabaseManager) {
         self.inferenceService = inferenceService
         self.databaseManager = databaseManager
@@ -40,6 +43,15 @@ struct FlowsView: View {
                 .frame(minWidth: 400)
         }
         .onAppear { viewModel.reload() }
+        .sheet(item: $historyReport) { data in
+            FlowReportView(data: data) {
+                historyReport = nil
+            }
+            .frame(
+                minWidth: 1280, idealWidth: 1600,
+                minHeight: 800, idealHeight: 960
+            )
+        }
         .sheet(item: $renameTarget) { flow in
             NameFlowSheet(
                 title: "Rename Flow",
@@ -101,23 +113,40 @@ struct FlowsView: View {
 
             Divider()
 
-            if viewModel.flows.isEmpty {
+            if viewModel.flows.isEmpty && viewModel.recentRuns.isEmpty {
                 emptySidebar
             } else {
                 List(selection: $viewModel.selectedFlowID) {
-                    ForEach(viewModel.flows) { flow in
-                        FlowSidebarRow(flow: flow)
-                            .tag(flow.id)
-                            .contextMenu {
-                                Button("Rename") {
-                                    renameDraft = flow.name
-                                    renameTarget = flow
-                                }
-                                Divider()
-                                Button("Delete", role: .destructive) {
-                                    viewModel.deleteFlow(flow)
-                                }
+                    if !viewModel.flows.isEmpty {
+                        Section("Flows") {
+                            ForEach(viewModel.flows) { flow in
+                                FlowSidebarRow(flow: flow)
+                                    .tag(flow.id)
+                                    .contextMenu {
+                                        Button("Rename") {
+                                            renameDraft = flow.name
+                                            renameTarget = flow
+                                        }
+                                        Divider()
+                                        Button("Delete", role: .destructive) {
+                                            viewModel.deleteFlow(flow)
+                                        }
+                                    }
                             }
+                        }
+                    }
+
+                    if !viewModel.recentRuns.isEmpty {
+                        Section("Run History") {
+                            ForEach(viewModel.recentRuns) { run in
+                                Button {
+                                    historyReport = viewModel.reportData(for: run)
+                                } label: {
+                                    FlowRunHistoryRow(run: run)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
                 }
                 .listStyle(.sidebar)
@@ -199,6 +228,47 @@ private struct FlowSidebarRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct FlowRunHistoryRow: View {
+    let run: FlowRun
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: statusIcon)
+                .foregroundStyle(statusColor)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(run.flowNameSnapshot)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                Text(run.startedAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+    }
+
+    private var statusIcon: String {
+        switch run.status {
+        case .completed: return "checkmark.circle.fill"
+        case .running: return "play.circle"
+        case .failed: return "xmark.octagon.fill"
+        case .cancelled: return "stop.circle"
+        }
+    }
+
+    private var statusColor: Color {
+        switch run.status {
+        case .completed: return .green
+        case .running: return .blue
+        case .failed: return .red
+        case .cancelled: return .orange
+        }
     }
 }
 

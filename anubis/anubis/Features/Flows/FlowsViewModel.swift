@@ -21,6 +21,10 @@ final class FlowsViewModel: ObservableObject {
     /// All saved flows, most recently updated first.
     @Published private(set) var flows: [Flow] = []
 
+    /// Most-recent flow runs (cap of 20 in the sidebar to keep it
+    /// scannable; clicking opens the full report).
+    @Published private(set) var recentRuns: [FlowRun] = []
+
     /// Currently selected flow's id (drives the detail pane).
     @Published var selectedFlowID: Int64?
 
@@ -53,18 +57,37 @@ final class FlowsViewModel: ObservableObject {
     /// after any mutation and on view appear.
     func reload() {
         do {
-            let fetched = try databaseManager.queue.read { db in
-                try Flow.fetchAll(db: db)
+            let (fetchedFlows, fetchedRuns) = try databaseManager.queue.read { db in
+                let flows = try Flow.fetchAll(db: db)
+                let runs = try FlowRun.fetchAll(db: db)
+                return (flows, runs)
             }
-            self.flows = fetched
+            self.flows = fetchedFlows
+            // Cap recent runs at 20 — older history is still queryable
+            // by id, just not surfaced in the sidebar.
+            self.recentRuns = Array(fetchedRuns.prefix(20))
             // If the previously selected flow disappeared (deletion
             // from another window), drop the selection.
-            if let id = selectedFlowID, !fetched.contains(where: { $0.id == id }) {
+            if let id = selectedFlowID, !fetchedFlows.contains(where: { $0.id == id }) {
                 selectedFlowID = nil
             }
         } catch {
             log.error("Failed to load flows: \(error.localizedDescription)")
             lastError = "Failed to load flows: \(error.localizedDescription)"
+        }
+    }
+
+    /// Fetch a FlowRun + its sessions and assemble a report payload.
+    /// Returns nil if the run doesn't exist or the DB read fails.
+    func reportData(for run: FlowRun) -> FlowReportData? {
+        do {
+            let sessions = try databaseManager.queue.read { db in
+                try run.sessions(db: db)
+            }
+            return FlowReportData.compute(flowRun: run, sessions: sessions)
+        } catch {
+            log.error("Failed to load report data: \(error.localizedDescription)")
+            return nil
         }
     }
 
