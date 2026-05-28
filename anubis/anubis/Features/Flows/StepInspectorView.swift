@@ -100,18 +100,24 @@ struct StepInspectorView: View {
                     case .runBenchmark:
                         runBenchmarkInfo
                     case .repeatN(let count, let body):
-                        RepeatEditor(count: count, childCount: body.count) { newCount in
+                        RepeatEditor(
+                            count: count,
+                            childCount: body.count,
+                            childRunCount: body.expectedRunCount
+                        ) { newCount in
                             editor.updateSelectedStep { s in
                                 if case .repeatN(_, let b) = s.kind {
                                     s.kind = .repeatN(count: newCount, body: b)
                                 }
                             }
                         }
-                    case .forEachModel(let models, _):
-                        ForEachListEditor(
-                            title: "Models",
-                            placeholder: "llama3.2:3b",
-                            values: models
+                    case .forEachModel(let models, let body):
+                        ForEachModelEditor(
+                            models: models,
+                            childCount: body.count,
+                            childRunCount: body.expectedRunCount,
+                            inferenceService: inferenceService,
+                            impliedBackend: editor.steps.impliedBackend(beforeStepID: step.id)
                         ) { newValues in
                             editor.updateSelectedStep { s in
                                 if case .forEachModel(_, let b) = s.kind {
@@ -119,12 +125,11 @@ struct StepInspectorView: View {
                                 }
                             }
                         }
-                    case .forEachPrompt(let prompts, _):
-                        ForEachListEditor(
-                            title: "Prompts",
-                            placeholder: "Write a haiku about Anubis",
-                            values: prompts,
-                            multiline: true
+                    case .forEachPrompt(let prompts, let body):
+                        ForEachPromptEditor(
+                            prompts: prompts,
+                            childCount: body.count,
+                            childRunCount: body.expectedRunCount
                         ) { newValues in
                             editor.updateSelectedStep { s in
                                 if case .forEachPrompt(_, let b) = s.kind {
@@ -446,7 +451,10 @@ private struct SetParametersEditor: View {
 private struct RepeatEditor: View {
     let count: Int
     let childCount: Int
+    let childRunCount: Int
     let onChangeCount: (Int) -> Void
+
+    private var totalRuns: Int { max(1, count) * childRunCount }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
@@ -459,57 +467,75 @@ private struct RepeatEditor: View {
             Text("Runs the \(childCount) child step\(childCount == 1 ? "" : "s") \(count) times, captured as one BenchmarkRunGroup (mean ± 95% CI).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            IterationCountFooter(runs: totalRuns)
         }
     }
 }
 
-private struct ForEachListEditor: View {
-    let title: String
-    let placeholder: String
-    let values: [String]
-    var multiline: Bool = false
+// MARK: - ForEach Model editor
+
+private struct ForEachModelEditor: View {
+    let models: [String]
+    let childCount: Int
+    let childRunCount: Int
+    @ObservedObject var inferenceService: InferenceService
+    /// Backend in effect at this point in the flow (drives the
+    /// pickable model list, same convention as the Set Model step).
+    let impliedBackend: FlowBackendRef?
     let onChange: ([String]) -> Void
 
     @State private var draft: String = ""
 
+    private var totalRuns: Int { models.count * childRunCount }
+
+    /// Available models filtered to the implied backend (if any).
+    private var availableModels: [ModelInfo] {
+        guard let ref = impliedBackend else { return inferenceService.allModels }
+        return inferenceService.allModels.filter { m in
+            guard m.backend == ref.type else { return false }
+            if ref.type == .openai, let configId = ref.openAIConfigId {
+                return m.openAIConfigId == configId
+            }
+            return true
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            Text(title).font(.subheadline.weight(.semibold))
+            Text("Models").font(.subheadline.weight(.semibold))
 
-            ForEach(Array(values.enumerated()), id: \.offset) { idx, value in
-                HStack {
-                    Text("\(idx + 1).").font(.caption).foregroundStyle(.secondary)
-                    Text(value)
-                        .lineLimit(multiline ? 4 : 1)
-                        .font(multiline ? .system(.body) : .system(.body, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Button {
-                        var copy = values
-                        copy.remove(at: idx)
-                        onChange(copy)
-                    } label: {
-                        Image(systemName: "minus.circle")
+            if models.isEmpty {
+                Text("Pick or type the models this loop should iterate through.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(models.enumerated()), id: \.offset) { idx, value in
+                    HStack {
+                        Text("\(idx + 1).")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        Text(value)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button {
+                            var copy = models
+                            copy.remove(at: idx)
+                            onChange(copy)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.red)
                     }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.red)
+                    .padding(.vertical, 2)
                 }
-                .padding(.vertical, 2)
             }
 
+            // Manual add row.
             HStack {
-                if multiline {
-                    TextEditor(text: $draft)
-                        .frame(minHeight: 60)
-                        .font(.system(.body))
-                        .padding(4)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .strokeBorder(Color.gray.opacity(0.3), lineWidth: 1)
-                        )
-                } else {
-                    TextField(placeholder, text: $draft)
-                        .textFieldStyle(.roundedBorder)
-                }
+                TextField("llama3.2:3b", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { addDraft() }
                 Button {
                     addDraft()
                 } label: {
@@ -518,14 +544,241 @@ private struct ForEachListEditor: View {
                 .buttonStyle(.borderless)
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
+
+            Divider().padding(.vertical, 2)
+
+            // Multi-select from backend-filtered model list.
+            HStack(spacing: 4) {
+                if let ref = impliedBackend {
+                    Image(systemName: ref.type.icon)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Text("Pick from \(ref.type.displayName)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.orange)
+                    Text("No Set Backend step before this — showing all")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            if availableModels.isEmpty {
+                Text("No models loaded for this backend.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(availableModels.prefix(20)) { m in
+                        let isPicked = models.contains(m.name)
+                        Button {
+                            toggle(m.name)
+                        } label: {
+                            HStack {
+                                Image(systemName: isPicked ? "checkmark.square.fill" : "square")
+                                    .foregroundStyle(isPicked ? Color.accentColor : .secondary)
+                                Image(systemName: m.backend.icon)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                Text(m.name)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if availableModels.count > 20 {
+                        Text("+ \(availableModels.count - 20) more — add by name above")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 6)
+                    }
+                }
+            }
+
+            IterationCountFooter(
+                runs: totalRuns,
+                explanation: explanation
+            )
+        }
+    }
+
+    private var explanation: String {
+        let m = models.count
+        switch (m, childRunCount) {
+        case (0, _): return "Add at least one model — the loop won't run otherwise."
+        case (_, 0): return "Add a Run Benchmark step inside this loop — currently a no-op."
+        default: return "\(m) model\(m == 1 ? "" : "s") × \(childRunCount) child run\(childRunCount == 1 ? "" : "s") = \(totalRuns) total run\(totalRuns == 1 ? "" : "s")"
+        }
+    }
+
+    private func addDraft() {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !models.contains(trimmed) else {
+            draft = ""
+            return
+        }
+        onChange(models + [trimmed])
+        draft = ""
+    }
+
+    private func toggle(_ name: String) {
+        var copy = models
+        if let idx = copy.firstIndex(of: name) {
+            copy.remove(at: idx)
+        } else {
+            copy.append(name)
+        }
+        onChange(copy)
+    }
+}
+
+// MARK: - ForEach Prompt editor
+
+private struct ForEachPromptEditor: View {
+    let prompts: [String]
+    let childCount: Int
+    let childRunCount: Int
+    let onChange: ([String]) -> Void
+
+    @State private var draft: String = ""
+
+    private var totalRuns: Int { prompts.count * childRunCount }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("Prompts").font(.subheadline.weight(.semibold))
+
+            if prompts.isEmpty {
+                Text("Add prompts to iterate through — each becomes one execution of the child steps.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(prompts.enumerated()), id: \.offset) { idx, value in
+                    HStack(alignment: .top) {
+                        Text("\(idx + 1).")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 2)
+                        Text(value)
+                            .font(.system(size: 11))
+                            .lineLimit(4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                        Button {
+                            var copy = prompts
+                            copy.remove(at: idx)
+                            onChange(copy)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.red)
+                    }
+                    .padding(.vertical, 4)
+                    Divider()
+                }
+            }
+
+            // Library picker — appends one inline prompt per selection.
+            Menu {
+                ForEach(BenchmarkPrompt.PromptCategory.allCases, id: \.self) { category in
+                    if let items = BenchmarkPrompt.presetsByCategory[category] {
+                        Section(category.rawValue) {
+                            ForEach(items) { preset in
+                                Button(preset.name) {
+                                    if !prompts.contains(preset.prompt) {
+                                        onChange(prompts + [preset.prompt])
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label("Add from library", systemImage: "books.vertical")
+            }
+            .menuStyle(.borderlessButton)
+
+            // Free-text add.
+            HStack(alignment: .bottom) {
+                TextEditor(text: $draft)
+                    .frame(minHeight: 60)
+                    .font(.system(.body))
+                    .padding(4)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(Color.gray.opacity(0.3), lineWidth: 1)
+                    )
+                Button {
+                    addDraft()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            IterationCountFooter(
+                runs: totalRuns,
+                explanation: explanation
+            )
+        }
+    }
+
+    private var explanation: String {
+        let p = prompts.count
+        switch (p, childRunCount) {
+        case (0, _): return "Add at least one prompt — the loop won't run otherwise."
+        case (_, 0): return "Add a Run Benchmark step inside this loop — currently a no-op."
+        default: return "\(p) prompt\(p == 1 ? "" : "s") × \(childRunCount) child run\(childRunCount == 1 ? "" : "s") = \(totalRuns) total run\(totalRuns == 1 ? "" : "s")"
         }
     }
 
     private func addDraft() {
         let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        onChange(values + [trimmed])
+        onChange(prompts + [trimmed])
         draft = ""
+    }
+}
+
+// MARK: - Shared iteration count footer
+
+/// Compact green chip that summarises how many Run Benchmark
+/// invocations a container will produce. Sits at the bottom of
+/// repeatN / forEach inspectors.
+private struct IterationCountFooter: View {
+    let runs: Int
+    var explanation: String? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "number.circle.fill")
+                    .foregroundStyle(.tint)
+                Text("\(runs) run\(runs == 1 ? "" : "s")")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+            }
+            if let explanation {
+                Text(explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(Spacing.sm)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.sm))
     }
 }
 

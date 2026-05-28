@@ -99,6 +99,23 @@ struct FlowEditorView: View {
             Text("\(editor.steps.count) step\(editor.steps.count == 1 ? "" : "s")")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            // Total expected Run Benchmark invocations across the flow,
+            // multiplied through repeatN / forEach containers.
+            let runs = editor.steps.expectedRunCount
+            HStack(spacing: 4) {
+                Image(systemName: "number.circle.fill")
+                Text("\(runs) run\(runs == 1 ? "" : "s")")
+            }
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule().fill(Color.accentColor.opacity(runs > 0 ? 0.18 : 0.06))
+            )
+            .foregroundStyle(runs > 0 ? Color.accentColor : Color.secondary)
+            .help(runs > 0
+                  ? "This flow will produce \(runs) BenchmarkSession\(runs == 1 ? "" : "s")"
+                  : "Add a Run Benchmark step (optionally inside Repeat or For Each) to make this flow produce sessions")
             Button("Discard") { editor.discard() }
                 .disabled(!editor.isDirty)
             Button("Save") { editor.save() }
@@ -112,11 +129,26 @@ struct FlowEditorView: View {
             .buttonStyle(.borderedProminent)
             .tint(.green)
             .keyboardShortcut("r", modifiers: .command)
-            .disabled(editor.steps.isEmpty)
-            .help(editor.isDirty ? "Save changes before running" : "Run flow")
+            .disabled(editor.steps.isEmpty || editor.steps.expectedRunCount == 0)
+            .help(runHelpText)
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
+    }
+
+    /// Tooltip + accessibility label for the Run button, reflecting
+    /// the most informative reason it's disabled (if any).
+    private var runHelpText: String {
+        if editor.steps.isEmpty {
+            return "Add at least one step to run this flow"
+        }
+        if editor.steps.expectedRunCount == 0 {
+            return "Add a Run Benchmark step (optionally inside Repeat or For Each)"
+        }
+        if editor.isDirty {
+            return "Saves and runs the flow"
+        }
+        return "Run flow"
     }
 
     /// Persist any pending edits, then kick off the executor and

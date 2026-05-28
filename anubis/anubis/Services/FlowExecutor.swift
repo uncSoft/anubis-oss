@@ -68,6 +68,17 @@ final class FlowExecutor: ObservableObject {
     @Published private(set) var completedSessionCount: Int = 0
     @Published private(set) var failedSessionCount: Int = 0
 
+    /// Total Run Benchmark invocations expected for the active flow,
+    /// snapshotted at start time. Together with attemptedRunCount this
+    /// drives the "Run X of Y" header in FlowRunView.
+    @Published private(set) var totalExpectedRuns: Int = 0
+
+    /// Number of runBenchmark steps started so far (counts before the
+    /// stream begins, so the header advances immediately at each rep
+    /// boundary). Includes runs that subsequently fail or cancel —
+    /// matches what the user sees in the step tree.
+    @Published private(set) var attemptedRunCount: Int = 0
+
     struct LogEntry: Identifiable {
         let id = UUID()
         let timestamp: Date
@@ -109,6 +120,8 @@ final class FlowExecutor: ObservableObject {
         flowRun = nil
         completedSessionCount = 0
         failedSessionCount = 0
+        attemptedRunCount = 0
+        totalExpectedRuns = flow.steps.expectedRunCount
 
         initializeProgress(steps: flow.steps)
 
@@ -335,7 +348,8 @@ final class FlowExecutor: ObservableObject {
             try session.insert(db)
         }
 
-        await record(.info, "Run start: \(model)")
+        attemptedRunCount += 1
+        await record(.info, "Run start (\(attemptedRunCount)/\(totalExpectedRuns)): \(model)")
 
         let request = InferenceRequest(
             model: model,

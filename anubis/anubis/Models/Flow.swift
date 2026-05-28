@@ -112,6 +112,23 @@ indirect enum FlowStepKind: Codable, Hashable {
 // MARK: - FlowStepKind UI helpers
 
 extension FlowStepKind {
+    /// Multiplier this step contributes to the parent's run count.
+    /// See `Array<FlowStep>.expectedRunCount` for semantics.
+    var expectedRunCount: Int {
+        switch self {
+        case .runBenchmark:
+            return 1
+        case .repeatN(let count, let body):
+            return max(0, count) * body.expectedRunCount
+        case .forEachModel(let values, let body):
+            return values.count * body.expectedRunCount
+        case .forEachPrompt(let values, let body):
+            return values.count * body.expectedRunCount
+        default:
+            return 0
+        }
+    }
+
     /// Whether this step has a child body (for nesting in the editor).
     var isContainer: Bool {
         switch self {
@@ -369,6 +386,22 @@ extension Array where Element == FlowStep {
             }
         }
         return nil
+    }
+
+    /// Sum of `runBenchmark` invocations a full execution would
+    /// produce, multiplied through container cardinalities. Empty
+    /// containers contribute zero — running an empty repeat or an
+    /// empty for-each is a no-op at runtime. Used by the editor's
+    /// "N runs" chip and the run sheet's "X of Y" counter.
+    ///
+    /// Container semantics:
+    /// - `repeatN(count, body)` → `count * expectedRunCount(body)`
+    /// - `forEachModel(models, body)` → `models.count * expectedRunCount(body)`
+    /// - `forEachPrompt(prompts, body)` → `prompts.count * expectedRunCount(body)`
+    /// - `runBenchmark` → 1
+    /// - everything else → 0
+    var expectedRunCount: Int {
+        reduce(0) { $0 + $1.kind.expectedRunCount }
     }
 
     /// Most-recent `setBackend` step in document order at or before

@@ -63,6 +63,12 @@ struct FlowRunView: View {
                 HStack(spacing: 6) {
                     statePill
                     Text(elapsedText).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    if executor.totalExpectedRuns > 0 {
+                        Text("·").foregroundStyle(.secondary)
+                        Text(runProgressText)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                     Text("·").foregroundStyle(.secondary)
                     Text("\(executor.completedSessionCount) done").font(.caption).foregroundStyle(.secondary)
                     if executor.failedSessionCount > 0 {
@@ -72,6 +78,9 @@ struct FlowRunView: View {
                 }
             }
             Spacer()
+            if executor.totalExpectedRuns > 0 {
+                runProgressBar
+            }
         }
         .padding(Spacing.md)
     }
@@ -104,6 +113,29 @@ struct FlowRunView: View {
         let m = totalSeconds / 60
         let s = totalSeconds % 60
         return String(format: "%d:%02d", m, s)
+    }
+
+    /// "Run 4 of 30" style counter. Clamps so the header doesn't read
+    /// "5 of 4" if the executor over-counts (e.g. a failed run mid-rep).
+    private var runProgressText: String {
+        let total = executor.totalExpectedRuns
+        let current = min(executor.attemptedRunCount, total)
+        return "Run \(current) of \(total)"
+    }
+
+    /// Slim progress bar mirroring runProgressText, pinned to the
+    /// header's trailing edge.
+    private var runProgressBar: some View {
+        let total = max(1, executor.totalExpectedRuns)
+        let done = min(executor.completedSessionCount, total)
+        return VStack(alignment: .trailing, spacing: 2) {
+            ProgressView(value: Double(done), total: Double(total))
+                .progressViewStyle(.linear)
+                .frame(width: 140)
+            Text("\(done) / \(total) complete")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Step tree
