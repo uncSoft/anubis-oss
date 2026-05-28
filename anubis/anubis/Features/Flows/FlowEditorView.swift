@@ -382,32 +382,39 @@ struct FlowDropZone: View {
 
     @State private var isTargeted: Bool = false
 
+    /// Vertical layout footprint claimed for each drop slot. The
+    /// visible line stays thin (2-4pt) but this taller transparent
+    /// container is what actually receives the drop, so users don't
+    /// have to land their cursor on a single-pixel band.
+    private let hitHeight: CGFloat = 14
+
     var body: some View {
-        Capsule()
-            .fill(isTargeted ? Color.accentColor : Color.clear)
-            .frame(height: isTargeted ? 4 : 3)
-            .padding(.horizontal, Spacing.xs)
-            .contentShape(Rectangle().inset(by: -4)) // generous hit area
-            .dropDestination(for: FlowDragPayload.self) { payloads, location in
-                print("[DragDrop] DropZone action fired — path=\(Array(targetPath)) payloadCount=\(payloads.count) location=\(location)")
-                guard let payload = payloads.first else {
-                    print("[DragDrop]   no payloads — drop refused")
-                    return false
-                }
-                print("[DragDrop]   payload.source=\(payload.source)")
+        // Transparent layout container claims the full hit area; the
+        // visible capsule rides on top as an overlay with hit-testing
+        // disabled. Separating visual from hit lets us tune each
+        // independently — narrow line, generous catch area.
+        Color.clear
+            .frame(height: hitHeight)
+            .contentShape(Rectangle())
+            .overlay(
+                Capsule()
+                    .fill(isTargeted ? Color.accentColor : Color.clear)
+                    .frame(height: isTargeted ? 4 : 2)
+                    .padding(.horizontal, Spacing.xs)
+                    .allowsHitTesting(false)
+            )
+            .dropDestination(for: FlowDragPayload.self) { payloads, _ in
+                guard let payload = payloads.first else { return false }
                 withAnimation(stepEditAnimation) {
                     switch payload.source {
                     case .newStep(let kind):
-                        print("[DragDrop]   inserting new \(kind.displayName) at \(Array(targetPath))")
                         editor.insertNewStep(kind: kind, at: targetPath)
                     case .existingStep(let id):
-                        print("[DragDrop]   moving existing \(id) to \(Array(targetPath))")
                         editor.moveStep(id: id, to: targetPath)
                     }
                 }
                 return true
             } isTargeted: { hovering in
-                print("[DragDrop] DropZone isTargeted=\(hovering) path=\(Array(targetPath))")
                 withAnimation(.easeInOut(duration: 0.10)) {
                     isTargeted = hovering
                 }
@@ -472,7 +479,10 @@ private struct FlowStepListLevel: View {
     let warnings: [UUID: [FlowWarning]]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Spacing.xs) {
+        // spacing: 0 — the 14pt-tall FlowDropZones between rows are
+        // already providing the visual rhythm. Adding Spacing.xs on
+        // top would double-space the list.
+        VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(steps.enumerated()), id: \.element.id) { idx, step in
                 let path: FlowStepPath = parentPath + [idx]
 
@@ -489,7 +499,7 @@ private struct FlowStepListLevel: View {
                 if step.kind.isContainer, let children = step.kind.children {
                     // Nested body — indented, with its own children list +
                     // a drop zone for "append inside" when the body's empty.
-                    VStack(alignment: .leading, spacing: Spacing.xs) {
+                    VStack(alignment: .leading, spacing: 0) {
                         if children.isEmpty {
                             // Empty container: a single drop zone takes
                             // the place of the prior "click a palette
@@ -558,28 +568,20 @@ private struct FlowContainerEmptyDropZone: View {
                         .fill(isTargeted ? Color.accentColor.opacity(0.10) : Color.clear)
                 )
         )
-        .dropDestination(for: FlowDragPayload.self) { payloads, location in
-            print("[DragDrop] EmptyContainerDrop action fired — container=\(Array(containerPath)) payloadCount=\(payloads.count) location=\(location)")
-            guard let payload = payloads.first else {
-                print("[DragDrop]   no payloads — drop refused")
-                return false
-            }
-            print("[DragDrop]   payload.source=\(payload.source)")
+        .dropDestination(for: FlowDragPayload.self) { payloads, _ in
+            guard let payload = payloads.first else { return false }
             // Drop into an empty body means insert at index 0 of that body.
             let target = containerPath + [0]
             withAnimation(stepEditAnimation) {
                 switch payload.source {
                 case .newStep(let kind):
-                    print("[DragDrop]   inserting new \(kind.displayName) at \(Array(target))")
                     editor.insertNewStep(kind: kind, at: target)
                 case .existingStep(let id):
-                    print("[DragDrop]   moving existing \(id) to \(Array(target))")
                     editor.moveStep(id: id, to: target)
                 }
             }
             return true
         } isTargeted: { hovering in
-            print("[DragDrop] EmptyContainerDrop isTargeted=\(hovering) container=\(Array(containerPath))")
             withAnimation(.easeInOut(duration: 0.10)) {
                 isTargeted = hovering
             }
