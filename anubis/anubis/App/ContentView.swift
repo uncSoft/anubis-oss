@@ -397,6 +397,12 @@ struct DetailView: View {
                     databaseManager: appState.databaseManager
                 )
                 .navigationTitle("Arena")
+            case .flows:
+                FlowsView(
+                    inferenceService: appState.inferenceService,
+                    databaseManager: appState.databaseManager
+                )
+                .navigationTitle("Flows")
             case .monitor:
                 MonitorView(metricsService: appState.metricsService)
                     .navigationTitle("Monitor")

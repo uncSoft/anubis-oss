@@ -36,6 +36,9 @@ enum Log {
 
     /// Logger for vault operations
     static let vault = Logger(subsystem: "com.uncsoft.anubis", category: "vault")
+
+    /// Logger for Flow Builder operations
+    static let flows = Logger(subsystem: "com.uncsoft.anubis", category: "flows")
 }
 
 // MARK: - Convenience Extensions

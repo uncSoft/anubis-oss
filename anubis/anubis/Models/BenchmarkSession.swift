@@ -66,6 +66,12 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     // logged before the run-group feature.
     var runGroupId: Int64?
 
+    // v10: optional foreign key linking this session to a FlowRun (the
+    // Flow Builder's execution record). NULL for ad-hoc runs originated
+    // from the Benchmark tab. Set by FlowExecutor when a runBenchmark
+    // step fires inside a flow.
+    var flowRunId: Int64?
+
     enum CodingKeys: String, CodingKey, ColumnExpression {
         case id
         case modelId = "model_id"
@@ -102,6 +108,7 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         case reasoningTokens = "reasoning_tokens"
         case reasoningDuration = "reasoning_duration"
         case runGroupId = "run_group_id"
+        case flowRunId = "flow_run_id"
     }
 
     /// Create a new benchmark session
@@ -148,6 +155,7 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         self.reasoningTokens = nil
         self.reasoningDuration = nil
         self.runGroupId = nil
+        self.flowRunId = nil
 
         // Snapshot chip info as JSON
         if let data = try? JSONEncoder().encode(ChipInfo.current),

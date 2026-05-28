@@ -445,6 +445,66 @@ final class DatabaseManager {
             }
         }
 
+        // Migration v10: Flow Builder — saved drag-and-drop test
+        // sequences. Each Flow holds its step tree as JSON in
+        // steps_json (heavily nested + reordered constantly; normalized
+        // rows buy us nothing here). Each *execution* of a Flow is a
+        // FlowRun, snapshotting the flow name and steps at start time
+        // so history survives later edits/deletes of the parent Flow.
+        // Every BenchmarkSession produced during a flow run is tagged
+        // with flow_run_id (and the same on benchmark_run_group for
+        // group-level queries), making the Flow Report a simple
+        // filtered fetch.
+        migrator.registerMigration("v10") { db in
+            try db.create(table: "flow") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("name", .text).notNull()
+                t.column("notes", .text)
+                t.column("steps_json", .text).notNull().defaults(to: "[]")
+                t.column("created_at", .datetime).notNull()
+                t.column("updated_at", .datetime).notNull()
+            }
+
+            try db.create(table: "flow_run") { t in
+                t.autoIncrementedPrimaryKey("id")
+                // SET NULL on parent delete: keep the run + its sessions
+                // queryable in history even if the user deletes the Flow.
+                t.column("flow_id", .integer)
+                    .references("flow", onDelete: .setNull)
+                t.column("flow_name_snapshot", .text).notNull()
+                t.column("steps_json_snapshot", .text).notNull()
+                t.column("started_at", .datetime).notNull()
+                t.column("ended_at", .datetime)
+                t.column("status", .text).notNull().defaults(to: "running")
+                t.column("failure_message", .text)
+            }
+
+            try db.alter(table: "benchmark_session") { t in
+                t.add(column: "flow_run_id", .integer)
+                    .references("flow_run", onDelete: .setNull)
+            }
+            try db.alter(table: "benchmark_run_group") { t in
+                t.add(column: "flow_run_id", .integer)
+                    .references("flow_run", onDelete: .setNull)
+            }
+
+            try db.create(
+                index: "idx_flow_run_flow",
+                on: "flow_run",
+                columns: ["flow_id"]
+            )
+            try db.create(
+                index: "idx_benchmark_session_flow_run",
+                on: "benchmark_session",
+                columns: ["flow_run_id"]
+            )
+            try db.create(
+                index: "idx_benchmark_run_group_flow_run",
+                on: "benchmark_run_group",
+                columns: ["flow_run_id"]
+            )
+        }
+
         try migrator.migrate(queue)
     }
 

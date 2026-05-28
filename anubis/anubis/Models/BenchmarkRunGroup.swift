@@ -104,6 +104,11 @@ struct BenchmarkRunGroup: Identifiable, Codable, Hashable, FetchableRecord, Muta
     var ciLowGpuPowerWatts: Double?
     var ciHighGpuPowerWatts: Double?
 
+    // v10: optional foreign key to the FlowRun that produced this
+    // group, when N-repetitions came from a `repeatN` step inside a
+    // flow. NULL for groups created by the Benchmark tab.
+    var flowRunId: Int64?
+
     enum CodingKeys: String, CodingKey, ColumnExpression {
         case id
         case createdAt = "created_at"
@@ -147,6 +152,7 @@ struct BenchmarkRunGroup: Identifiable, Codable, Hashable, FetchableRecord, Muta
         case stdevGpuPowerWatts = "stdev_gpu_power_watts"
         case ciLowGpuPowerWatts = "ci_low_gpu_power_watts"
         case ciHighGpuPowerWatts = "ci_high_gpu_power_watts"
+        case flowRunId = "flow_run_id"
     }
 
     /// Initialise a new group in `planned` state.
@@ -182,6 +188,7 @@ struct BenchmarkRunGroup: Identifiable, Codable, Hashable, FetchableRecord, Muta
         self.repetitions = repetitions
         self.completedRepetitions = 0
         self.sampleCount = nil
+        self.flowRunId = nil
     }
 
     mutating func didInsert(_ inserted: InsertionSuccess) {
