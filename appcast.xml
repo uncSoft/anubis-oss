@@ -4,6 +4,63 @@
 	<channel>
 		<title>anubis</title>
   <item>
+      <title>Version 3.7</title>
+      <pubDate>Thu, 28 May 2026 17:20:24 -0400</pubDate>
+      <sparkle:version>3.7</sparkle:version>
+      <sparkle:shortVersionString>3.7</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Version 3.7 &mdash; Flow Builder: drag-and-drop benchmark sequencer</h2>
+          <p>The headline feature this release is the <b>Flow Builder</b> &mdash; a Shortcuts-style editor where you author multi-step benchmark recipes (Set Backend &rarr; Set Model &rarr; Repeat &times; 5 &rarr; Run Benchmark &rarr; Unload), save them, share them as <code>.anubisflow</code> JSON, and play them back hands-off. Every individual run still lands in normal Run History, and the whole sequence produces a single share-ready report card.</p>
+
+          <h3>New: the Flow Builder tab</h3>
+          <ul>
+              <li><b>Three-pane editor</b>: a left <b>Palette</b> of 12 step types, a center <b>Step List</b> as a nestable tree, a right <b>Inspector</b> that swaps controls per step type.</li>
+              <li><b>Drag from the palette</b> into precise positions, or click to append. Reorder existing steps by drag, by &uarr;/&darr; chevrons, or via the inspector.</li>
+              <li><b>12 step types</b>: Set Backend / Model / Prompt / Parameters, Run Benchmark, Repeat &times; N, For Each Model, For Each Prompt, Unload Model, Reset Connection, Cool Down (fixed or thermal), Annotate.</li>
+              <li><b>Live run count</b> chip in the editor header multiplies through containers &mdash; <code>3 models &times; 2 prompts &times; 5 reps = 30 runs</code>.</li>
+              <li><b>Live lint</b>: dangling Set steps, empty For Each lists, blank entries, missing prerequisites are all caught with a yellow &#9888; on the offending row and a clickable count chip in the header.</li>
+          </ul>
+
+          <h3>For Each, explicitly</h3>
+          <ul>
+              <li><b>For Each replaces the corresponding Set</b>. Inside a <i>For Each Model</i>, the active model is whatever the iterator just picked &mdash; any prior <i>Set Model</i> is ignored for that iteration (the lint catches this).</li>
+              <li><b>Nested containers multiply</b>. Total runs = outer &times; inner &times; deeper. <i>3 models &times; 2 prompts &times; 5 reps = 30 BenchmarkSessions</i>.</li>
+          </ul>
+
+          <h3>Six built-in templates</h3>
+          <p>Sidebar <code>+</code> &rarr; <i>New from Template</i>: Quick Smoke Test, Repeated Run (5&times;), Cold vs Warm Start, Multi-Model Comparison, Q4 vs Q8 Quantization, Prompt Variants. Each is a real working flow you can edit or use as-is.</p>
+
+          <h3>Run sheet + share-ready report</h3>
+          <ul>
+              <li><b>Run sheet</b> shows live per-step progress with checkmarks, a scrollback log, a "Run X of Y" counter, the latest session's stats, and a Stop (&#8984;.) that cancels mid-run cleanly.</li>
+              <li><b>Report</b> opens to a forced-dark <b>1920&times;1080</b> card with hero, winner callout, per-model leaderboard with relative bars, per-rep tables, and a methodology footer.</li>
+              <li><b>Toggle to 1080&times;1080</b> for Instagram/X. Save as PNG @ 2&times; retina (3840&times;2160 or 2160&times;2160), copy to clipboard, or save per-model CSV.</li>
+              <li><b>Run History</b> in the Flows sidebar lists past flow runs; one click reopens the report.</li>
+          </ul>
+
+          <h3>Portable .anubisflow files</h3>
+          <p>Right-click any flow &rarr; <b>Export&hellip;</b> writes a versioned JSON file. <code>+</code> &rarr; <b>Import .anubisflow&hellip;</b> reads it back. Older clients refuse newer files instead of silently misreading them.</p>
+
+          <h3>In-app help</h3>
+          <p>The <b>?</b> button in the Flows sidebar header opens a long-form help sheet covering the editor, every step type, the two For Each rules with worked code-style examples, templates, lint, and how to read reports.</p>
+
+          <h3>Polish</h3>
+          <ul>
+              <li>Editor edits (add / reorder / delete) ease in/out with a 0.22&nbsp;s animation; drop targets light up early with a generous 14pt catch area so you don't have to land on a pixel band.</li>
+              <li>Inspector model pickers in <i>Set Model</i> and <i>For Each Model</i> are backend-aware &mdash; they filter to the backend implied by the most recent <i>Set Backend</i> step at that point in the flow.</li>
+              <li>"Clear All History" in the Run History menu, with a confirmation that spells out that the underlying BenchmarkSessions survive on the Benchmark tab.</li>
+          </ul>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.7.0/anubis-oss.zip"
+          sparkle:version="3.7"
+          sparkle:shortVersionString="3.7"
+          length="14754294"
+          type="application/octet-stream"
+          sparkle:edSignature="Nr6j4ugrNa5mLZaSaB6VOqnY2nbcw4nj2zd5RD+3kISbaQOWgA1JWo3w32+ITLcPyuL26HYd9g1XuM6BbihUAA==" />
+  </item>
+  <item>
       <title>Version 3.6</title>
       <pubDate>Mon, 25 May 2026 12:30:00 -0400</pubDate>
       <sparkle:version>3.6</sparkle:version>
