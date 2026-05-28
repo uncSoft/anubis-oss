@@ -20,6 +20,8 @@ Or download the zip directly from the [Releases page](https://github.com/uncSoft
 
 Anubis is a native macOS app for benchmarking, comparing, and managing local large language models using any OpenAI-compatible endpoint - Ollama, MLX, oMLX, LM Studio Server, OpenWebUI, Docker Models, etc. Built with SwiftUI for Apple Silicon, it provides real-time hardware telemetry correlated with full, history-saved inference performance - something no CLI tool or chat wrapper offers. Export benchmarks directly without having to screenshot, and export the raw data as .MD or .CSV from the history. You can even `OLLAMA PULL` models directly within the app.
 
+**New in 3.7:** the **Flow Builder** — drag-and-drop sequencer for multi-model / multi-prompt / N-rep benchmark runs, with share-ready 16:9 or 1:1 report cards. Build it once, run it hands-off, post the PNG.
+
 <img width="780" height="1100" alt="image" src="https://github.com/user-attachments/assets/c4b81dca-1a81-4b1e-8bbb-109a99a7e7bb" />
 
 <img width="950" height="600" alt="image" src="https://github.com/user-attachments/assets/5da02ee4-ef48-4785-9c46-1803b07d553f" />
@@ -27,6 +29,38 @@ Anubis is a native macOS app for benchmarking, comparing, and managing local lar
 ---
 
 ## What's New
+
+### Flow Builder — Drag-and-Drop Benchmark Sequencer *(New in 3.7)*
+
+Build, save, and share repeatable benchmark recipes — a Shortcuts-style editor where you sequence steps like *Set Backend → Set Model → Repeat × 5 → Run Benchmark → Unload* and play them back hands-off. Every individual run still lands in normal Run History, and the whole sequence gets a single share-ready report.
+
+<!-- TODO: drop a Flows tab screenshot here -->
+
+**Why use a flow instead of clicking Run repeatedly?**
+- Sweep multiple models or quantizations in one go (For Each Model, For Each Prompt)
+- Repeat the same config N times for honest mean ± 95% CI numbers
+- Wire up cold-vs-warm comparisons with explicit Unload Model + Cool Down steps
+- Step away — long sweeps complete unattended and produce one report
+- Save flows as `.anubisflow` JSON to share, version, or move between machines
+
+**Editor.** Three panes: a left **Palette** of step blocks, a center **Step List** rendered as a nestable tree, a right **Inspector** that swaps controls per step type. Add steps by clicking a palette block or dragging it into precise position. Reorder by drag, by ↑/↓ chevrons, or by editing the tree directly. Containers (Repeat, For Each Model, For Each Prompt) hold child steps with an indented rail.
+
+**Live lint.** As you build, Anubis flags dangling Set steps (e.g. a Set Model with no following Run Benchmark), empty For Each lists, blank entries, and Run Benchmarks that are missing required prior Sets. The header chip jumps straight to the offending step.
+
+**For Each, explicitly.** Two rules worth remembering:
+
+1. **For Each replaces the corresponding Set.** Inside a `For Each Model`, the active model is whatever the iterator just picked — any prior `Set Model` is ignored for that iteration (the lint catches this).
+2. **Nested containers multiply.** Total runs = outer × inner × deeper. `3 models × 2 prompts × 5 reps = 30 BenchmarkSessions`.
+
+**Templates.** Sidebar `+` → *New from Template* ships six starters: Quick Smoke Test, Repeated Run (5×), Cold vs Warm Start, Multi-Model Comparison, Q4 vs Q8 Quantization, Prompt Variants. Each is a real working flow; edit or use as-is.
+
+**Run sheet.** Live progress with checkmarks per step, a scrollback log, a "Run X of Y" counter, and a per-run latest-session preview. Stop (⌘.) cancels cleanly mid-run.
+
+**Reports built for sharing.** Post-run, **View Report** (⇧⌘R) opens a forced-dark, 1920×1080 card with a hero, winner callout, per-model leaderboard with relative bars, per-rep tables, and a methodology footer. Toggle to a 1080×1080 square for Instagram/X. Save as PNG @ 2× retina (3840×2160 or 2160×2160), copy to clipboard, or save the per-model CSV. Past runs live in the sidebar's **Run History** section.
+
+**Import / export.** Right-click any flow → **Export…** writes a portable `.anubisflow` JSON file. `+ → Import .anubisflow…` reads it back. Format versioned so older clients refuse newer files instead of silently misreading them.
+
+Open the in-app **Help** sheet (the `?` in the Flows sidebar header) for the full reference, including worked code-style examples of each For Each pattern.
 
 ### Run History Management + Browse Ollama Models *(New in 3.6)*
 
@@ -166,6 +200,21 @@ Side-by-side A/B model comparison with the same prompt.
 - Model manager: view loaded models and unload to free memory
 - Comparison history with voting records
 
+### Flows
+
+Drag-and-drop sequencer for repeatable, multi-step benchmark recipes.
+
+- **Shortcuts-style editor** with three panes: palette · step list · inspector. Drag a step from the palette into any slot, or click to append.
+- **12 step types**: Set Backend / Model / Prompt / Parameters, Run Benchmark, Repeat × N, For Each Model, For Each Prompt, Unload Model, Reset Connection, Cool Down (fixed or thermal), Annotate
+- **Containers nest and multiply** — `2 models × 3 prompts × 5 reps = 30 runs` shown live in the header chip
+- **Live lint** flags dangling Set steps, empty For Each lists, missing prerequisites, and other common mistakes before you run
+- **6 built-in templates**: Quick Smoke Test, Repeated Run (5×), Cold vs Warm Start, Multi-Model Comparison, Q4 vs Q8 Quantization, Prompt Variants
+- **Run sheet** with per-step progress, live log, "Run X of Y" counter, and a Stop (⌘.) that cancels cleanly
+- **Share-ready reports**: 1920×1080 (16:9) or 1080×1080 (1:1) PNG cards with leaderboard + per-rep tables + methodology footer. Save at 2× retina or copy to clipboard. CSV export of per-model rows.
+- **`.anubisflow` import / export** — versioned JSON, portable between machines
+- **Run History** sidebar lists past flow runs; one click reopens the report
+- **Help sheet** (`?` in the sidebar header) covers the editor, every step type, and For Each rules with worked examples
+
 ### System Monitor
 
 Standalone real-time hardware monitoring dashboard - no benchmark required.
@@ -214,6 +263,10 @@ Anubis checks for updates automatically via [Sparkle](https://sparkle-project.or
 ---
 
 ## Screenshots
+
+<!-- TODO: Flow Builder editor screenshot (palette + step list + inspector) -->
+
+<!-- TODO: Flow Report card (16:9) screenshot -->
 
 GPU Core detail
 <img width="1282" height="830" alt="Screenshot 2026-02-25 at 4 08 44 PM" src="https://github.com/user-attachments/assets/7cf7d6f2-bcb5-4f96-b04b-19d96df29e87" />
@@ -395,12 +448,14 @@ anubis/
 ├── Features/
 │   ├── Benchmark/          # Performance dashboard
 │   ├── Arena/              # A/B model comparison
+│   ├── Flows/              # Flow Builder: editor, executor, report, lint, templates
 │   ├── Monitor/            # System monitor, stress tests, floating HUD
+│   ├── Reports/            # Cross-run model performance table
 │   ├── Vault/              # Model management
 │   └── Settings/           # Backend config, about, help, contact
-├── Services/               # MetricsService, InferenceService, ExportService
+├── Services/               # MetricsService, InferenceService, FlowExecutor, ExportService
 ├── Integrations/           # OllamaClient, OpenAICompatibleClient, IOReportBridge, ProcessMonitor
-├── Models/                 # Data models (BenchmarkSession, ModelInfo, etc.)
+├── Models/                 # Data models (BenchmarkSession, Flow, ModelInfo, etc.)
 ├── Database/               # GRDB setup & migrations
 ├── DesignSystem/           # Theme, colors, reusable components
 ├── Demo/                   # Demo mode for App Store review
