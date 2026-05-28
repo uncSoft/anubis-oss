@@ -240,10 +240,18 @@ else
     if [[ -f "$APPCAST_PATH" ]]; then
         echo "  Appcast generated: $APPCAST_PATH"
         echo ""
-        echo "  ╔══════════════════════════════════════════════════════════╗"
-        echo "  ║  REMINDER: Upload appcast.xml to devpadapp.com/anubis/  ║"
-        echo "  ║  scp $APPCAST_PATH server:anubis/appcast.xml            ║"
-        echo "  ╚══════════════════════════════════════════════════════════╝"
+        echo "  ╔════════════════════════════════════════════════════════════════╗"
+        echo "  ║  REMINDER: publish appcast.xml via GH Pages                    ║"
+        echo "  ║                                                                ║"
+        echo "  ║    cp $APPCAST_PATH \"$REPO_ROOT/appcast.xml\""
+        echo "  ║    cd \"$REPO_ROOT\""
+        echo "  ║    git add appcast.xml && git commit -m \"appcast: $VERSION\"   ║"
+        echo "  ║    git push origin main                                        ║"
+        echo "  ║                                                                ║"
+        echo "  ║  GH Pages serves it at                                         ║"
+        echo "  ║    https://uncsoft.github.io/anubis-oss/appcast.xml            ║"
+        echo "  ║  and the devpadapp.com .htaccess 302-redirects legacy clients. ║"
+        echo "  ╚════════════════════════════════════════════════════════════════╝"
     else
         echo "  ⚠ generate_appcast did not produce appcast.xml"
     fi
@@ -260,14 +268,14 @@ else
 
     cd "$REPO_ROOT"
 
+    # Minimal stub — flesh out the body on GitHub after publish. This
+    # avoids the script's notes drifting out of date every release.
+    # Use the README's What's New section as source material.
     NOTES=$(cat <<'EOF'
 ## Anubis OSS $TAG
 
-### What's New in 2.1
-- **Community Leaderboard** — Upload benchmark results and compare your Mac against other Apple Silicon machines at [devpadapp.com/leaderboard.html](https://devpadapp.com/leaderboard.html)
-- One-click upload from the benchmark toolbar after a completed run
-- Filter leaderboard by chip or model, with expandable detail rows for full run data
-- Privacy-first: no accounts, no response text — just metrics and a display name
+> ✏️  Release notes pending — edit this on GitHub after the release publishes.
+> Source the body from the README's *What's New in $TAG* section.
 
 ### Download
 Download `anubis-oss.zip`, unzip, and drag to Applications. The app is signed and notarized.
