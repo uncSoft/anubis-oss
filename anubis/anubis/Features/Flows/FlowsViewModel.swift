@@ -77,6 +77,61 @@ final class FlowsViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Import / Export
+
+    /// Write `flow` to `url` as a `.anubisflow` JSON document. Throws
+    /// on encoding or write failure (surfaced by the caller).
+    func exportFlow(_ flow: Flow, to url: URL) throws {
+        let doc = AnubisFlowDocument(from: flow)
+        let data = try doc.encodeJSON()
+        try data.write(to: url, options: .atomic)
+    }
+
+    /// Read a `.anubisflow` file, insert a fresh Flow row from it, and
+    /// select the import in the sidebar. Sets `lastError` on failure
+    /// and returns nil so the caller doesn't have to duplicate that
+    /// wiring.
+    @discardableResult
+    func importFlow(from url: URL) -> Flow? {
+        do {
+            let data = try Data(contentsOf: url)
+            let doc: AnubisFlowDocument
+            do {
+                doc = try AnubisFlowDocument.decode(from: data)
+            } catch let err as FlowImportError {
+                throw err
+            } catch {
+                // Wrap raw decode errors so the user gets a readable
+                // sentence instead of a Swift JSON error string.
+                throw FlowImportError.decodeFailed(reason: error.localizedDescription)
+            }
+
+            var flow = doc.makeFlow()
+            try databaseManager.queue.write { db in
+                try flow.insert(db)
+            }
+            reload()
+            selectedFlowID = flow.id
+            return flow
+        } catch {
+            log.error("Failed to import flow: \(error.localizedDescription)")
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// Sanitised default filename for a flow being exported. Mirrors
+    /// the slug style used by the report exporter so files from the
+    /// same flow group lexicographically.
+    func defaultExportFilename(for flow: Flow) -> String {
+        let slug = flow.name
+            .lowercased()
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+            .replacingOccurrences(of: " ", with: "_")
+        return "\(slug).anubisflow"
+    }
+
     /// Fetch a FlowRun + its sessions and assemble a report payload.
     /// Returns nil if the run doesn't exist or the DB read fails.
     func reportData(for run: FlowRun) -> FlowReportData? {
@@ -120,6 +175,38 @@ final class FlowsViewModel: ObservableObject {
         } catch {
             log.error("Failed to rename flow: \(error.localizedDescription)")
             lastError = "Failed to rename flow: \(error.localizedDescription)"
+        }
+    }
+
+    /// Delete a single FlowRun from history. The benchmark sessions
+    /// it spawned survive — `benchmark_session.flow_run_id` is the
+    /// only thing that gets nulled by the FK rule, so sessions stay
+    /// queryable from the Benchmark tab's Run History as ad-hoc runs.
+    func deleteRun(_ run: FlowRun) {
+        guard let id = run.id else { return }
+        do {
+            _ = try databaseManager.queue.write { db in
+                try FlowRun.deleteOne(db, key: id)
+            }
+            reload()
+        } catch {
+            log.error("Failed to delete run: \(error.localizedDescription)")
+            lastError = "Failed to delete run: \(error.localizedDescription)"
+        }
+    }
+
+    /// Drop every FlowRun row. Same survival policy as deleteRun.
+    /// Caller is responsible for getting confirmation first — this
+    /// method commits unconditionally.
+    func clearAllRuns() {
+        do {
+            _ = try databaseManager.queue.write { db in
+                try FlowRun.deleteAll(db)
+            }
+            reload()
+        } catch {
+            log.error("Failed to clear run history: \(error.localizedDescription)")
+            lastError = "Failed to clear run history: \(error.localizedDescription)"
         }
     }
 

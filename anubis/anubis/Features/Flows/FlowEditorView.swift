@@ -18,6 +18,11 @@
 
 import SwiftUI
 
+/// Shared animation for any structural change to the step tree
+/// (reorder / add / delete). Subtle enough that bulk edits aren't
+/// punishing, fluid enough that the user can track which row moved.
+let stepEditAnimation: Animation = .easeInOut(duration: 0.22)
+
 struct FlowEditorView: View {
     @ObservedObject var parent: FlowsViewModel
     @ObservedObject var inferenceService: InferenceService
@@ -81,8 +86,26 @@ struct FlowEditorView: View {
                 databaseManager: databaseManager
             ) {
                 // Close button — only enabled once the executor leaves
-                // .running, so this is safe.
+                // .running, so this is safe. Also tell the parent
+                // viewmodel to refetch — the executor inserts a new
+                // FlowRun row directly via the DB queue, bypassing
+                // every FlowsViewModel mutator, so without this hook
+                // the sidebar's Run History silently stays stale
+                // (and stays empty after a Clear All History).
                 isRunning = false
+                parent.reload()
+            }
+        }
+        // Pick up the FlowRun row as soon as the executor inserts it
+        // (state → .running) and again when it finalizes (status icon
+        // change in the sidebar). Cheap; the reload is a single
+        // ordered fetch.
+        .onChange(of: executor.state) { _, newState in
+            switch newState {
+            case .running, .completed, .failed, .cancelled:
+                parent.reload()
+            case .idle:
+                break
             }
         }
     }
@@ -233,15 +256,18 @@ struct FlowEditorView: View {
     // MARK: - Add target resolution
 
     /// If the user has a container selected, add inside it. Otherwise
-    /// append at the root. Matches Shortcuts.app behaviour.
+    /// append at the root. Matches Shortcuts.app behaviour. Wrapped
+    /// in withAnimation so the new row eases in rather than popping.
     private func addStep(kind: FlowStepKind) {
-        if let selID = editor.selectedStepID,
-           let path = editor.path(forID: selID),
-           let selectedStep = editor.steps.step(at: path),
-           selectedStep.kind.isContainer {
-            editor.appendInside(containerPath: path, kind: kind)
-        } else {
-            editor.appendToRoot(kind: kind)
+        withAnimation(stepEditAnimation) {
+            if let selID = editor.selectedStepID,
+               let path = editor.path(forID: selID),
+               let selectedStep = editor.steps.step(at: path),
+               selectedStep.kind.isContainer {
+                editor.appendInside(containerPath: path, kind: kind)
+            } else {
+                editor.appendToRoot(kind: kind)
+            }
         }
     }
 }
@@ -464,7 +490,9 @@ private struct FlowStepRow: View {
             // would be nicer but stays-visible keeps macOS native.
             HStack(spacing: 2) {
                 Button {
-                    editor.moveSibling(at: path, by: -1)
+                    withAnimation(stepEditAnimation) {
+                        editor.moveSibling(at: path, by: -1)
+                    }
                 } label: {
                     Image(systemName: "chevron.up")
                 }
@@ -473,7 +501,9 @@ private struct FlowStepRow: View {
                 .help("Move Up")
 
                 Button {
-                    editor.moveSibling(at: path, by: +1)
+                    withAnimation(stepEditAnimation) {
+                        editor.moveSibling(at: path, by: +1)
+                    }
                 } label: {
                     Image(systemName: "chevron.down")
                 }
@@ -482,7 +512,9 @@ private struct FlowStepRow: View {
                 .help("Move Down")
 
                 Button {
-                    editor.delete(at: path)
+                    withAnimation(stepEditAnimation) {
+                        editor.delete(at: path)
+                    }
                 } label: {
                     Image(systemName: "trash")
                 }
@@ -508,7 +540,9 @@ private struct FlowStepRow: View {
         }
         .contextMenu {
             Button("Delete", role: .destructive) {
-                editor.delete(at: path)
+                withAnimation(stepEditAnimation) {
+                    editor.delete(at: path)
+                }
             }
         }
     }

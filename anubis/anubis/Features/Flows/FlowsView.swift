@@ -10,6 +10,8 @@
 //
 
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 struct FlowsView: View {
     @ObservedObject var inferenceService: InferenceService
@@ -29,6 +31,9 @@ struct FlowsView: View {
     /// When non-nil, opens FlowReportView for that historical run.
     @State private var historyReport: FlowReportData?
 
+    /// Drives the "Clear All Run History?" confirmation alert.
+    @State private var confirmClearHistory: Bool = false
+
     init(inferenceService: InferenceService, databaseManager: DatabaseManager) {
         self.inferenceService = inferenceService
         self.databaseManager = databaseManager
@@ -43,6 +48,16 @@ struct FlowsView: View {
                 .frame(minWidth: 400)
         }
         .onAppear { viewModel.reload() }
+        .alert("Clear all run history?", isPresented: $confirmClearHistory) {
+            Button("Cancel", role: .cancel) { }
+            Button("Clear", role: .destructive) {
+                viewModel.clearAllRuns()
+            }
+        } message: {
+            // Spelled out because users may expect benchmark sessions
+            // to be deleted too — they aren't.
+            Text("This removes every flow run from the sidebar. The benchmark sessions those runs produced stay in the Benchmark tab's Run History.")
+        }
         .sheet(item: $historyReport) { data in
             FlowReportView(data: data) {
                 historyReport = nil
@@ -92,6 +107,32 @@ struct FlowsView: View {
         newFlowDraft = "Flow \(n)"
     }
 
+    /// Save the given flow to a `.anubisflow` file via the standard
+    /// macOS save panel. Errors surface through viewModel.lastError.
+    private func presentExportPanel(for flow: Flow) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.anubisFlow]
+        panel.nameFieldStringValue = viewModel.defaultExportFilename(for: flow)
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try viewModel.exportFlow(flow, to: url)
+        } catch {
+            viewModel.lastError = "Export failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Pick a `.anubisflow` (or any JSON) file and import it as a new
+    /// flow. Selects the import on success.
+    private func presentImportPanel() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.anubisFlow, .json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        _ = viewModel.importFlow(from: url)
+    }
+
     // MARK: - Sidebar
 
     private var sidebar: some View {
@@ -100,13 +141,18 @@ struct FlowsView: View {
                 Text("My Flows")
                     .font(.headline)
                 Spacer()
-                Button {
-                    presentNewFlowSheet()
+                // Menu instead of bare + so the sidebar header carries
+                // both create and import without a second button.
+                Menu {
+                    Button("New Flow…") { presentNewFlowSheet() }
+                    Button("Import .anubisflow…") { presentImportPanel() }
                 } label: {
                     Image(systemName: "plus")
                 }
-                .buttonStyle(.borderless)
-                .help("New Flow")
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("New Flow or Import")
             }
             .padding(.horizontal, Spacing.md)
             .padding(.vertical, Spacing.sm)
@@ -127,6 +173,9 @@ struct FlowsView: View {
                                             renameDraft = flow.name
                                             renameTarget = flow
                                         }
+                                        Button("Export…") {
+                                            presentExportPanel(for: flow)
+                                        }
                                         Divider()
                                         Button("Delete", role: .destructive) {
                                             viewModel.deleteFlow(flow)
@@ -137,7 +186,7 @@ struct FlowsView: View {
                     }
 
                     if !viewModel.recentRuns.isEmpty {
-                        Section("Run History") {
+                        Section {
                             ForEach(viewModel.recentRuns) { run in
                                 Button {
                                     historyReport = viewModel.reportData(for: run)
@@ -145,6 +194,34 @@ struct FlowsView: View {
                                     FlowRunHistoryRow(run: run)
                                 }
                                 .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button("Open Report") {
+                                        historyReport = viewModel.reportData(for: run)
+                                    }
+                                    Divider()
+                                    Button("Delete", role: .destructive) {
+                                        viewModel.deleteRun(run)
+                                    }
+                                }
+                            }
+                        } header: {
+                            HStack {
+                                Text("Run History")
+                                Spacer()
+                                Menu {
+                                    Button(role: .destructive) {
+                                        confirmClearHistory = true
+                                    } label: {
+                                        Label("Clear All History…", systemImage: "trash")
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis.circle")
+                                        .imageScale(.small)
+                                }
+                                .menuStyle(.borderlessButton)
+                                .menuIndicator(.hidden)
+                                .fixedSize()
+                                .help("Run history actions")
                             }
                         }
                     }
@@ -171,9 +248,13 @@ struct FlowsView: View {
             Text("No flows yet")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Button("New Flow") { presentNewFlowSheet() }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+            HStack(spacing: Spacing.xs) {
+                Button("New Flow") { presentNewFlowSheet() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                Button("Import…") { presentImportPanel() }
+                    .controlSize(.small)
+            }
             Spacer()
         }
         .frame(maxWidth: .infinity)
