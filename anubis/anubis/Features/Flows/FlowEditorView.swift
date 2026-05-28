@@ -21,15 +21,30 @@ import SwiftUI
 struct FlowEditorView: View {
     @ObservedObject var parent: FlowsViewModel
     @ObservedObject var inferenceService: InferenceService
+    let databaseManager: DatabaseManager
     let flow: Flow
 
     @StateObject private var editor: FlowEditorViewModel
+    @StateObject private var executor: FlowExecutor
 
-    init(flow: Flow, parent: FlowsViewModel, inferenceService: InferenceService) {
+    /// Toggles the FlowRunView modal.
+    @State private var isRunning: Bool = false
+
+    init(
+        flow: Flow,
+        parent: FlowsViewModel,
+        inferenceService: InferenceService,
+        databaseManager: DatabaseManager
+    ) {
         self.flow = flow
         self.parent = parent
         self.inferenceService = inferenceService
+        self.databaseManager = databaseManager
         _editor = StateObject(wrappedValue: FlowEditorViewModel(flow: flow, parent: parent))
+        _executor = StateObject(wrappedValue: FlowExecutor(
+            inferenceService: inferenceService,
+            databaseManager: databaseManager
+        ))
     }
 
     var body: some View {
@@ -56,6 +71,13 @@ struct FlowEditorView: View {
                 .frame(minWidth: 340, idealWidth: 440, maxWidth: 600)
             }
         }
+        .sheet(isPresented: $isRunning) {
+            FlowRunView(executor: executor, flow: editor.flow) {
+                // Close button — only enabled once the executor leaves
+                // .running, so this is safe.
+                isRunning = false
+            }
+        }
     }
 
     // MARK: - Header
@@ -80,12 +102,30 @@ struct FlowEditorView: View {
             Button("Discard") { editor.discard() }
                 .disabled(!editor.isDirty)
             Button("Save") { editor.save() }
-                .buttonStyle(.borderedProminent)
                 .keyboardShortcut("s", modifiers: .command)
                 .disabled(!editor.isDirty)
+            Button {
+                runFlow()
+            } label: {
+                Label("Run", systemImage: "play.fill")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            .keyboardShortcut("r", modifiers: .command)
+            .disabled(editor.steps.isEmpty)
+            .help(editor.isDirty ? "Save changes before running" : "Run flow")
         }
         .padding(.horizontal, Spacing.md)
         .padding(.vertical, Spacing.sm)
+    }
+
+    /// Persist any pending edits, then kick off the executor and
+    /// surface the run sheet. Auto-save means the FlowRun snapshot
+    /// always reflects what the user just saw in the editor.
+    private func runFlow() {
+        if editor.isDirty { editor.save() }
+        executor.start(flow: editor.flow)
+        isRunning = true
     }
 
     // MARK: - Add target resolution

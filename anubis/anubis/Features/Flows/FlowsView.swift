@@ -166,7 +166,8 @@ struct FlowsView: View {
                 FlowEditorView(
                     flow: flow,
                     parent: viewModel,
-                    inferenceService: inferenceService
+                    inferenceService: inferenceService,
+                    databaseManager: databaseManager
                 )
                 // Re-mount the editor (and reset its in-memory state)
                 // whenever the selected flow changes.
