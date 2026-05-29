@@ -20,6 +20,14 @@ Anubis is a native macOS app for benchmarking, comparing, and managing local lar
 
 <img width="1462" alt="Screenshot 2026-05-28 at 4 21 34 PM" src="https://github.com/user-attachments/assets/4ddea3ba-a46c-47ff-a90e-675bfd5164ef" />
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=SGgSmVn-IlE">
+    <img width="500" alt="anubis_demo_thumb" src="https://github.com/user-attachments/assets/ab8d20ef-3dd3-4a13-b698-1a089e2da636" />
+  </a>
+  <br/>
+  <a href="https://www.youtube.com/watch?v=SGgSmVn-IlE"><strong>Watch Demo</strong></a>
+</p>
+
 ___
 
 **New in 3.7:** the **Flow Builder** — drag-and-drop sequencer for multi-model / multi-prompt / N-rep benchmark runs, with share-ready 16:9 or 1:1 report cards. Build it once, run it hands-off, post the PNG.
