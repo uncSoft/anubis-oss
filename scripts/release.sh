@@ -65,8 +65,11 @@ echo "→ Setting version to $XCODE_VERSION in pbxproj..."
 
 # Update both MARKETING_VERSION and CURRENT_PROJECT_VERSION for the anubis target
 # (lines with values like 2.1 or 2.2 — only in target build configs, not test targets which use 1)
-sed -i '' -E "s/(MARKETING_VERSION = )[0-9]+\.[0-9]+;/\1${XCODE_VERSION};/g" "$PBXPROJ"
-sed -i '' -E "s/(CURRENT_PROJECT_VERSION = )[0-9]+\.[0-9]+;/\1${XCODE_VERSION};/g" "$PBXPROJ"
+# Match X.Y or X.Y.Z (the patch group repeats) so a 3.8.1 -> 3.8.2 bump works
+# too — the old [0-9]+\.[0-9]+ only matched two-component versions and silently
+# no-op'd once the project was already on a patch version.
+sed -i '' -E "s/(MARKETING_VERSION = )[0-9]+(\.[0-9]+)+;/\1${XCODE_VERSION};/g" "$PBXPROJ"
+sed -i '' -E "s/(CURRENT_PROJECT_VERSION = )[0-9]+(\.[0-9]+)+;/\1${XCODE_VERSION};/g" "$PBXPROJ"
 
 # Verify
 FOUND_MV=$(grep -c "MARKETING_VERSION = ${XCODE_VERSION};" "$PBXPROJ")

@@ -1,6 +1,6 @@
 cask "anubis-oss" do
-  version "3.8.1"
-  sha256 "8f1acc885e6ddf6377480c065b0cc4c13c96ffe4b046d87c42cf0122f0bf4390"
+  version "3.7.0"
+  sha256 "469a46c832ffad07dd15445ee39e82bf2513bdf433ebfe075c580b3c31a60823"
 
   # Tag is v#{version} (e.g. v3.6.0), but the released zip is named
   # with the major.minor only (Anubis-OSS-3.6.zip). version.major_minor
