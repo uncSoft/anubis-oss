@@ -32,9 +32,6 @@ struct FlowEditorView: View {
     @StateObject private var editor: FlowEditorViewModel
     @StateObject private var executor: FlowExecutor
 
-    /// Toggles the FlowRunView modal.
-    @State private var isRunning: Bool = false
-
     /// Drives the warnings popover anchored to the header chip.
     @State private var showingWarningsPopover: Bool = false
 
@@ -77,23 +74,6 @@ struct FlowEditorView: View {
                     inferenceService: inferenceService
                 )
                 .frame(minWidth: 340, idealWidth: 440, maxWidth: 600)
-            }
-        }
-        .sheet(isPresented: $isRunning) {
-            FlowRunView(
-                executor: executor,
-                flow: editor.flow,
-                databaseManager: databaseManager
-            ) {
-                // Close button — only enabled once the executor leaves
-                // .running, so this is safe. Also tell the parent
-                // viewmodel to refetch — the executor inserts a new
-                // FlowRun row directly via the DB queue, bypassing
-                // every FlowsViewModel mutator, so without this hook
-                // the sidebar's Run History silently stays stale
-                // (and stays empty after a Clear All History).
-                isRunning = false
-                parent.reload()
             }
         }
         // Pick up the FlowRun row as soon as the executor inserts it
@@ -244,13 +224,22 @@ struct FlowEditorView: View {
         return "Run flow"
     }
 
-    /// Persist any pending edits, then kick off the executor and
-    /// surface the run sheet. Auto-save means the FlowRun snapshot
-    /// always reflects what the user just saw in the editor.
+    /// Persist any pending edits, then kick off the executor and open the
+    /// run-status window. Auto-save means the FlowRun snapshot always
+    /// reflects what the user just saw in the editor.
     private func runFlow() {
         if editor.isDirty { editor.save() }
         executor.start(flow: editor.flow)
-        isRunning = true
+        FlowRunWindowController.shared.present(
+            executor: executor,
+            flow: editor.flow,
+            databaseManager: databaseManager
+        ) {
+            // The executor inserts the FlowRun row directly via the DB
+            // queue, bypassing FlowsViewModel — reload so the sidebar's
+            // Run History reflects it.
+            parent.reload()
+        }
     }
 
     // MARK: - Add target resolution

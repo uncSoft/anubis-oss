@@ -29,7 +29,6 @@ struct FlowsView: View {
     @State private var newFlowDraft: String?
 
     /// When non-nil, opens FlowReportView for that historical run.
-    @State private var historyReport: FlowReportData?
 
     /// Drives the "Clear All Run History?" confirmation alert.
     @State private var confirmClearHistory: Bool = false
@@ -63,15 +62,6 @@ struct FlowsView: View {
             // Spelled out because users may expect benchmark sessions
             // to be deleted too — they aren't.
             Text("This removes every flow run from the sidebar. The benchmark sessions those runs produced stay in the Benchmark tab's Run History.")
-        }
-        .sheet(item: $historyReport) { data in
-            FlowReportView(data: data) {
-                historyReport = nil
-            }
-            .frame(
-                minWidth: 1280, idealWidth: 1600,
-                minHeight: 800, idealHeight: 960
-            )
         }
         .sheet(item: $renameTarget) { flow in
             NameFlowSheet(
@@ -216,14 +206,18 @@ struct FlowsView: View {
                         Section {
                             ForEach(viewModel.recentRuns) { run in
                                 Button {
-                                    historyReport = viewModel.reportData(for: run)
+                                    if let data = viewModel.reportData(for: run) {
+                                        FlowReportWindowController.shared.present(data: data)
+                                    }
                                 } label: {
                                     FlowRunHistoryRow(run: run)
                                 }
                                 .buttonStyle(.plain)
                                 .contextMenu {
                                     Button("Open Report") {
-                                        historyReport = viewModel.reportData(for: run)
+                                        if let data = viewModel.reportData(for: run) {
+                                        FlowReportWindowController.shared.present(data: data)
+                                    }
                                     }
                                     Divider()
                                     Button("Delete", role: .destructive) {
@@ -325,7 +319,10 @@ struct FlowsView: View {
                 .id(flow.id)
             }
         } else {
-            FlowsWelcomePane(onCreate: { presentNewFlowSheet() })
+            FlowsWelcomePane(
+                onCreate: { presentNewFlowSheet() },
+                onShowHelp: { showHelp = true }
+            )
         }
     }
 }
@@ -398,6 +395,7 @@ private struct FlowRunHistoryRow: View {
 
 private struct FlowsWelcomePane: View {
     let onCreate: () -> Void
+    let onShowHelp: () -> Void
 
     var body: some View {
         VStack(spacing: Spacing.md) {
@@ -410,10 +408,19 @@ private struct FlowsWelcomePane: View {
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("New Flow") { onCreate() }
-                .buttonStyle(.borderedProminent)
+            HStack(spacing: Spacing.sm) {
+                Button("New Flow") { onCreate() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                Button {
+                    onShowHelp()
+                } label: {
+                    Label("How Flows Work", systemImage: "questionmark.circle")
+                }
+                .buttonStyle(.bordered)
                 .controlSize(.large)
-                .padding(.top, Spacing.sm)
+            }
+            .padding(.top, Spacing.sm)
         }
         .padding(Spacing.xxl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

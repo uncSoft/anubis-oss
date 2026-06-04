@@ -162,8 +162,10 @@ final class FloatingMonitorWindowController {
 
     var isShowing: Bool { window != nil }
 
-    /// Show from MetricsService directly (for launching from anywhere in the app)
-    func show(metricsService: MetricsService, miniaturizeMainWindow: Bool = false) {
+    /// Show from MetricsService directly (for launching from anywhere in the app).
+    /// The HUD floats above the app without touching the main window, so users
+    /// can keep monitoring while they keep using Anubis normally.
+    func show(metricsService: MetricsService) {
         guard window == nil else {
             window?.makeKeyAndOrderFront(nil)
             return
@@ -215,10 +217,6 @@ final class FloatingMonitorWindowController {
 
         window.makeKeyAndOrderFront(nil)
         self.window = window
-
-        if miniaturizeMainWindow {
-            NSApp.mainWindow?.miniaturize(nil)
-        }
     }
 
     func close() {
@@ -227,11 +225,6 @@ final class FloatingMonitorWindowController {
         window?.close()
         window = nil
         windowDelegate = nil
-        // Restore any miniaturized windows
-        for w in NSApp.windows where w.isMiniaturized {
-            w.deminiaturize(nil)
-        }
-        NSApp.activate(ignoringOtherApps: true)
     }
 }
 

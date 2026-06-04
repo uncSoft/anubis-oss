@@ -1902,13 +1902,12 @@ struct ExpandedMetricsView: View {
                         )
                     }
 
-                    // Power rows (if available)
-                    if viewModel.hasPowerMetrics && chartData.hasPowerData {
+                    // Power rows — gate on capability, not sample presence,
+                    // so cards show their empty state before a run too.
+                    if viewModel.hasPowerMetrics {
                         // Row 3: CPU Cores | GPU Cores | System Power
-                        if !viewModel.latestPerCoreSnapshot.isEmpty {
-                            CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
-                                viewModel.openCoreDetailWindow()
-                            }
+                        CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
+                            viewModel.openCoreDetailWindow()
                         }
                         GPUCoreGrid(gpuUtilization: viewModel.latestGPUUtilization) {
                             viewModel.openGPUDetailWindow()
@@ -1961,10 +1960,8 @@ struct ExpandedMetricsView: View {
                         )
                     } else {
                         // No power — just show core grids
-                        if !viewModel.latestPerCoreSnapshot.isEmpty {
-                            CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
-                                viewModel.openCoreDetailWindow()
-                            }
+                        CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
+                            viewModel.openCoreDetailWindow()
                         }
                         GPUCoreGrid(gpuUtilization: viewModel.latestGPUUtilization) {
                             viewModel.openGPUDetailWindow()
@@ -2560,11 +2557,13 @@ struct ChartGrid: View {
                 chartHeight: chartHeight
             )
 
-            if hasPowerMetrics && data.hasPowerData {
-                if !perCoreSnapshot.isEmpty {
-                    CoreUtilizationGrid(snapshot: perCoreSnapshot) {
-                        onExpandCores?()
-                    }
+            // Gate purely on capability (IOReport/power available), not on
+            // whether samples have arrived yet — each card renders its own
+            // empty-state placeholder before data, so the grid layout is
+            // consistent before and during a run.
+            if hasPowerMetrics {
+                CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                    onExpandCores?()
                 }
 
                 GPUCoreGrid(gpuUtilization: gpuUtilization) {
@@ -2614,12 +2613,11 @@ struct ChartGrid: View {
                 RunTimeCard(elapsedTime: elapsedTime, isComplete: isComplete, chartHeight: chartHeight)
             }
 
-            // Show core grids even without power metrics
-            if !hasPowerMetrics || !data.hasPowerData {
-                if !perCoreSnapshot.isEmpty {
-                    CoreUtilizationGrid(snapshot: perCoreSnapshot) {
-                        onExpandCores?()
-                    }
+            // Platform without power capability — still show the core grids
+            // (they render their own empty state until data arrives).
+            if !hasPowerMetrics {
+                CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                    onExpandCores?()
                 }
 
                 GPUCoreGrid(gpuUtilization: gpuUtilization) {
