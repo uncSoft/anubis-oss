@@ -10,9 +10,16 @@
       <sparkle:shortVersionString>3.8.1</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
       <description><![CDATA[
+          <div style="border:2px solid #d9534f; border-radius:8px; padding:12px 14px; margin:0 0 16px; background:rgba(217,83,79,0.10);">
+              <p style="margin:0 0 10px; font-weight:bold; font-size:15px;">&#9888;&#65039; If this update fails to install, you&rsquo;re on the broken updater. Install 3.8.1 once by hand &mdash; then auto-update works forever after:</p>
+              <p style="margin:0 0 8px;"><b>Option A &mdash; Homebrew (recommended):</b><br/>
+              <code style="font-size:13px;">brew update &amp;&amp; brew upgrade --cask anubis-oss --greedy</code></p>
+              <p style="margin:0 0 8px;"><b>Option B &mdash; Direct download:</b><br/>
+              <a href="https://github.com/uncSoft/anubis-oss/releases/download/v3.8.1/Anubis-OSS-3.8.zip">Download Anubis&nbsp;OSS&nbsp;3.8.1 (.zip)</a> &mdash; unzip it, then drag <b>anubis.app</b> into <b>/Applications</b>, replacing the old copy.</p>
+              <p style="margin:0; font-size:12px; opacity:0.75;">Already updated and seeing this? You&rsquo;re all set &mdash; just click Install.</p>
+          </div>
           <h2>Version 3.8.1 &mdash; auto-update fix</h2>
           <p>This is a maintenance release that <b>fixes in-app auto-update</b>. Builds 3.8 and earlier shipped a Sparkle framework that couldn&rsquo;t locate its installer helper, so &ldquo;Check for Updates&rdquo; failed after downloading. 3.8.1 corrects the framework packaging so updates install cleanly going forward.</p>
-          <p><b>One-time manual step:</b> because the broken build can&rsquo;t update itself, this version must be installed once manually &mdash; via Homebrew (<code>brew update &amp;&amp; brew upgrade --cask anubis-oss --greedy</code>) or by downloading the zip from the release page. After that, auto-update works normally.</p>
 
           <h3>Everything from 3.8 &mdash; first-class oMLX support</h3>
           <ul>

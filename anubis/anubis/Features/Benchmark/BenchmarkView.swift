@@ -2002,7 +2002,6 @@ struct ExpandedMetricsView: View {
                 .padding(Spacing.lg)
             }
         }
-        .background(Color.dashboardBackground.ignoresSafeArea())
         .overlay(alignment: .topTrailing) {
             HStack(spacing: Spacing.sm) {
                 Button {
@@ -2529,10 +2528,6 @@ struct ChartGrid: View {
     var isComplete: Bool = false
     var chartHeight: CGFloat = 150
     var elapsedTime: TimeInterval = 0
-    /// Per-core CPU / GPU-core bar grids are live-only (not persisted per
-    /// sample), so the history view disables them rather than showing empty
-    /// "Waiting for data…" cards for runs that never recorded per-core data.
-    var showCoreGrids: Bool = true
 
     private let columns = [
         GridItem(.flexible(), spacing: Spacing.sm),
@@ -2598,14 +2593,12 @@ struct ChartGrid: View {
             // empty-state placeholder before data, so the grid layout is
             // consistent before and during a run.
             if hasPowerMetrics {
-                if showCoreGrids {
-                    CoreUtilizationGrid(snapshot: perCoreSnapshot) {
-                        onExpandCores?()
-                    }
+                CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                    onExpandCores?()
+                }
 
-                    GPUCoreGrid(gpuUtilization: gpuUtilization) {
-                        onExpandGPU?()
-                    }
+                GPUCoreGrid(gpuUtilization: gpuUtilization) {
+                    onExpandGPU?()
                 }
 
                 TimelineChart(
@@ -2653,7 +2646,7 @@ struct ChartGrid: View {
 
             // Platform without power capability — still show the core grids
             // (they render their own empty state until data arrives).
-            if !hasPowerMetrics && showCoreGrids {
+            if !hasPowerMetrics {
                 CoreUtilizationGrid(snapshot: perCoreSnapshot) {
                     onExpandCores?()
                 }
