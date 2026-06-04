@@ -54,6 +54,24 @@ struct BenchmarkView: View {
         ))
     }
 
+    /// True-black dashboard canvas with a faint accent glow in the top-trailing
+    /// corner — gives the metrics dashboard a modern, dark "web3" feel while
+    /// keeping charcoal cards readable against it.
+    private var dashboardBackdrop: some View {
+        ZStack {
+            Color.dashboardBackground
+            RadialGradient(
+                colors: [Color.anubisAccent.opacity(0.10), .clear],
+                center: .topTrailing,
+                startRadius: 0,
+                endRadius: 480
+            )
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
+        }
+        .ignoresSafeArea()
+    }
+
     var body: some View {
         HSplitView {
             // Left panel - Controls and Response
@@ -65,20 +83,22 @@ struct BenchmarkView: View {
                 }
             }
             .frame(minWidth: 400, maxWidth: 700)
+            .background(Color.dashboardBackground)
 
             // Right panel - Metrics Dashboard (~70% default)
             ScrollView {
-                VStack(spacing: Spacing.md) {
+                VStack(spacing: Spacing.sm) {
                     groupProgressBanner
                     groupSummaryCard
                     metricsCardsSection
                     detailedStatsSection
                     chartsSection
                 }
-                .padding(Spacing.md)
+                .padding(Spacing.sm)
             }
             .frame(minWidth: 300)
             .layoutPriority(1)
+            .background(dashboardBackdrop)
         }
         .toolbar {
             ToolbarItemGroup {
@@ -779,7 +799,7 @@ struct BenchmarkView: View {
     // MARK: - Metrics Cards Section
 
     private var metricsCardsSection: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.xs) {
             // Row 1: Performance
             CompactMetricsCard(
                 title: "Tokens/sec",
@@ -2481,10 +2501,14 @@ struct ChartGrid: View {
     var chartHeight: CGFloat = 150
     var elapsedTime: TimeInterval = 0
 
-    private let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
+    private let columns = [
+        GridItem(.flexible(), spacing: Spacing.sm),
+        GridItem(.flexible(), spacing: Spacing.sm),
+        GridItem(.flexible(), spacing: Spacing.sm)
+    ]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: Spacing.md) {
+        LazyVGrid(columns: columns, spacing: Spacing.sm) {
             // 3-col flow — chart order preserved; rows fill left-to-right.
             TimelineChart(
                 title: "Tok/Second",

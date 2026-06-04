@@ -418,6 +418,9 @@ struct DetailView: View {
                 WelcomeView()
             }
         }
+        // Unified black canvas across every detail page (web3 dark look).
+        // Individual pages layer their own card/glow backgrounds on top.
+        .background(Color.dashboardBackground.ignoresSafeArea())
     }
 }
 

@@ -254,6 +254,7 @@ struct FlowsView: View {
                     }
                 }
                 .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
             }
 
             if let err = viewModel.lastError {
@@ -264,6 +265,7 @@ struct FlowsView: View {
                     .padding(Spacing.sm)
             }
         }
+        .background(Color.dashboardBackground)
     }
 
     private var emptySidebar: some View {

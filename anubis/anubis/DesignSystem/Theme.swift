@@ -41,14 +41,19 @@ extension Color {
 
     // MARK: - Adaptive UI Colors
 
-    /// Card border - subtle in dark, more visible in light
-    static let cardBorder = Color(light: Color.black.opacity(0.08), dark: Color.white.opacity(0.08))
+    /// Card border - crisp hairline so charcoal cards read against a true-black
+    /// canvas in dark mode (the "web3" dashboard look).
+    static let cardBorder = Color(light: Color.black.opacity(0.08), dark: Color.white.opacity(0.14))
 
     /// Card background for layering
     static let cardBackground = Color(light: Color.white.opacity(0.8), dark: Color.white.opacity(0.05))
 
     /// Elevated card background
-    static let cardBackgroundElevated = Color(light: Color.white, dark: Color.white.opacity(0.08))
+    static let cardBackgroundElevated = Color(light: Color.white, dark: Color.white.opacity(0.07))
+
+    /// Dashboard canvas. True black in dark mode so metric/chart cards float as
+    /// charcoal tiles instead of light-gray-on-gray; soft gray in light mode.
+    static let dashboardBackground = Color(light: Color(hex: "F2F2F7"), dark: Color(hex: "070709"))
 
     /// Separator lines
     static let separator = Color(light: Color.black.opacity(0.1), dark: Color.white.opacity(0.1))
