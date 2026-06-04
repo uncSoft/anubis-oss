@@ -377,6 +377,31 @@ Or download the zip directly from the [Releases page](https://github.com/uncSoft
 
 Anubis auto-updates via Sparkle in either case. Once installed, Anubis will auto-detect Ollama on launch. Other backends can be added in Settings.
 
+#### Updating to a new version
+
+The app **updates itself via Sparkle** — just open Anubis and accept the update prompt (or **Settings → Check for Updates**). That's the recommended path and works for every install method.
+
+To update through Homebrew instead:
+
+```bash
+brew update
+brew upgrade --cask anubis-oss --greedy
+```
+
+> The `--greedy` flag is required because the cask is marked `auto_updates` (the app updates itself), so a plain `brew upgrade` intentionally skips it.
+
+<details>
+<summary>Homebrew says <code>Cask 'anubis-oss' is unreadable: syntax errors</code> / shows <code>&lt;&lt;&lt;&lt;&lt;&lt;&lt;</code> conflict markers</summary>
+
+This only happens if your local tap checkout has uncommitted edits or a stash that conflicts with an update. Reset it to the published cask:
+
+```bash
+cd "$(brew --repository)/Library/Taps/uncsoft/homebrew-anubis"
+git fetch origin && git reset --hard origin/main
+brew upgrade --cask anubis-oss --greedy
+```
+</details>
+
 #### Or build from source
 
 ```bash
