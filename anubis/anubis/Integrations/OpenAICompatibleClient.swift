@@ -7,6 +7,42 @@
 
 import Foundation
 
+/// Errors from oMLX's admin API, derived from the server's `detail` message so
+/// callers can distinguish a benign "not loaded" from a genuine failure.
+enum OMLXAdminError: LocalizedError, Sendable {
+    case modelNotLoaded(detail: String)
+    case modelNotFound(detail: String)
+    case requestFailed(detail: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .modelNotLoaded: return "This model isn't loaded, so there's nothing to unload."
+        case .modelNotFound:  return "This model wasn't found on the oMLX server."
+        case .requestFailed(let detail): return detail
+        }
+    }
+
+    /// True when the request "failed" only because the model wasn't loaded —
+    /// the caller can treat this as a no-op success for an unload action.
+    var isBenignNotLoaded: Bool {
+        if case .modelNotLoaded = self { return true }
+        return false
+    }
+}
+
+/// A model entry from oMLX's admin API (`/admin/api/models`), carrying loaded
+/// state and real memory size. Surfaced in the Vault / Benchmark UI for
+/// oMLX model management (load / unload).
+struct OMLXManagedModel: Sendable, Identifiable {
+    let id: String
+    let loaded: Bool
+    let isLoading: Bool
+    let sizeBytes: Int64?
+    let sizeFormatted: String?
+    let pinned: Bool
+    let isDefault: Bool
+}
+
 /// Client for OpenAI-compatible API endpoints (LM Studio, LocalAI, vLLM, etc.)
 actor OpenAICompatibleClient: InferenceBackend {
     // MARK: - Properties
@@ -133,6 +169,110 @@ actor OpenAICompatibleClient: InferenceBackend {
                 ownedBy: model.ownedBy
             )
         }
+    }
+
+    // MARK: - oMLX Admin API (model management)
+    //
+    // oMLX exposes load/unload + loaded-state under /admin/api, gated by a
+    // session cookie obtained via /admin/api/login using the SAME api_key the
+    // user configured for inference. URLSessionConfiguration.default stores the
+    // cookie in shared storage and auto-attaches it to subsequent /admin calls.
+    // These endpoints exist only on oMLX; callers gate by oMLX identity.
+
+    /// Log in to oMLX's admin API with the configured API key. The
+    /// `omlx_admin_session` cookie is stored on this session for reuse.
+    @discardableResult
+    func adminLogin() async -> Bool {
+        guard let apiKey = apiKey, !apiKey.isEmpty else { return false }
+        let url = baseURL.appendingPathComponent("admin/api/login")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        request.httpBody = try? JSONSerialization.data(
+            withJSONObject: ["api_key": apiKey, "remember": true]
+        )
+        guard let (_, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            return false
+        }
+        return true
+    }
+
+    /// List oMLX's managed models with loaded state + sizes. Logs in on demand.
+    func managedModels() async throws -> [OMLXManagedModel] {
+        let data = try await adminRequest("admin/api/models", method: "GET")
+        let decoded = try JSONDecoder().decode(OMLXAdminModelsResponse.self, from: data)
+        return decoded.models.map { m in
+            OMLXManagedModel(
+                id: m.id,
+                loaded: m.loaded ?? false,
+                isLoading: m.isLoading ?? false,
+                sizeBytes: m.actualSize ?? m.estimatedSize,
+                sizeFormatted: m.actualSizeFormatted ?? m.estimatedSizeFormatted,
+                pinned: m.pinned ?? false,
+                isDefault: m.isDefault ?? false
+            )
+        }
+    }
+
+    /// Unload a model from oMLX's memory.
+    func unloadModel(_ id: String) async throws {
+        _ = try await adminRequest("admin/api/models/\(id)/unload", method: "POST", encodeComponent: id)
+    }
+
+    /// Load a model into oMLX's memory.
+    func loadModel(_ id: String) async throws {
+        _ = try await adminRequest("admin/api/models/\(id)/load", method: "POST", encodeComponent: id)
+    }
+
+    /// Issue an authenticated admin request, logging in + retrying once on 401.
+    /// `encodeComponent`, when set, is percent-encoded inside the path so model
+    /// ids with reserved characters resolve correctly.
+    private func adminRequest(_ path: String, method: String, encodeComponent: String? = nil) async throws -> Data {
+        func makeURL() -> URL {
+            if let comp = encodeComponent {
+                // Build the path safely around the single dynamic component.
+                let encoded = comp.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? comp
+                let rebuilt = path.replacingOccurrences(of: comp, with: encoded)
+                return baseURL.appendingPathComponent(rebuilt)
+            }
+            return baseURL.appendingPathComponent(path)
+        }
+        func makeRequest() -> URLRequest {
+            var r = URLRequest(url: makeURL())
+            r.httpMethod = method
+            r.timeoutInterval = 15
+            if let apiKey = apiKey, !apiKey.isEmpty {
+                r.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            }
+            return r
+        }
+
+        var (data, response) = try await session.data(for: makeRequest())
+        if (response as? HTTPURLResponse)?.statusCode == 401 {
+            // Session cookie missing/expired — authenticate and retry once.
+            _ = await adminLogin()
+            (data, response) = try await session.data(for: makeRequest())
+        }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            // oMLX reports a JSON {"detail": "..."} — surface it so we can tell
+            // "Model not loaded" (benign) apart from a real failure.
+            let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
+            if let detail = detail {
+                let lower = detail.lowercased()
+                if code == 400, lower.contains("not loaded") {
+                    throw OMLXAdminError.modelNotLoaded(detail: detail)
+                }
+                if code == 404, lower.contains("not found") {
+                    throw OMLXAdminError.modelNotFound(detail: detail)
+                }
+                throw OMLXAdminError.requestFailed(detail: detail)
+            }
+            throw OMLXAdminError.requestFailed(detail: "oMLX admin request failed (HTTP \(code)).")
+        }
+        return data
     }
 
     /// Attempt to fetch rich model metadata from LM Studio's extended endpoint.
@@ -814,6 +954,34 @@ extension OpenAICompatibleClient {
 
 private struct OpenAIModelsResponse: Codable {
     let data: [OpenAIModel]
+}
+
+// MARK: - oMLX Admin Models decode
+
+private struct OMLXAdminModelsResponse: Codable {
+    let models: [OMLXAdminModel]
+}
+
+private struct OMLXAdminModel: Codable {
+    let id: String
+    let loaded: Bool?
+    let isLoading: Bool?
+    let actualSize: Int64?
+    let estimatedSize: Int64?
+    let actualSizeFormatted: String?
+    let estimatedSizeFormatted: String?
+    let pinned: Bool?
+    let isDefault: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, loaded, pinned
+        case isLoading = "is_loading"
+        case actualSize = "actual_size"
+        case estimatedSize = "estimated_size"
+        case actualSizeFormatted = "actual_size_formatted"
+        case estimatedSizeFormatted = "estimated_size_formatted"
+        case isDefault = "is_default"
+    }
 }
 
 private struct OpenAIModel: Codable {

@@ -307,6 +307,53 @@ final class BenchmarkViewModel: ObservableObject {
         selectedBackend == .ollama || isBuiltInOMLXBackend || isVerifiedOMLX
     }
 
+    /// Whether the selected model can be ejected (unloaded) from here. Both
+    /// Ollama (keep_alive: 0) and oMLX (admin unload) support it.
+    var canEjectSelectedModel: Bool {
+        guard selectedModel != nil else { return false }
+        if selectedBackend == .ollama { return true }
+        return isBuiltInOMLXBackend || isVerifiedOMLX
+    }
+
+    @Published var isEjectingModel = false
+    /// Transient, non-error feedback for the eject button (e.g. the model was
+    /// already unloaded). Auto-clears; shown as a caption near the picker.
+    @Published var ejectNotice: String?
+
+    /// Unload the selected model from the backend's memory (Ollama or oMLX).
+    func ejectSelectedModel() async {
+        guard canEjectSelectedModel, let model = selectedModel else { return }
+        isEjectingModel = true
+        ejectNotice = nil
+        defer { isEjectingModel = false }
+        do {
+            if selectedBackend == .ollama {
+                try await inferenceService.ollamaClient.unloadModel(model.id)
+            } else if let configId = inferenceService.currentOpenAIConfig?.id,
+                      let client = inferenceService.openAIClient(for: configId) {
+                try await client.unloadModel(model.id)
+            } else {
+                return
+            }
+            showEjectNotice("Unloaded \(model.name) from memory.")
+        } catch let e as OMLXAdminError where e.isBenignNotLoaded {
+            // Not loaded == already in the desired state; not an error.
+            showEjectNotice("\(model.name) wasn't loaded — nothing to unload.")
+        } catch let e as OMLXAdminError {
+            self.error = .backendMessage(e.errorDescription ?? "Failed to unload \(model.name).")
+        } catch {
+            self.error = .backendMessage("Failed to unload \(model.name): \(error.localizedDescription)")
+        }
+    }
+
+    private func showEjectNotice(_ text: String) {
+        ejectNotice = text
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if self?.ejectNotice == text { self?.ejectNotice = nil }
+        }
+    }
+
     /// Active connection URL (resolved from backend + config)
     var connectionURL: String {
         switch selectedBackend {
@@ -547,6 +594,18 @@ final class BenchmarkViewModel: ObservableObject {
     // MARK: - Public Methods
 
     /// Load available models from current backend
+    private var didInitialLoad = false
+
+    /// One-time load on first appearance. The VM now outlives the view (it's
+    /// owned by AppState), so re-running this on every tab return would be
+    /// wasteful and could reset the selected model mid-run — guard it.
+    func loadInitialDataIfNeeded() async {
+        guard !didInitialLoad else { return }
+        didInitialLoad = true
+        await loadModels()
+        await loadRecentSessions()
+    }
+
     func loadModels() async {
         // Clear any stale error (e.g. backend-not-running from a previous switch)
         error = nil

@@ -25,6 +25,63 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Benchmark Activity Pill
+
+/// A light, live indicator shown in the sidebar while a benchmark is running,
+/// so the user can see it's still going (and the current tok/s) from any tab.
+/// Tapping jumps back to the Benchmark tab. Observes the VM directly so it
+/// ticks in real time.
+private struct BenchmarkActivityPill: View {
+    @ObservedObject var viewModel: BenchmarkViewModel
+    let onTap: () -> Void
+    @State private var pulse = false
+
+    var body: some View {
+        if viewModel.isRunning {
+            Button(action: onTap) {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.chartTokens)
+                        .frame(width: 7, height: 7)
+                        .opacity(pulse ? 0.35 : 1)
+                    Text("Running")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    if viewModel.effectiveAverageTps > 0 {
+                        Text(viewModel.formattedTokensPerSecond)
+                            .font(.caption2.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(Color.chartTokens)
+                    } else {
+                        Text("starting…")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background {
+                    Capsule()
+                        .fill(Color.chartTokens.opacity(0.12))
+                        .overlay {
+                            Capsule().strokeBorder(Color.chartTokens.opacity(0.3), lineWidth: 1)
+                        }
+                }
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Benchmark running — click to view")
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) {
+                    pulse = true
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Demo Mode Indicator
 
 struct DemoModeIndicator: View {
@@ -138,6 +195,14 @@ struct SidebarView: View {
                     .listStyle(.sidebar)
 
                     Spacer(minLength: 0)
+
+                    // Live benchmark indicator — follows the user across tabs.
+                    BenchmarkActivityPill(viewModel: appState.benchmarkViewModel) {
+                        appState.selectedDestination = .benchmark
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 6)
+                    .animation(.anubisSmooth, value: appState.benchmarkViewModel.isRunning)
 
                     // Splash image at bottom
                     Button {
@@ -383,12 +448,8 @@ struct DetailView: View {
         Group {
             switch appState.selectedDestination {
             case .benchmark:
-                BenchmarkView(
-                    inferenceService: appState.inferenceService,
-                    metricsService: appState.metricsService,
-                    databaseManager: appState.databaseManager
-                )
-                .navigationTitle("Benchmark")
+                BenchmarkView(viewModel: appState.benchmarkViewModel)
+                    .navigationTitle("Benchmark")
             case .arena:
                 ArenaView(
                     appState: appState,

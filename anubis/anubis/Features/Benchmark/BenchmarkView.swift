@@ -26,7 +26,9 @@ extension EnvironmentValues {
 
 /// Main benchmark dashboard view
 struct BenchmarkView: View {
-    @StateObject private var viewModel: BenchmarkViewModel
+    // Observed (not owned) — the VM lives in AppState so it survives tab
+    // navigation: a running benchmark keeps running and the last results stay.
+    @ObservedObject private var viewModel: BenchmarkViewModel
     @Environment(\.colorScheme) private var colorScheme
     @State private var showSystemPrompt = false
     // Persisted, default expanded — so new users see the N-runs +
@@ -42,16 +44,8 @@ struct BenchmarkView: View {
     @State private var showLeaderboardUpload = false
     @State private var showThinkingHelp = false
 
-    init(
-        inferenceService: InferenceService,
-        metricsService: MetricsService,
-        databaseManager: DatabaseManager
-    ) {
-        _viewModel = StateObject(wrappedValue: BenchmarkViewModel(
-            inferenceService: inferenceService,
-            metricsService: metricsService,
-            databaseManager: databaseManager
-        ))
+    init(viewModel: BenchmarkViewModel) {
+        self.viewModel = viewModel
     }
 
     /// True-black dashboard canvas with a faint accent glow in the top-trailing
@@ -187,8 +181,7 @@ struct BenchmarkView: View {
             BrowseOllamaLibrarySheet(viewModel: viewModel)
         }
         .task {
-            await viewModel.loadModels()
-            await viewModel.loadRecentSessions()
+            await viewModel.loadInitialDataIfNeeded()
         }
         .onChange(of: viewModel.selectedBackend) { _, _ in
             Task {
@@ -320,6 +313,22 @@ struct BenchmarkView: View {
 
                     Spacer()
 
+                    // Eject (unload) the selected model — Ollama and oMLX.
+                    if viewModel.canEjectSelectedModel {
+                        Button {
+                            Task { await viewModel.ejectSelectedModel() }
+                        } label: {
+                            if viewModel.isEjectingModel {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "eject.fill")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(viewModel.isEjectingModel || viewModel.isRunning)
+                        .help("Unload the selected model from memory")
+                    }
+
                     // Refresh models button
                     Button {
                         Task { await viewModel.loadModels() }
@@ -328,6 +337,13 @@ struct BenchmarkView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Refresh model list")
+                }
+
+                if let notice = viewModel.ejectNotice {
+                    Text(notice)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
                 }
             }
 
