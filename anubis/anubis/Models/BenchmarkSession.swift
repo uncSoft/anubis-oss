@@ -72,6 +72,12 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     // step fires inside a flow.
     var flowRunId: Int64?
 
+    // v11: the backend's raw `usage` object as JSON, captured verbatim when
+    // the server reports its own metrics (oMLX). NULL for every other backend.
+    // Surfaced in the Inference Stats popover so oMLX's numbers display exactly
+    // as the server sent them.
+    var serverMetricsJSON: String?
+
     enum CodingKeys: String, CodingKey, ColumnExpression {
         case id
         case modelId = "model_id"
@@ -109,6 +115,7 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         case reasoningDuration = "reasoning_duration"
         case runGroupId = "run_group_id"
         case flowRunId = "flow_run_id"
+        case serverMetricsJSON = "server_metrics_json"
     }
 
     /// Create a new benchmark session
@@ -216,6 +223,7 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
             }
         }
         self.backendProcessName = backendProcessName
+        self.serverMetricsJSON = stats.serverReportedMetricsJSON
     }
 
     /// Mark session as failed

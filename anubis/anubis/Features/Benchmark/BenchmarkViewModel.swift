@@ -278,6 +278,27 @@ final class BenchmarkViewModel: ObservableObject {
         }
     }
 
+    /// True when the active backend is the built-in oMLX stock configuration.
+    /// Used to apply oMLX-specific verification — if the user points this at a
+    /// server that isn't actually oMLX, we warn rather than silently trust it.
+    var isBuiltInOMLXBackend: Bool {
+        selectedBackend == .openai &&
+        inferenceService.currentOpenAIConfig?.id == BackendConfiguration.defaultOMLX.id
+    }
+
+    /// True when the connected server has positively identified itself as oMLX.
+    /// Two independent signals, either of which suffices:
+    ///  - run-time: the last run returned oMLX's metric signature (the
+    ///    extended `usage` block) — proof the server actually produced it.
+    ///  - connect-time: its `/v1/models` listing stamps `owned_by: omlx`.
+    /// Guards against another OpenAI-compatible server on the oMLX port being
+    /// mistaken for the real thing.
+    var isVerifiedOMLX: Bool {
+        if currentSession?.serverMetricsJSON != nil { return true }
+        if let owner = selectedModel?.ownedBy?.lowercased(), owner.contains("omlx") { return true }
+        return false
+    }
+
     /// Active connection URL (resolved from backend + config)
     var connectionURL: String {
         switch selectedBackend {
@@ -826,7 +847,10 @@ final class BenchmarkViewModel: ObservableObject {
             // group orchestrator re-aggregates session-level fields.
             await flushSamplesToDatabase()
 
-            let ttft: TimeInterval? = finalBuf.firstTokenTime.map { $0.timeIntervalSince(startTime) }
+            // Prefer the backend's own TTFT (oMLX measures it inside the decode
+            // loop); fall back to our first-chunk wall-clock timing otherwise.
+            let ttft: TimeInterval? = finalBuf.stats?.serverReportedTTFT
+                ?? finalBuf.firstTokenTime.map { $0.timeIntervalSince(startTime) }
             let powerSummary = BenchmarkSample.computePowerSummary(from: self.currentSamplesInternal)
             let backendName = self.metricsService.latestMetrics?.backendProcessName
 

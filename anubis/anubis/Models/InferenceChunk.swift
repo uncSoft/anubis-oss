@@ -63,6 +63,27 @@ struct InferenceStats: Sendable, Codable {
     /// Time spent producing reasoning tokens in seconds. 0 if not a reasoning run.
     let reasoningDuration: TimeInterval
 
+    /// Backend-reported generation throughput (tok/s), when the server measures
+    /// it itself inside the decode loop (oMLX). Preferred over our wall-clock
+    /// derivation, which a bursty SSE reader can inflate wildly (issue #25).
+    /// nil for backends that report only token counts (mlx-lm, LM Studio, ...).
+    let reportedTokensPerSecond: Double?
+
+    /// Backend-reported time-to-first-token in seconds (oMLX). nil otherwise,
+    /// in which case the ViewModel uses its own first-chunk wall-clock timing.
+    let serverReportedTTFT: TimeInterval?
+
+    /// Backend-reported prompt (prefill) throughput in tok/s (oMLX). Preferred
+    /// over deriving prompt_tokens / prompt_eval_duration, which rounds slightly
+    /// differently from the backend's own figure. nil for other servers.
+    let reportedPromptTokensPerSecond: Double?
+
+    /// The backend's raw `usage` object as a JSON string, captured verbatim
+    /// when it reports its own metrics (oMLX). Lets the UI display every field
+    /// exactly as the server sent it, including ones we don't model. nil
+    /// for backends that report only standard token counts.
+    let serverReportedMetricsJSON: String?
+
     init(
         totalTokens: Int,
         promptTokens: Int,
@@ -73,7 +94,11 @@ struct InferenceStats: Sendable, Codable {
         loadDuration: TimeInterval,
         contextLength: Int,
         reasoningTokens: Int = 0,
-        reasoningDuration: TimeInterval = 0
+        reasoningDuration: TimeInterval = 0,
+        reportedTokensPerSecond: Double? = nil,
+        serverReportedTTFT: TimeInterval? = nil,
+        reportedPromptTokensPerSecond: Double? = nil,
+        serverReportedMetricsJSON: String? = nil
     ) {
         self.totalTokens = totalTokens
         self.promptTokens = promptTokens
@@ -85,6 +110,10 @@ struct InferenceStats: Sendable, Codable {
         self.contextLength = contextLength
         self.reasoningTokens = reasoningTokens
         self.reasoningDuration = reasoningDuration
+        self.reportedTokensPerSecond = reportedTokensPerSecond
+        self.serverReportedTTFT = serverReportedTTFT
+        self.reportedPromptTokensPerSecond = reportedPromptTokensPerSecond
+        self.serverReportedMetricsJSON = serverReportedMetricsJSON
     }
 
     init(from decoder: Decoder) throws {
@@ -99,6 +128,10 @@ struct InferenceStats: Sendable, Codable {
         self.contextLength = try c.decode(Int.self, forKey: .contextLength)
         self.reasoningTokens = (try? c.decode(Int.self, forKey: .reasoningTokens)) ?? 0
         self.reasoningDuration = (try? c.decode(TimeInterval.self, forKey: .reasoningDuration)) ?? 0
+        self.reportedTokensPerSecond = try? c.decode(Double.self, forKey: .reportedTokensPerSecond)
+        self.serverReportedTTFT = try? c.decode(TimeInterval.self, forKey: .serverReportedTTFT)
+        self.reportedPromptTokensPerSecond = try? c.decode(Double.self, forKey: .reportedPromptTokensPerSecond)
+        self.serverReportedMetricsJSON = try? c.decode(String.self, forKey: .serverReportedMetricsJSON)
     }
 
     /// Output token count excluding reasoning/thinking tokens.
@@ -117,6 +150,12 @@ struct InferenceStats: Sendable, Codable {
     /// (`outputTokens == 0`), fall back to total throughput so the user sees
     /// something meaningful instead of a spurious zero.
     var tokensPerSecond: Double {
+        // Trust the backend's own decode-loop measurement when it provides one
+        // (oMLX). It can't be corrupted by client-side read bursts the way our
+        // wall-clock derivation can (issue #25).
+        if let reported = reportedTokensPerSecond, reported > 0 {
+            return reported
+        }
         let dur = outputEvalDuration
         if dur > 0 && outputTokens > 0 {
             return Double(outputTokens) / dur
@@ -145,6 +184,10 @@ struct InferenceStats: Sendable, Codable {
 
     /// Prompt processing speed — input tokens/sec (prefill speed).
     var promptProcessingSpeed: Double {
+        // Trust the backend's own prefill rate when it reports one (oMLX).
+        if let reported = reportedPromptTokensPerSecond, reported > 0 {
+            return reported
+        }
         guard promptEvalDuration > 0 else { return 0 }
         return Double(promptTokens) / promptEvalDuration
     }

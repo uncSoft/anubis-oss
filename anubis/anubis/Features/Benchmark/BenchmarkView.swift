@@ -35,6 +35,10 @@ struct BenchmarkView: View {
     @AppStorage(Constants.UserDefaultsKeys.benchmarkParametersExpanded) private var showParameters: Bool = true
     @AppStorage(Constants.UserDefaultsKeys.benchmarkPerformanceExpanded) private var showPerformance: Bool = true
     @State private var showSessionDetails = true
+    /// Session Details source override. nil = follow the default (show oMLX's
+    /// own metrics whenever the run has them); once the user picks a side it
+    /// sticks across runs. Keyed off the run carrying server-reported metrics.
+    @State private var detailsSourceOverride: Bool? = nil
     @State private var showLeaderboardUpload = false
     @State private var showThinkingHelp = false
 
@@ -1099,7 +1103,114 @@ struct BenchmarkView: View {
         }
     }
 
+    /// Effective Session Details source: default to oMLX's own metrics whenever
+    /// the run has them; respect the user's explicit choice once they make one.
+    private var showServerReportedDetails: Bool {
+        detailsSourceOverride ?? hasServerReportedMetrics
+    }
+
     private var detailedStatsGrid: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            // The user selected the built-in oMLX backend but the server hasn't
+            // identified as oMLX — warn that the metrics aren't server-verified.
+            if viewModel.isBuiltInOMLXBackend && !viewModel.isVerifiedOMLX {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                    Text("This server isn't identifying as oMLX — metrics are Anubis-measured, not server-reported.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
+
+            // oMLX reports its own metrics — let the user swap the grid to the
+            // server's verbatim figures, marked as server-verified.
+            if hasServerReportedMetrics {
+                HStack(spacing: 6) {
+                    if showServerReportedDetails {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                        Text("Reported directly by the oMLX server")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker("", selection: Binding(
+                        get: { showServerReportedDetails },
+                        set: { detailsSourceOverride = $0 }
+                    )) {
+                        Text("Anubis").tag(false)
+                        Text("oMLX").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+
+            if showServerReportedDetails, let metrics = currentServerMetrics {
+                serverReportedStatsGrid(metrics)
+            } else {
+                anubisStatsGrid
+            }
+
+            // Chip info + backend summary line
+            detailedStatsSummaryLine
+        }
+        .padding(Spacing.md)
+        .background {
+            RoundedRectangle(cornerRadius: CornerRadius.lg)
+                .fill(Color.cardBackgroundElevated)
+                .overlay {
+                    RoundedRectangle(cornerRadius: CornerRadius.lg)
+                        .strokeBorder(Color.cardBorder, lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
+        }
+    }
+
+    /// The current session's oMLX-reported `usage` block, parsed. nil unless
+    /// the run was against a server that reports its own metrics (oMLX).
+    private var currentServerMetrics: [String: Any]? {
+        guard let json = viewModel.currentSession?.serverMetricsJSON,
+              let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return obj
+    }
+
+    private var hasServerReportedMetrics: Bool { currentServerMetrics != nil }
+
+    /// Session Details grid built straight from oMLX's reported usage block —
+    /// every value is the server's own number, not Anubis-derived.
+    private func serverReportedStatsGrid(_ m: [String: Any]) -> some View {
+        func dbl(_ key: String) -> Double? { (m[key] as? NSNumber)?.doubleValue }
+        func intVal(_ key: String) -> Int? { (m[key] as? NSNumber)?.intValue }
+        let cached = ((m["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? NSNumber)?.intValue
+
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
+            serverCell("Prefill Speed", dbl("prompt_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
+            serverCell("Generation Speed", dbl("generation_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
+            serverCell("Time to First Token", dbl("time_to_first_token").map { String(format: "%.2fs", $0) })
+            serverCell("Total Time", dbl("total_time").map { String(format: "%.2fs", $0) })
+            serverCell("Prompt Eval", dbl("prompt_eval_duration").map { String(format: "%.2fs", $0) })
+            serverCell("Generation", dbl("generation_duration").map { String(format: "%.2fs", $0) })
+            serverCell("Model Load", dbl("model_load_duration").map { String(format: "%.2fs", $0) })
+            serverCell("Cached Tokens", cached.map { "\($0)" })
+            serverCell("Prompt Tokens", intVal("prompt_tokens").map { "\($0)" })
+            serverCell("Completion Tokens", intVal("completion_tokens").map { "\($0)" })
+            serverCell("Total Tokens", intVal("total_tokens").map { "\($0)" })
+        }
+    }
+
+    private func serverCell(_ title: String, _ value: String?) -> some View {
+        DetailStatCell(title: title, value: value ?? "—", icon: "checkmark.seal.fill", color: .green)
+    }
+
+    private var anubisStatsGrid: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
                 // Row 1: Latency / Load / Context / GPU Frequency
@@ -1190,67 +1301,59 @@ struct BenchmarkView: View {
                     color: .anubisMuted
                 )
             }
+        }
+    }
 
-            // Chip info + backend summary line
-            HStack(spacing: Spacing.sm) {
-                Text(viewModel.selectedModel?.name ?? viewModel.currentSession?.modelName ?? "—")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+    /// Chip info + backend summary line shown beneath either stats grid.
+    private var detailedStatsSummaryLine: some View {
+        HStack(spacing: Spacing.sm) {
+            Text(viewModel.selectedModel?.name ?? viewModel.currentSession?.modelName ?? "—")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
 
-                if let quant = viewModel.selectedModel?.quantization ?? viewModel.currentSession?.modelQuantization {
-                    Text("•").font(.caption2).foregroundStyle(.quaternary)
-                    Text(quant)
-                        .font(.caption2.monospaced().weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                if let format = viewModel.selectedModel?.modelFormat?.rawValue ?? viewModel.currentSession?.modelFormat {
-                    Text("•").font(.caption2).foregroundStyle(.quaternary)
-                    Text(format)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(format == "MLX" ? Color.purple : Color.green)
-                }
-
-                Text("•")
-                    .font(.caption2)
-                    .foregroundStyle(.quaternary)
-
-                let chip = ChipInfo.current
-                Text(chip.summary)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                Text("•")
-                    .font(.caption2)
-                    .foregroundStyle(.quaternary)
-
-                Text("Process: \(viewModel.currentBackendProcessName ?? "None")")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                // Menu renders as broken image in ImageRenderer, so keep it
-                // minimal — the static text above carries the info for exports.
-                ProcessPickerMenu(viewModel: viewModel)
-                    .accessibilityIdentifier("processPickerMenu")
-
-                Spacer()
-
-                Text(viewModel.isRunning ? "Running" : (viewModel.currentSession?.status.rawValue.capitalized ?? "—"))
-                    .font(.caption2)
+            if let quant = viewModel.selectedModel?.quantization ?? viewModel.currentSession?.modelQuantization {
+                Text("•").font(.caption2).foregroundStyle(.quaternary)
+                Text(quant)
+                    .font(.caption2.monospaced().weight(.medium))
                     .foregroundStyle(.secondary)
             }
-            .padding(.top, Spacing.xxs)
+
+            if let format = viewModel.selectedModel?.modelFormat?.rawValue ?? viewModel.currentSession?.modelFormat {
+                Text("•").font(.caption2).foregroundStyle(.quaternary)
+                Text(format)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(format == "MLX" ? Color.purple : Color.green)
+            }
+
+            Text("•")
+                .font(.caption2)
+                .foregroundStyle(.quaternary)
+
+            let chip = ChipInfo.current
+            Text(chip.summary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            Text("•")
+                .font(.caption2)
+                .foregroundStyle(.quaternary)
+
+            Text("Process: \(viewModel.currentBackendProcessName ?? "None")")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            // Menu renders as broken image in ImageRenderer, so keep it
+            // minimal — the static text above carries the info for exports.
+            ProcessPickerMenu(viewModel: viewModel)
+                .accessibilityIdentifier("processPickerMenu")
+
+            Spacer()
+
+            Text(viewModel.isRunning ? "Running" : (viewModel.currentSession?.status.rawValue.capitalized ?? "—"))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
-        .padding(Spacing.md)
-        .background {
-            RoundedRectangle(cornerRadius: CornerRadius.lg)
-                .fill(Color.cardBackgroundElevated)
-                .overlay {
-                    RoundedRectangle(cornerRadius: CornerRadius.lg)
-                        .strokeBorder(Color.cardBorder, lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
-        }
+        .padding(.top, Spacing.xxs)
     }
 }
 
@@ -1317,9 +1420,65 @@ private struct InferenceStatsButton: View {
                     statRow("reasoning_token/s", formatDecimal(Double(rt) / rd))
                 }
             }
+
+            // oMLX reports its own metrics; show them verbatim, exactly as the
+            // server sent them (including fields we don't otherwise surface).
+            let serverRows = omlxReportedRows
+            if !serverRows.isEmpty {
+                Divider()
+                    .padding(.vertical, 3)
+                Text("Reported by oMLX")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 2)
+                ForEach(serverRows.indices, id: \.self) { i in
+                    statRow(serverRows[i].label, serverRows[i].value)
+                }
+            }
         }
         .padding(Spacing.sm)
         .frame(width: 260)
+    }
+
+    /// Parse the backend's raw `usage` JSON (oMLX) into flat label/value rows,
+    /// preserving the server's own numbers without rounding or renaming.
+    private var omlxReportedRows: [(label: String, value: String)] {
+        guard let json = session.serverMetricsJSON,
+              let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [] }
+
+        var rows: [(label: String, value: String)] = []
+        for key in obj.keys.sorted() {
+            guard let value = obj[key] else { continue }
+            if let nested = value as? [String: Any] {
+                for subKey in nested.keys.sorted() {
+                    if let subValue = nested[subKey] {
+                        rows.append((label: "\(key).\(subKey)", value: formatJSONValue(subValue)))
+                    }
+                }
+            } else {
+                rows.append((label: key, value: formatJSONValue(value)))
+            }
+        }
+        return rows
+    }
+
+    /// Render a JSON scalar the way the server stated it: integers as integers,
+    /// fractionals with trailing zeros trimmed (so 0.8 stays "0.8", not "0.80").
+    private func formatJSONValue(_ value: Any) -> String {
+        if let n = value as? NSNumber {
+            // Bools decode to NSNumber; surface them as true/false.
+            if CFGetTypeID(n) == CFBooleanGetTypeID() {
+                return n.boolValue ? "true" : "false"
+            }
+            let d = n.doubleValue
+            if d == d.rounded() && abs(d) < 1e15 {
+                return String(Int(d))
+            }
+            return String(format: "%g", d)
+        }
+        return String(describing: value)
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {

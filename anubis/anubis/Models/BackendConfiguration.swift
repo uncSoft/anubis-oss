@@ -61,7 +61,7 @@ struct BackendConfiguration: Identifiable, Codable, Hashable {
     /// Default MLX configuration (mlx-lm serve)
     static let defaultMLX = BackendConfiguration(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
-        name: "MLX",
+        name: "MLX (mlx-lm)",
         type: .openaiCompatible,
         baseURL: "http://localhost:8080",
         isEnabled: true
@@ -85,12 +85,25 @@ struct BackendConfiguration: Identifiable, Codable, Hashable {
         isEnabled: true
     )
 
+    /// Default oMLX configuration (github.com/jundot/omlx).
+    /// OpenAI-compatible like the others, but distinct from mlx-lm: it runs on
+    /// port 8000 and reports its own decode-loop timing in the usage object,
+    /// which OpenAICompatibleClient parses for accurate tok/s and TTFT.
+    static let defaultOMLX = BackendConfiguration(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000005")!,
+        name: "oMLX",
+        type: .openaiCompatible,
+        baseURL: "http://localhost:8000",
+        isEnabled: true
+    )
+
     /// IDs of built-in default configurations that cannot be deleted
     static let defaultIDs: Set<UUID> = [
         defaultOllama.id,
         defaultMLX.id,
         defaultLMStudio.id,
-        defaultVLLM.id
+        defaultVLLM.id,
+        defaultOMLX.id
     ]
 }
 
@@ -108,7 +121,8 @@ class BackendConfigurationManager: ObservableObject {
         .defaultOllama,
         .defaultMLX,
         .defaultLMStudio,
-        .defaultVLLM
+        .defaultVLLM,
+        .defaultOMLX
     ]
 
     init() {

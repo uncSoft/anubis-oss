@@ -129,7 +129,8 @@ actor OpenAICompatibleClient: InferenceBackend {
                 backend: .openai,
                 openAIConfigId: configId,
                 path: diskMatch?.path,
-                modifiedAt: diskMatch?.modifiedAt
+                modifiedAt: diskMatch?.modifiedAt,
+                ownedBy: model.ownedBy
             )
         }
     }
@@ -270,6 +271,21 @@ actor OpenAICompatibleClient: InferenceBackend {
         var state = StreamState()
         let startTime = Date()
         var lastUsage: OpenAIUsage?
+        // Raw usage object exactly as the backend sent it, captured only when
+        // it carries oMLX's extended timing. Persisted so the UI can show
+        // oMLX's numbers verbatim, including any fields we don't model yet.
+        var lastUsageRawJSON: String?
+        var finalized = false
+
+        // Emit the terminal chunk exactly once. Used by both the [DONE]
+        // sentinel and the stream-closed fallback below.
+        func emitFinal() {
+            guard !finalized else { return }
+            finalized = true
+            let stats = state.finalize(startTime: startTime, usage: lastUsage, rawUsageJSON: lastUsageRawJSON)
+            continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
+            continuation.finish()
+        }
 
         for try await line in bytes.lines {
             // SSE format: "data: {...}" or "data: [DONE]"
@@ -277,9 +293,7 @@ actor OpenAICompatibleClient: InferenceBackend {
             let jsonString = String(line.dropFirst(6))
 
             if jsonString == "[DONE]" {
-                let stats = state.finalize(startTime: startTime, usage: lastUsage)
-                continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
-                continuation.finish()
+                emitFinal()
                 return
             }
 
@@ -291,6 +305,16 @@ actor OpenAICompatibleClient: InferenceBackend {
                 // Capture usage if provided (typically on the final chunk)
                 if let usage = chunk.usage {
                     lastUsage = usage
+                    // For oMLX (the only backend that reports its own timing),
+                    // keep the raw usage object verbatim so we never lose or
+                    // round a field — including ones we don't decode.
+                    if usage.hasServerTiming,
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let usageObj = obj["usage"] as? [String: Any],
+                       let usageData = try? JSONSerialization.data(withJSONObject: usageObj, options: [.sortedKeys]),
+                       let usageStr = String(data: usageData, encoding: .utf8) {
+                        lastUsageRawJSON = usageStr
+                    }
                 }
 
                 let delta = chunk.choices.first?.delta
@@ -342,17 +366,18 @@ actor OpenAICompatibleClient: InferenceBackend {
                     }
                 }
 
-                // Check finish_reason - generation complete before [DONE]
+                // Check finish_reason - generation is complete. Do NOT finalize
+                // here: with stream_options.include_usage the server sends a
+                // trailing usage-only chunk (choices: []) AFTER this one, and
+                // oMLX packs its decode-loop timing into that block. Returning
+                // now would drop it and fall back to wall-clock timing. Keep
+                // reading; finalize on [DONE] or when the stream closes.
                 if let finishReason = chunk.choices.first?.finishReason,
                    finishReason == "stop" || finishReason == "length" {
                     if state.reasoningOpen && !state.reasoningClosedEmitted {
                         state.reasoningClosedEmitted = true
                         continuation.yield(InferenceChunk(text: "</think>", done: false))
                     }
-                    let stats = state.finalize(startTime: startTime, usage: lastUsage)
-                    continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
-                    continuation.finish()
-                    return
                 }
             } catch {
                 // Skip malformed chunks
@@ -360,7 +385,9 @@ actor OpenAICompatibleClient: InferenceBackend {
             }
         }
 
-        continuation.finish()
+        // Stream closed without a [DONE] sentinel (some servers omit it).
+        // Finalize with whatever usage we captured.
+        emitFinal()
     }
 }
 
@@ -445,11 +472,25 @@ private struct StreamState {
         return nil
     }
 
-    func finalize(startTime: Date, usage: OpenAIUsage?) -> InferenceStats {
+    func finalize(startTime: Date, usage: OpenAIUsage?, rawUsageJSON: String? = nil) -> InferenceStats {
         let now = Date()
-        let totalDuration = now.timeIntervalSince(startTime)
-        let promptEval = firstChunkTime.map { $0.timeIntervalSince(startTime) } ?? 0
-        let evalDuration = firstChunkTime.map { now.timeIntervalSince($0) } ?? totalDuration
+        let wallTotal = now.timeIntervalSince(startTime)
+
+        // Prefer the backend's own timing when it reports it (oMLX). These are
+        // measured inside the decode loop, so they're immune to the client-read
+        // bursts that make wall-clock evalDuration collapse toward zero and
+        // tok/s explode (issue #25). Fall back to wall-clock for plain mlx-lm,
+        // LM Studio, vLLM, llama.cpp, etc. which report only token counts.
+        let serverTiming = usage?.hasServerTiming ?? false
+
+        let totalDuration = usage?.totalTime ?? wallTotal
+        let promptEval = usage?.promptEvalDuration
+            ?? usage?.timeToFirstToken
+            ?? firstChunkTime.map { $0.timeIntervalSince(startTime) }
+            ?? 0
+        let evalDuration = usage?.generationDuration
+            ?? firstChunkTime.map { now.timeIntervalSince($0) }
+            ?? wallTotal
 
         // Reasoning duration: from first reasoning chunk to first content chunk
         // (or to end, if reasoning ran to completion without follow-on content).
@@ -485,10 +526,17 @@ private struct StreamState {
             totalDuration: totalDuration,
             promptEvalDuration: promptEval,
             evalDuration: evalDuration,
-            loadDuration: 0,
+            loadDuration: usage?.modelLoadDuration ?? 0,
             contextLength: promptToks > 0 ? promptToks + completionToks : 0,
             reasoningTokens: reasoningTokenCount,
-            reasoningDuration: reasoningDuration
+            reasoningDuration: reasoningDuration,
+            // oMLX hands us the exact decode-loop throughput and TTFT; use them
+            // verbatim so our headline numbers match the backend's own. nil for
+            // every other server, which leaves tok/s/TTFT derived as before.
+            reportedTokensPerSecond: serverTiming ? usage?.generationTokensPerSecond : nil,
+            serverReportedTTFT: serverTiming ? (usage?.timeToFirstToken ?? usage?.promptEvalDuration) : nil,
+            reportedPromptTokensPerSecond: serverTiming ? usage?.promptTokensPerSecond : nil,
+            serverReportedMetricsJSON: serverTiming ? rawUsageJSON : nil
         )
     }
 }
@@ -810,10 +858,48 @@ private struct OpenAIUsage: Codable {
     let completionTokens: Int?
     let totalTokens: Int?
 
+    // --- oMLX extension (github.com/jundot/omlx) ---
+    // oMLX reports authoritative timing in its usage object, measured
+    // inside the decode loop and immune to client-side read stalls. When
+    // present we trust these over wall-clock inference (which a bursty SSE
+    // reader can corrupt into implausibly high tok/s -- see issue #25).
+    // Values are seconds except the per-second rates. Plain mlx-lm, LM
+    // Studio, vLLM, etc. omit them and we fall back to wall-clock timing.
+    let timeToFirstToken: Double?
+    let promptEvalDuration: Double?
+    let generationDuration: Double?
+    let promptTokensPerSecond: Double?
+    let generationTokensPerSecond: Double?
+    let modelLoadDuration: Double?
+    let totalTime: Double?
+    let promptTokensDetails: PromptTokensDetails?
+
+    struct PromptTokensDetails: Codable {
+        let cachedTokens: Int?
+        enum CodingKeys: String, CodingKey {
+            case cachedTokens = "cached_tokens"
+        }
+    }
+
+    /// True when the server supplied its own generation timing -- i.e. this
+    /// is an oMLX-style backend and we should trust its numbers rather than
+    /// inferring from chunk-arrival wall-clock.
+    var hasServerTiming: Bool {
+        generationDuration != nil || generationTokensPerSecond != nil
+    }
+
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
+        case timeToFirstToken = "time_to_first_token"
+        case promptEvalDuration = "prompt_eval_duration"
+        case generationDuration = "generation_duration"
+        case promptTokensPerSecond = "prompt_tokens_per_second"
+        case generationTokensPerSecond = "generation_tokens_per_second"
+        case modelLoadDuration = "model_load_duration"
+        case totalTime = "total_time"
+        case promptTokensDetails = "prompt_tokens_details"
     }
 }
 

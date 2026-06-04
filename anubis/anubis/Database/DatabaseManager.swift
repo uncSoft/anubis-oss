@@ -505,6 +505,14 @@ final class DatabaseManager {
             )
         }
 
+        // v11: store the backend's raw `usage` JSON verbatim when it reports
+        // its own metrics (oMLX). NULL for every other backend.
+        migrator.registerMigration("v11") { db in
+            try db.alter(table: "benchmark_session") { t in
+                t.add(column: "server_metrics_json", .text)
+            }
+        }
+
         try migrator.migrate(queue)
     }
 
