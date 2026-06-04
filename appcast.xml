@@ -12,8 +12,10 @@
       <description><![CDATA[
           <div style="border:2px solid #d9534f; border-radius:8px; padding:12px 14px; margin:0 0 16px; background:rgba(217,83,79,0.10);">
               <p style="margin:0 0 10px; font-weight:bold; font-size:15px;">&#9888;&#65039; If this update fails to install, you&rsquo;re on the broken updater. Install 3.8.1 once by hand &mdash; then auto-update works forever after:</p>
-              <p style="margin:0 0 8px;"><b>Option A &mdash; Homebrew (recommended):</b><br/>
-              <code style="font-size:13px;">brew update &amp;&amp; brew upgrade --cask anubis-oss --greedy</code></p>
+              <p style="margin:0 0 8px;"><b>Option A &mdash; Homebrew.</b> If you already installed via Homebrew:<br/>
+              <code style="font-size:13px;">brew update &amp;&amp; brew upgrade --cask anubis-oss --greedy</code><br/>
+              First time with Homebrew (or you installed by hand before):<br/>
+              <code style="font-size:13px;">brew install --cask uncsoft/anubis/anubis-oss</code></p>
               <p style="margin:0 0 8px;"><b>Option B &mdash; Direct download:</b><br/>
               <a href="https://github.com/uncSoft/anubis-oss/releases/download/v3.8.1/Anubis-OSS-3.8.zip">Download Anubis&nbsp;OSS&nbsp;3.8.1 (.zip)</a> &mdash; unzip it, then drag <b>anubis.app</b> into <b>/Applications</b>, replacing the old copy.</p>
               <p style="margin:0; font-size:12px; opacity:0.75;">Already updated and seeing this? You&rsquo;re all set &mdash; just click Install.</p>
