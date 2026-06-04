@@ -830,10 +830,7 @@ struct SessionDetailView: View {
             currentMemoryBytes: samples.last?.memoryUsedBytes ?? 0,
             totalMemoryBytes: samples.last?.memoryTotalBytes ?? 1,
             averageTps: session.tokensPerSecond,
-            isComplete: true,
-            // Per-core/GPU-core bars aren't persisted per run — hide them in
-            // history rather than showing empty "Waiting for data…" cards.
-            showCoreGrids: false
+            isComplete: true
         )
     }
 

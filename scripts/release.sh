@@ -143,8 +143,19 @@ SPARKLE_FW="$EXPORT_DIR/$APP_NAME/Contents/Frameworks/Sparkle.framework"
 ENTITLEMENTS="$PROJECT_DIR/anubis/anubis.entitlements"
 
 if [[ -d "$SPARKLE_FW" ]]; then
-    echo "→ Cleaning Sparkle.framework for Gatekeeper compliance..."
-    rm -f "$SPARKLE_FW/Autoupdate" "$SPARKLE_FW/Updater.app" "$SPARKLE_FW/XPCServices"
+    echo "→ Normalizing Sparkle.framework root symlinks..."
+    # The framework-root Autoupdate / Updater.app / XPCServices entries MUST be
+    # symlinks into Versions/Current — that's how Sparkle locates the installer
+    # via NSBundle.url(forAuxiliaryExecutable: "Autoupdate"). Deleting them (a
+    # past attempt to dodge a Gatekeeper "unsealed contents" rejection) silently
+    # breaks auto-update with "installer could not be located". The real cause of
+    # that rejection is root items being *regular files* (e.g. a zip flattening
+    # symlinks) — so recreate them as proper symlinks instead. Gatekeeper accepts
+    # this standard layout.
+    ( cd "$SPARKLE_FW" \
+        && ln -sf Versions/Current/Autoupdate Autoupdate \
+        && ln -sf Versions/Current/Updater.app Updater.app \
+        && ln -sf Versions/Current/XPCServices XPCServices )
 
     echo "  Re-signing Sparkle internals..."
     codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
