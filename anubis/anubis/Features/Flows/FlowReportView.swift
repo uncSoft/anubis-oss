@@ -378,7 +378,7 @@ struct FlowReportCard16x9: View {
                 .lineLimit(1)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(formatTPS(winner.meanTPS))
-                    .font(.system(size: 60, weight: .black, design: .rounded))
+                    .font(.system(size: 60, weight: .black, design: .default))
                     .foregroundStyle(.white)
                     .monospacedDigit()
                 VStack(alignment: .leading, spacing: 0) {
@@ -459,10 +459,10 @@ struct FlowReportCard16x9: View {
                         .foregroundStyle(.white.opacity(0.85))
                 }
                 Text("github.com/uncsoft/anubis-oss")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.45))
                 Text(data.flowRun.startedAt.formatted(date: .long, time: .shortened))
-                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .font(.system(size: 12, weight: .regular, design: .monospaced))
                     .foregroundStyle(.white.opacity(0.45))
             }
         }
@@ -543,7 +543,7 @@ private struct ModelCard: View {
                         .font(.system(size: 20, weight: .bold))
                         .lineLimit(1)
                     Text("\(row.backend) · \(row.n) rep\(row.n == 1 ? "" : "s")")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.55))
                 }
                 Spacer()
@@ -552,7 +552,7 @@ private struct ModelCard: View {
             // Big tok/s + CI
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(formatTPS(row.meanTPS))
-                    .font(.system(size: 44, weight: .black, design: .rounded))
+                    .font(.system(size: 44, weight: .black, design: .default))
                     .monospacedDigit()
                 Text("tok/s")
                     .font(.system(size: 14, weight: .semibold))
@@ -621,7 +621,7 @@ private struct ModelCard: View {
             Text(value)
                 .font(.system(size: 16, weight: .bold, design: .monospaced))
             Text(label)
-                .font(.system(size: 10, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.5))
                 .tracking(1)
         }
@@ -634,28 +634,28 @@ private struct ModelCard: View {
         let sessions = row.completedSessions
         return VStack(alignment: .leading, spacing: 4) {
             Text("PER-REP")
-                .font(.system(size: 9, weight: .black))
+                .font(.system(size: 11, weight: .black))
                 .tracking(1.5)
                 .foregroundStyle(.white.opacity(0.4))
             HStack(spacing: 10) {
                 Text("REP")
-                    .font(.system(size: 8, weight: .black))
+                    .font(.system(size: 11, weight: .black))
                     .tracking(1)
                     .foregroundStyle(.white.opacity(0.35))
                     .frame(width: 28, alignment: .leading)
                 Text("TOK/S")
-                    .font(.system(size: 8, weight: .black))
+                    .font(.system(size: 11, weight: .black))
                     .tracking(1)
                     .foregroundStyle(.white.opacity(0.35))
                     .frame(width: 56, alignment: .leading)
                 Spacer(minLength: 0)
                 Text("TTFT")
-                    .font(.system(size: 8, weight: .black))
+                    .font(.system(size: 11, weight: .black))
                     .tracking(1)
                     .foregroundStyle(.white.opacity(0.35))
                     .frame(width: 70, alignment: .trailing)
                 Text("TOK")
-                    .font(.system(size: 8, weight: .black))
+                    .font(.system(size: 11, weight: .black))
                     .tracking(1)
                     .foregroundStyle(.white.opacity(0.35))
                     .frame(width: 50, alignment: .trailing)
@@ -768,7 +768,7 @@ private struct SpotlightModelCard: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(value)
-                    .font(.system(size: 72, weight: .black, design: .rounded))
+                    .font(.system(size: 72, weight: .black, design: .default))
                     .monospacedDigit()
                 Text(unit)
                     .font(.system(size: 16, weight: .semibold))
@@ -791,7 +791,7 @@ private struct SpotlightModelCard: View {
 
         return VStack(alignment: .leading, spacing: 8) {
             Text("PER-REP RESULTS")
-                .font(.system(size: 11, weight: .black))
+                .font(.system(size: 12, weight: .black))
                 .tracking(2)
                 .foregroundStyle(.white.opacity(0.4))
 
@@ -849,7 +849,7 @@ private struct SpotlightModelCard: View {
 
     private func tableColHeader(_ text: String, width: CGFloat, alignment: Alignment = .leading) -> some View {
         Text(text.uppercased())
-            .font(.system(size: 9, weight: .black))
+            .font(.system(size: 11, weight: .black))
             .tracking(1.5)
             .foregroundStyle(.white.opacity(0.4))
             .frame(width: width, alignment: alignment)
@@ -954,7 +954,7 @@ struct FlowReportCard1x1: View {
                         .lineLimit(1)
                     Spacer()
                     Text(formatTPS(winner.meanTPS))
-                        .font(.system(size: 36, weight: .black, design: .rounded))
+                        .font(.system(size: 36, weight: .black, design: .default))
                         .monospacedDigit()
                     Text("tok/s")
                         .font(.system(size: 14, weight: .semibold))
@@ -973,7 +973,7 @@ struct FlowReportCard1x1: View {
     private func heroPill(value: String, icon: String, tint: Color = .white.opacity(0.85)) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(tint)
             Text(value)
                 .font(.system(size: 14, weight: .bold))
@@ -1011,7 +1011,7 @@ struct FlowReportCard1x1: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("METHODOLOGY")
-                        .font(.system(size: 11, weight: .black))
+                        .font(.system(size: 12, weight: .black))
                         .tracking(2)
                         .foregroundStyle(.white.opacity(0.4))
                     Text(methodologyLine)
@@ -1020,7 +1020,7 @@ struct FlowReportCard1x1: View {
                         .lineLimit(2)
                     if let chip = data.chipInfo {
                         Text(chipSummary(chip))
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.system(size: 12,design: .monospaced))
                             .foregroundStyle(.white.opacity(0.55))
                     }
                 }
@@ -1028,14 +1028,14 @@ struct FlowReportCard1x1: View {
                 VStack(alignment: .trailing, spacing: 4) {
                     HStack(spacing: 5) {
                         Image(systemName: "eye.trianglebadge.exclamationmark")
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.orange.opacity(0.85))
                         Text("Anubis OSS")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     Text("github.com/uncsoft/anubis-oss")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .foregroundStyle(.white.opacity(0.45))
                     Text(data.flowRun.startedAt.formatted(date: .abbreviated, time: .omitted))
                         .font(.system(size: 10, design: .monospaced))
@@ -1104,7 +1104,7 @@ private struct SquareModelStrip: View {
                     .lineLimit(1)
                 Spacer()
                 Text(formatTPS(row.meanTPS))
-                    .font(.system(size: 26, weight: .black, design: .rounded))
+                    .font(.system(size: 26, weight: .black, design: .default))
                     .monospacedDigit()
                 Text("tok/s")
                     .font(.system(size: 12, weight: .semibold))
@@ -1125,7 +1125,7 @@ private struct SquareModelStrip: View {
                 }
                 Spacer()
             }
-            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
             .foregroundStyle(.white.opacity(0.6))
 
             GeometryReader { geo in
@@ -1199,4 +1199,57 @@ private func truncated(_ s: String, max: Int) -> String {
     if s.count <= max { return s }
     let end = s.index(s.startIndex, offsetBy: max)
     return s[..<end] + "…"
+}
+
+// MARK: - Flow Report Window
+
+/// Presents the Flow Report in a real resizable window (not a modal sheet)
+/// so users can size it up — the card scales to fill, making the on-screen
+/// text readable — and the frame/position persist across launches.
+@MainActor
+final class FlowReportWindowController: NSObject, NSWindowDelegate {
+    static let shared = FlowReportWindowController()
+    private var window: NSWindow?
+
+    func present(data: FlowReportData) {
+        let root = FlowReportView(data: data) { [weak self] in self?.close() }
+
+        if let window {
+            window.contentViewController = NSHostingController(rootView: root)
+            window.makeKeyAndOrderFront(nil)
+            window.makeMain()
+            return
+        }
+
+        let controller = NSHostingController(rootView: root)
+        let mask: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1180, height: 820),
+            styleMask: mask,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.title = "Flow Report"
+        window.minSize = NSSize(width: 760, height: 520)
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        let autosave = NSWindow.FrameAutosaveName("AnubisFlowReportWindow")
+        if !window.setFrameAutosaveName(autosave) {
+            window.center()
+        } else if window.frame.width < window.minSize.width || window.frame.height < window.minSize.height {
+            window.setContentSize(NSSize(width: 1180, height: 820))
+            window.center()
+        }
+        window.makeKeyAndOrderFront(nil)
+        self.window = window
+    }
+
+    func close() {
+        window?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        window = nil
+    }
 }

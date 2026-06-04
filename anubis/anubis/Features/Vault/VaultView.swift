@@ -50,7 +50,10 @@ struct VaultView: View {
                     isLoading: viewModel.isLoadingInfo,
                     isRunning: viewModel.isModelRunning(model),
                     backendURL: viewModel.backendURL(for: model),
+                    supportsUnload: viewModel.supportsUnload(model),
+                    supportsLoad: viewModel.supportsLoad(model),
                     onUnload: { Task { await viewModel.unloadModel(model) } },
+                    onLoad: { Task { await viewModel.loadModel(model) } },
                     onDelete: { viewModel.confirmDelete(model) }
                 )
                 .frame(minWidth: 400)
@@ -382,7 +385,10 @@ struct ModelInspectorView: View {
     let isLoading: Bool
     let isRunning: Bool
     var backendURL: String = "—"
+    var supportsUnload: Bool = false
+    var supportsLoad: Bool = false
     let onUnload: () -> Void
+    var onLoad: () -> Void = {}
     let onDelete: () -> Void
 
     var body: some View {
@@ -562,7 +568,14 @@ struct ModelInspectorView: View {
                 .font(.headline)
 
             HStack(spacing: Spacing.sm) {
-                if isRunning && model.backend == .ollama {
+                if supportsLoad && !isRunning {
+                    Button(action: onLoad) {
+                        Label("Load", systemImage: "arrow.down.circle.fill")
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                if supportsUnload && isRunning {
                     Button(action: onUnload) {
                         Label("Unload", systemImage: "eject.fill")
                     }

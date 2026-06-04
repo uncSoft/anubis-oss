@@ -26,7 +26,9 @@ extension EnvironmentValues {
 
 /// Main benchmark dashboard view
 struct BenchmarkView: View {
-    @StateObject private var viewModel: BenchmarkViewModel
+    // Observed (not owned) — the VM lives in AppState so it survives tab
+    // navigation: a running benchmark keeps running and the last results stay.
+    @ObservedObject private var viewModel: BenchmarkViewModel
     @Environment(\.colorScheme) private var colorScheme
     @State private var showSystemPrompt = false
     // Persisted, default expanded — so new users see the N-runs +
@@ -35,19 +37,33 @@ struct BenchmarkView: View {
     @AppStorage(Constants.UserDefaultsKeys.benchmarkParametersExpanded) private var showParameters: Bool = true
     @AppStorage(Constants.UserDefaultsKeys.benchmarkPerformanceExpanded) private var showPerformance: Bool = true
     @State private var showSessionDetails = true
+    /// Session Details source override. nil = follow the default (show oMLX's
+    /// own metrics whenever the run has them); once the user picks a side it
+    /// sticks across runs. Keyed off the run carrying server-reported metrics.
+    @State private var detailsSourceOverride: Bool? = nil
     @State private var showLeaderboardUpload = false
     @State private var showThinkingHelp = false
 
-    init(
-        inferenceService: InferenceService,
-        metricsService: MetricsService,
-        databaseManager: DatabaseManager
-    ) {
-        _viewModel = StateObject(wrappedValue: BenchmarkViewModel(
-            inferenceService: inferenceService,
-            metricsService: metricsService,
-            databaseManager: databaseManager
-        ))
+    init(viewModel: BenchmarkViewModel) {
+        self.viewModel = viewModel
+    }
+
+    /// True-black dashboard canvas with a faint accent glow in the top-trailing
+    /// corner — gives the metrics dashboard a modern, dark "web3" feel while
+    /// keeping charcoal cards readable against it.
+    private var dashboardBackdrop: some View {
+        ZStack {
+            Color.dashboardBackground
+            RadialGradient(
+                colors: [Color.anubisAccent.opacity(0.10), .clear],
+                center: .topTrailing,
+                startRadius: 0,
+                endRadius: 480
+            )
+            .blendMode(.plusLighter)
+            .allowsHitTesting(false)
+        }
+        .ignoresSafeArea()
     }
 
     var body: some View {
@@ -61,20 +77,22 @@ struct BenchmarkView: View {
                 }
             }
             .frame(minWidth: 400, maxWidth: 700)
+            .background(Color.dashboardBackground)
 
             // Right panel - Metrics Dashboard (~70% default)
             ScrollView {
-                VStack(spacing: Spacing.md) {
+                VStack(spacing: Spacing.sm) {
                     groupProgressBanner
                     groupSummaryCard
                     metricsCardsSection
                     detailedStatsSection
                     chartsSection
                 }
-                .padding(Spacing.md)
+                .padding(Spacing.sm)
             }
             .frame(minWidth: 300)
             .layoutPriority(1)
+            .background(dashboardBackdrop)
         }
         .toolbar {
             ToolbarItemGroup {
@@ -120,12 +138,18 @@ struct BenchmarkView: View {
                 }
 
                 Button {
-                    viewModel.openBrowseLibrary()
+                    if viewModel.selectedBackend == .ollama {
+                        viewModel.openBrowseLibrary()
+                    } else {
+                        viewModel.openOMLXBrowser()
+                    }
                 } label: {
                     Label("Browse Models", systemImage: "books.vertical")
                 }
-                .help("Browse top Ollama models and pull from the registry")
-                .disabled(viewModel.selectedBackend != .ollama)
+                .help("Browse and download models (Ollama registry / oMLX HuggingFace)")
+                .disabled(!(viewModel.selectedBackend == .ollama
+                            || viewModel.isBuiltInOMLXBackend
+                            || viewModel.isVerifiedOMLX))
 
                 Button {
                     viewModel.startPull()
@@ -162,9 +186,11 @@ struct BenchmarkView: View {
         .sheet(isPresented: $viewModel.showBrowseLibrarySheet) {
             BrowseOllamaLibrarySheet(viewModel: viewModel)
         }
+        .sheet(isPresented: $viewModel.showOMLXBrowserSheet) {
+            OMLXModelBrowserSheet(viewModel: viewModel)
+        }
         .task {
-            await viewModel.loadModels()
-            await viewModel.loadRecentSessions()
+            await viewModel.loadInitialDataIfNeeded()
         }
         .onChange(of: viewModel.selectedBackend) { _, _ in
             Task {
@@ -296,6 +322,22 @@ struct BenchmarkView: View {
 
                     Spacer()
 
+                    // Eject (unload) the selected model — Ollama and oMLX.
+                    if viewModel.canEjectSelectedModel {
+                        Button {
+                            Task { await viewModel.ejectSelectedModel() }
+                        } label: {
+                            if viewModel.isEjectingModel {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "eject.fill")
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(viewModel.isEjectingModel || viewModel.isRunning)
+                        .help("Unload the selected model from memory")
+                    }
+
                     // Refresh models button
                     Button {
                         Task { await viewModel.loadModels() }
@@ -304,6 +346,13 @@ struct BenchmarkView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Refresh model list")
+                }
+
+                if let notice = viewModel.ejectNotice {
+                    Text(notice)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .transition(.opacity)
                 }
             }
 
@@ -586,10 +635,10 @@ struct BenchmarkView: View {
                         .controlSize(.small)
                     }
 
-                    // Ollama-only: control the `think` request param. Older
-                    // Ollama versions and non-reasoning models reject the field,
-                    // so default `Auto` omits it entirely.
-                    if viewModel.selectedBackend == .ollama {
+                    // Thinking toggle. Ollama uses the `think` field; oMLX uses
+                    // chat_template_kwargs.enable_thinking. Default `Auto` omits
+                    // it (safest for models/servers that reject the field).
+                    if viewModel.supportsThinkingToggle {
                         HStack(spacing: Spacing.sm) {
                             Text("Thinking")
                                 .font(.caption)
@@ -628,7 +677,7 @@ struct BenchmarkView: View {
                         .foregroundStyle(.secondary)
                     if !viewModel.streamResponse
                         || !viewModel.showLiveCharts
-                        || (viewModel.selectedBackend == .ollama && viewModel.ollamaThinkMode != .auto) {
+                        || (viewModel.supportsThinkingToggle && viewModel.ollamaThinkMode != .auto) {
                         Text("modified")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
@@ -775,7 +824,7 @@ struct BenchmarkView: View {
     // MARK: - Metrics Cards Section
 
     private var metricsCardsSection: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.xs) {
             // Row 1: Performance
             CompactMetricsCard(
                 title: "Tokens/sec",
@@ -1099,10 +1148,119 @@ struct BenchmarkView: View {
         }
     }
 
+    /// Effective Session Details source: default to oMLX's own metrics whenever
+    /// the run has them; respect the user's explicit choice once they make one.
+    private var showServerReportedDetails: Bool {
+        detailsSourceOverride ?? hasServerReportedMetrics
+    }
+
     private var detailedStatsGrid: some View {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
+            // The user selected the built-in oMLX backend but the server hasn't
+            // identified as oMLX — warn that the metrics aren't server-verified.
+            if viewModel.isBuiltInOMLXBackend && !viewModel.isVerifiedOMLX {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                    Text("This server isn't identifying as oMLX — metrics are Anubis-measured, not server-reported.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+            }
+
+            // oMLX reports its own metrics — let the user swap the grid to the
+            // server's verbatim figures, marked as server-verified.
+            if hasServerReportedMetrics {
+                HStack(spacing: 6) {
+                    if showServerReportedDetails {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                        Text("Reported directly by the oMLX server")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker("", selection: Binding(
+                        get: { showServerReportedDetails },
+                        set: { detailsSourceOverride = $0 }
+                    )) {
+                        Text("Anubis").tag(false)
+                        Text("oMLX").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+
+            if showServerReportedDetails, let metrics = currentServerMetrics {
+                serverReportedStatsGrid(metrics)
+            } else {
+                anubisStatsGrid
+            }
+
+            // Chip info + backend summary line
+            detailedStatsSummaryLine
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+        .background {
+            RoundedRectangle(cornerRadius: CornerRadius.lg)
+                .fill(Color.cardBackgroundElevated)
+                .overlay {
+                    RoundedRectangle(cornerRadius: CornerRadius.lg)
+                        .strokeBorder(Color.cardBorder, lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
+        }
+    }
+
+    /// The current session's oMLX-reported `usage` block, parsed. nil unless
+    /// the run was against a server that reports its own metrics (oMLX).
+    private var currentServerMetrics: [String: Any]? {
+        guard let json = viewModel.currentSession?.serverMetricsJSON,
+              let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return obj
+    }
+
+    private var hasServerReportedMetrics: Bool { currentServerMetrics != nil }
+
+    /// Session Details grid built straight from oMLX's reported usage block —
+    /// every value is the server's own number, not Anubis-derived.
+    private func serverReportedStatsGrid(_ m: [String: Any]) -> some View {
+        func dbl(_ key: String) -> Double? { (m[key] as? NSNumber)?.doubleValue }
+        func intVal(_ key: String) -> Int? { (m[key] as? NSNumber)?.intValue }
+        let cached = ((m["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? NSNumber)?.intValue
+
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 6), spacing: Spacing.xs) {
+            serverCell("Prefill Speed", dbl("prompt_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
+            serverCell("Generation Speed", dbl("generation_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
+            serverCell("Time to First Token", dbl("time_to_first_token").map { String(format: "%.2fs", $0) })
+            serverCell("Total Time", dbl("total_time").map { String(format: "%.2fs", $0) })
+            serverCell("Prompt Eval", dbl("prompt_eval_duration").map { String(format: "%.2fs", $0) })
+            serverCell("Generation", dbl("generation_duration").map { String(format: "%.2fs", $0) })
+            serverCell("Model Load", dbl("model_load_duration").map { String(format: "%.2fs", $0) })
+            serverCell("Cached Tokens", cached.map { "\($0)" })
+            serverCell("Prompt Tokens", intVal("prompt_tokens").map { "\($0)" })
+            serverCell("Completion Tokens", intVal("completion_tokens").map { "\($0)" })
+            serverCell("Total Tokens", intVal("total_tokens").map { "\($0)" })
+        }
+    }
+
+    private func serverCell(_ title: String, _ value: String?) -> some View {
+        DetailStatCell(title: title, value: value ?? "—", icon: "checkmark.seal.fill", color: .green)
+    }
+
+    private var anubisStatsGrid: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
-                // Row 1: Latency / Load / Context / GPU Frequency
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 6), spacing: Spacing.xs) {
+                // 6-wide flow — two compact rows instead of three.
                 DetailStatCell(
                     title: "Avg Token Latency",
                     value: viewModel.currentSession?.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—",
@@ -1190,67 +1348,59 @@ struct BenchmarkView: View {
                     color: .anubisMuted
                 )
             }
+        }
+    }
 
-            // Chip info + backend summary line
-            HStack(spacing: Spacing.sm) {
-                Text(viewModel.selectedModel?.name ?? viewModel.currentSession?.modelName ?? "—")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
+    /// Chip info + backend summary line shown beneath either stats grid.
+    private var detailedStatsSummaryLine: some View {
+        HStack(spacing: Spacing.sm) {
+            Text(viewModel.selectedModel?.name ?? viewModel.currentSession?.modelName ?? "—")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
 
-                if let quant = viewModel.selectedModel?.quantization ?? viewModel.currentSession?.modelQuantization {
-                    Text("•").font(.caption2).foregroundStyle(.quaternary)
-                    Text(quant)
-                        .font(.caption2.monospaced().weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-
-                if let format = viewModel.selectedModel?.modelFormat?.rawValue ?? viewModel.currentSession?.modelFormat {
-                    Text("•").font(.caption2).foregroundStyle(.quaternary)
-                    Text(format)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(format == "MLX" ? Color.purple : Color.green)
-                }
-
-                Text("•")
-                    .font(.caption2)
-                    .foregroundStyle(.quaternary)
-
-                let chip = ChipInfo.current
-                Text(chip.summary)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                Text("•")
-                    .font(.caption2)
-                    .foregroundStyle(.quaternary)
-
-                Text("Process: \(viewModel.currentBackendProcessName ?? "None")")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                // Menu renders as broken image in ImageRenderer, so keep it
-                // minimal — the static text above carries the info for exports.
-                ProcessPickerMenu(viewModel: viewModel)
-                    .accessibilityIdentifier("processPickerMenu")
-
-                Spacer()
-
-                Text(viewModel.isRunning ? "Running" : (viewModel.currentSession?.status.rawValue.capitalized ?? "—"))
-                    .font(.caption2)
+            if let quant = viewModel.selectedModel?.quantization ?? viewModel.currentSession?.modelQuantization {
+                Text("•").font(.caption2).foregroundStyle(.quaternary)
+                Text(quant)
+                    .font(.caption2.monospaced().weight(.medium))
                     .foregroundStyle(.secondary)
             }
-            .padding(.top, Spacing.xxs)
+
+            if let format = viewModel.selectedModel?.modelFormat?.rawValue ?? viewModel.currentSession?.modelFormat {
+                Text("•").font(.caption2).foregroundStyle(.quaternary)
+                Text(format)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(format == "MLX" ? Color.purple : Color.green)
+            }
+
+            Text("•")
+                .font(.caption2)
+                .foregroundStyle(.quaternary)
+
+            let chip = ChipInfo.current
+            Text(chip.summary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            Text("•")
+                .font(.caption2)
+                .foregroundStyle(.quaternary)
+
+            Text("Process: \(viewModel.currentBackendProcessName ?? "None")")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            // Menu renders as broken image in ImageRenderer, so keep it
+            // minimal — the static text above carries the info for exports.
+            ProcessPickerMenu(viewModel: viewModel)
+                .accessibilityIdentifier("processPickerMenu")
+
+            Spacer()
+
+            Text(viewModel.isRunning ? "Running" : (viewModel.currentSession?.status.rawValue.capitalized ?? "—"))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
-        .padding(Spacing.md)
-        .background {
-            RoundedRectangle(cornerRadius: CornerRadius.lg)
-                .fill(Color.cardBackgroundElevated)
-                .overlay {
-                    RoundedRectangle(cornerRadius: CornerRadius.lg)
-                        .strokeBorder(Color.cardBorder, lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
-        }
+        .padding(.top, Spacing.xxs)
     }
 }
 
@@ -1317,9 +1467,65 @@ private struct InferenceStatsButton: View {
                     statRow("reasoning_token/s", formatDecimal(Double(rt) / rd))
                 }
             }
+
+            // oMLX reports its own metrics; show them verbatim, exactly as the
+            // server sent them (including fields we don't otherwise surface).
+            let serverRows = omlxReportedRows
+            if !serverRows.isEmpty {
+                Divider()
+                    .padding(.vertical, 3)
+                Text("Reported by oMLX")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 2)
+                ForEach(serverRows.indices, id: \.self) { i in
+                    statRow(serverRows[i].label, serverRows[i].value)
+                }
+            }
         }
         .padding(Spacing.sm)
         .frame(width: 260)
+    }
+
+    /// Parse the backend's raw `usage` JSON (oMLX) into flat label/value rows,
+    /// preserving the server's own numbers without rounding or renaming.
+    private var omlxReportedRows: [(label: String, value: String)] {
+        guard let json = session.serverMetricsJSON,
+              let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [] }
+
+        var rows: [(label: String, value: String)] = []
+        for key in obj.keys.sorted() {
+            guard let value = obj[key] else { continue }
+            if let nested = value as? [String: Any] {
+                for subKey in nested.keys.sorted() {
+                    if let subValue = nested[subKey] {
+                        rows.append((label: "\(key).\(subKey)", value: formatJSONValue(subValue)))
+                    }
+                }
+            } else {
+                rows.append((label: key, value: formatJSONValue(value)))
+            }
+        }
+        return rows
+    }
+
+    /// Render a JSON scalar the way the server stated it: integers as integers,
+    /// fractionals with trailing zeros trimmed (so 0.8 stays "0.8", not "0.80").
+    private func formatJSONValue(_ value: Any) -> String {
+        if let n = value as? NSNumber {
+            // Bools decode to NSNumber; surface them as true/false.
+            if CFGetTypeID(n) == CFBooleanGetTypeID() {
+                return n.boolValue ? "true" : "false"
+            }
+            let d = n.doubleValue
+            if d == d.rounded() && abs(d) < 1e15 {
+                return String(Int(d))
+            }
+            return String(format: "%g", d)
+        }
+        return String(describing: value)
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {
@@ -1351,7 +1557,7 @@ struct DetailStatCell: View {
     var color: Color? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
                 if let icon, let color {
                     Image(systemName: icon)
@@ -1361,10 +1567,14 @@ struct DetailStatCell: View {
                 Text(title)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
             Text(value)
                 .font(.mono(13, weight: .medium))
                 .foregroundStyle(value == "—" ? .tertiary : .primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1723,13 +1933,12 @@ struct ExpandedMetricsView: View {
                         )
                     }
 
-                    // Power rows (if available)
-                    if viewModel.hasPowerMetrics && chartData.hasPowerData {
+                    // Power rows — gate on capability, not sample presence,
+                    // so cards show their empty state before a run too.
+                    if viewModel.hasPowerMetrics {
                         // Row 3: CPU Cores | GPU Cores | System Power
-                        if !viewModel.latestPerCoreSnapshot.isEmpty {
-                            CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
-                                viewModel.openCoreDetailWindow()
-                            }
+                        CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
+                            viewModel.openCoreDetailWindow()
                         }
                         GPUCoreGrid(gpuUtilization: viewModel.latestGPUUtilization) {
                             viewModel.openGPUDetailWindow()
@@ -1782,10 +1991,8 @@ struct ExpandedMetricsView: View {
                         )
                     } else {
                         // No power — just show core grids
-                        if !viewModel.latestPerCoreSnapshot.isEmpty {
-                            CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
-                                viewModel.openCoreDetailWindow()
-                            }
+                        CoreUtilizationGrid(snapshot: viewModel.latestPerCoreSnapshot) {
+                            viewModel.openCoreDetailWindow()
                         }
                         GPUCoreGrid(gpuUtilization: viewModel.latestGPUUtilization) {
                             viewModel.openGPUDetailWindow()
@@ -2322,10 +2529,14 @@ struct ChartGrid: View {
     var chartHeight: CGFloat = 150
     var elapsedTime: TimeInterval = 0
 
-    private let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
+    private let columns = [
+        GridItem(.flexible(), spacing: Spacing.sm),
+        GridItem(.flexible(), spacing: Spacing.sm),
+        GridItem(.flexible(), spacing: Spacing.sm)
+    ]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: Spacing.md) {
+        LazyVGrid(columns: columns, spacing: Spacing.sm) {
             // 3-col flow — chart order preserved; rows fill left-to-right.
             TimelineChart(
                 title: "Tok/Second",
@@ -2377,11 +2588,13 @@ struct ChartGrid: View {
                 chartHeight: chartHeight
             )
 
-            if hasPowerMetrics && data.hasPowerData {
-                if !perCoreSnapshot.isEmpty {
-                    CoreUtilizationGrid(snapshot: perCoreSnapshot) {
-                        onExpandCores?()
-                    }
+            // Gate purely on capability (IOReport/power available), not on
+            // whether samples have arrived yet — each card renders its own
+            // empty-state placeholder before data, so the grid layout is
+            // consistent before and during a run.
+            if hasPowerMetrics {
+                CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                    onExpandCores?()
                 }
 
                 GPUCoreGrid(gpuUtilization: gpuUtilization) {
@@ -2431,12 +2644,11 @@ struct ChartGrid: View {
                 RunTimeCard(elapsedTime: elapsedTime, isComplete: isComplete, chartHeight: chartHeight)
             }
 
-            // Show core grids even without power metrics
-            if !hasPowerMetrics || !data.hasPowerData {
-                if !perCoreSnapshot.isEmpty {
-                    CoreUtilizationGrid(snapshot: perCoreSnapshot) {
-                        onExpandCores?()
-                    }
+            // Platform without power capability — still show the core grids
+            // (they render their own empty state until data arrives).
+            if !hasPowerMetrics {
+                CoreUtilizationGrid(snapshot: perCoreSnapshot) {
+                    onExpandCores?()
                 }
 
                 GPUCoreGrid(gpuUtilization: gpuUtilization) {
@@ -2951,5 +3163,188 @@ private struct LibraryEntryRow: View {
                         .strokeBorder(Color.cardBorder, lineWidth: 1)
                 )
         )
+    }
+}
+
+// MARK: - oMLX Model Browser
+
+/// Browse + download MLX models from oMLX's HuggingFace integration. Mirrors
+/// the Ollama library browser, but search/recommended/download all go through
+/// oMLX's admin HF endpoints (poll-based download progress).
+private struct OMLXModelBrowserSheet: View {
+    @ObservedObject var viewModel: BenchmarkViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var searchDebounce: Task<Void, Never>?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            searchBar
+            Divider()
+            content
+            if viewModel.isDownloadingOMLXModel {
+                Divider()
+                downloadBar
+            }
+        }
+        .frame(width: 580, height: 620)
+    }
+
+    private var header: some View {
+        HStack {
+            Image(systemName: "square.and.arrow.down.on.square")
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Browse oMLX Models").font(.headline)
+                Text("MLX models from HuggingFace, downloaded by your oMLX server")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+        }
+        .padding(Spacing.md)
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search HuggingFace (MLX) — leave empty for trending", text: $searchText)
+                .textFieldStyle(.plain)
+                .onChange(of: searchText) { _, _ in scheduleSearch() }
+            if !searchText.isEmpty {
+                Button { searchText = ""; fireSearch() } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.omlxBrowseLoading && viewModel.omlxBrowseModels.isEmpty {
+            Spacer()
+            ProgressView().controlSize(.large)
+            Spacer()
+        } else if let err = viewModel.omlxBrowseError {
+            Spacer()
+            VStack(spacing: Spacing.sm) {
+                Image(systemName: "exclamationmark.triangle").font(.title).foregroundStyle(.orange)
+                Text(err).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("Try Again") { Task { await viewModel.reloadOMLXBrowse() } }
+                    .buttonStyle(.bordered)
+            }
+            .padding()
+            Spacer()
+        } else if viewModel.omlxBrowseModels.isEmpty {
+            Spacer()
+            Text(searchText.isEmpty ? "No models available." : "No matches for \"\(searchText)\".")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(viewModel.omlxBrowseModels) { model in
+                        OMLXModelRow(
+                            model: model,
+                            isInstalled: viewModel.isOMLXModelInstalled(model.repoId),
+                            isDownloadingThis: viewModel.omlxDownloadingRepo == model.repoId,
+                            downloadInFlight: viewModel.isDownloadingOMLXModel,
+                            onDownload: { viewModel.downloadOMLXModel(model.repoId) }
+                        )
+                        Divider().opacity(0.4)
+                    }
+                }
+            }
+        }
+    }
+
+    private var downloadBar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(viewModel.omlxDownloadingRepo ?? "")
+                    .font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Text("\(Int(viewModel.omlxDownloadProgress * 100))%")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Button("Cancel") { viewModel.cancelOMLXDownload() }
+                    .buttonStyle(.borderless).controlSize(.small)
+            }
+            ProgressView(value: viewModel.omlxDownloadProgress)
+            Text(viewModel.omlxDownloadStatus).font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(Spacing.md)
+    }
+
+    private func scheduleSearch() {
+        searchDebounce?.cancel()
+        searchDebounce = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if Task.isCancelled { return }
+            fireSearch()
+        }
+    }
+
+    private func fireSearch() {
+        viewModel.omlxBrowseQuery = searchText
+        Task { await viewModel.reloadOMLXBrowse() }
+    }
+}
+
+private struct OMLXModelRow: View {
+    let model: OMLXHFModel
+    let isInstalled: Bool
+    let isDownloadingThis: Bool
+    let downloadInFlight: Bool
+    let onDownload: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Spacing.sm) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 10) {
+                    if !model.sizeFormatted.isEmpty {
+                        metaChip("internaldrive", model.sizeFormatted)
+                    }
+                    if let params = model.paramsFormatted {
+                        metaChip("cpu", params)
+                    }
+                    if model.downloads > 0 {
+                        metaChip("arrow.down.circle", Formatters.compactCount(model.downloads))
+                    }
+                    if model.likes > 0 {
+                        metaChip("heart", "\(model.likes)")
+                    }
+                }
+            }
+            Spacer()
+            if isInstalled {
+                Label("Installed", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.green)
+            } else if isDownloadingThis {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Download", action: onDownload)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(downloadInFlight)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+    }
+
+    private func metaChip(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 9))
+            Text(text).font(.caption2)
+        }
+        .foregroundStyle(.secondary)
     }
 }

@@ -57,7 +57,9 @@ anubis-oss.html
 anubis - Release Steps for Auto-Update.md
 
 # Secrets (HMAC keys, API tokens — never commit)
-**/Secrets.swift
+# NOTE: anubis/anubis/Utilities/Secrets.swift is now committed with an EMPTY
+# default so the app builds out of the box. The maintainer's real secret is
+# kept local via `git update-index --skip-worktree` rather than gitignore.
 leaderboard_site/anubis/api/config.php
 leaderboard_site/anubis/api/error_log
 

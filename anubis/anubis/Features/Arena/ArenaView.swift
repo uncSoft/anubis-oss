@@ -78,6 +78,8 @@ struct ArenaView: View {
                     isRunning: viewModel.isRunning,
                     isWinner: viewModel.currentComparison?.winner == .modelA,
                     totalElapsedTime: viewModel.elapsedTimeA,
+                    supportsThinking: viewModel.supportsThinkingA,
+                    thinkMode: $viewModel.thinkModeA,
                     onSelectBackend: { backend in
                         viewModel.backendA = backend
                         viewModel.openAIConfigA = nil
@@ -105,6 +107,8 @@ struct ArenaView: View {
                     isRunning: viewModel.isRunning,
                     isWinner: viewModel.currentComparison?.winner == .modelB,
                     totalElapsedTime: viewModel.elapsedTimeB,
+                    supportsThinking: viewModel.supportsThinkingB,
+                    thinkMode: $viewModel.thinkModeB,
                     onSelectBackend: { backend in
                         viewModel.backendB = backend
                         viewModel.openAIConfigB = nil
@@ -433,6 +437,8 @@ struct ComparisonPanel: View {
     let isRunning: Bool
     let isWinner: Bool
     let totalElapsedTime: TimeInterval?
+    let supportsThinking: Bool
+    @Binding var thinkMode: OllamaThinkMode
     let onSelectBackend: (InferenceBackendType) -> Void
     let onSelectOpenAI: (BackendConfiguration) -> Void
 
@@ -519,6 +525,30 @@ struct ComparisonPanel: View {
             }
             .padding(Spacing.sm)
             .background(color.opacity(0.1))
+
+            // Thinking toggle — Ollama `think` / oMLX `enable_thinking`. Only
+            // shown when this side's backend supports it.
+            if supportsThinking {
+                HStack(spacing: 6) {
+                    Text("Thinking")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Picker("", selection: $thinkMode) {
+                        ForEach(OllamaThinkMode.allCases, id: \.self) { mode in
+                            Text(mode.displayLabel).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.mini)
+                    .labelsHidden()
+                    .fixedSize()
+                    .disabled(isRunning)
+                    Spacer()
+                }
+                .padding(.horizontal, Spacing.sm)
+                .padding(.vertical, 4)
+                .background(color.opacity(0.04))
+            }
 
             Divider()
 

@@ -21,6 +21,9 @@ enum AnubisError: LocalizedError {
     case invalidOperation(reason: String)
     case leaderboardError(reason: String)
     case thinkingNotSupported(modelId: String)
+    /// A message reported verbatim by a backend (already user-friendly), with
+    /// no Anubis-added recovery suggestion. Used for oMLX admin responses.
+    case backendMessage(String)
 
     var errorDescription: String? {
         switch self {
@@ -48,6 +51,8 @@ enum AnubisError: LocalizedError {
             return "Leaderboard error: \(reason)"
         case .thinkingNotSupported(let modelId):
             return "\(modelId) does not support thinking mode"
+        case .backendMessage(let message):
+            return message
         }
     }
 
@@ -81,6 +86,8 @@ enum AnubisError: LocalizedError {
             return "Check your internet connection and try again"
         case .thinkingNotSupported:
             return "Set Thinking to Auto or Off in Performance options, then run again."
+        case .backendMessage:
+            return nil
         }
     }
 }

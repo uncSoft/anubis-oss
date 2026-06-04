@@ -247,7 +247,7 @@ struct MonitorView: View {
 
             if viewModel.isMonitoring {
                 Button {
-                    appState.floatingHUD.show(metricsService: appState.metricsService, miniaturizeMainWindow: true)
+                    appState.floatingHUD.show(metricsService: appState.metricsService)
                 } label: {
                     Label("Float", systemImage: "pip.fill")
                 }

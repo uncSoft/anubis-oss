@@ -494,11 +494,17 @@ actor OllamaClient: InferenceBackend {
 
 /// A currently loaded model
 struct RunningModel: Identifiable {
-    var id: String { name }
+    // Unique across backends so Ollama + oMLX models with the same name
+    // don't collide in a ForEach.
+    var id: String { "\(name)#\(openAIConfigId?.uuidString ?? backend.rawValue)" }
     let name: String
     let sizeBytes: Int64
     let sizeVRAM: Int64
     let expiresAt: Date?
+    /// Which backend this loaded model belongs to (for unload routing).
+    var backend: InferenceBackendType = .ollama
+    /// For oMLX/OpenAI-compatible backends, the config this model is served by.
+    var openAIConfigId: UUID? = nil
 
     var isExpiringSoon: Bool {
         guard let expires = expiresAt else { return false }

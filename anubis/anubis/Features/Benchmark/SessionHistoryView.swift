@@ -544,6 +544,9 @@ struct SessionDetailView: View {
     @ObservedObject var viewModel: BenchmarkViewModel
     @State private var samples: [BenchmarkSample] = []
     @State private var statistics: SampleStatistics?
+    /// Session Details source override (oMLX runs only). nil = default to the
+    /// server's own metrics; once toggled it sticks. See BenchmarkView.
+    @State private var detailsSourceOverride: Bool? = nil
 
     var body: some View {
         ScrollView {
@@ -602,6 +605,79 @@ struct SessionDetailView: View {
     }
 
     private var statsSection: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            // oMLX runs carry the server's own metrics — let the user swap to
+            // the verbatim server-reported figures (defaults to oMLX).
+            if hasServerReportedMetrics {
+                HStack(spacing: 6) {
+                    if showServerReportedDetails {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.green)
+                        Text("Reported directly by the oMLX server")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Picker("", selection: Binding(
+                        get: { showServerReportedDetails },
+                        set: { detailsSourceOverride = $0 }
+                    )) {
+                        Text("Anubis").tag(false)
+                        Text("oMLX").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
+
+            if showServerReportedDetails, let metrics = currentServerMetrics {
+                serverReportedStatsGrid(metrics)
+            } else {
+                anubisStatsGrid
+            }
+        }
+    }
+
+    /// oMLX's reported `usage` block, parsed. nil for non-oMLX sessions.
+    private var currentServerMetrics: [String: Any]? {
+        guard let json = session.serverMetricsJSON,
+              let data = json.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return obj
+    }
+
+    private var hasServerReportedMetrics: Bool { currentServerMetrics != nil }
+
+    private var showServerReportedDetails: Bool {
+        detailsSourceOverride ?? hasServerReportedMetrics
+    }
+
+    /// Stats grid built straight from oMLX's reported usage — every value is
+    /// the server's own number, not Anubis-derived.
+    private func serverReportedStatsGrid(_ m: [String: Any]) -> some View {
+        func dbl(_ key: String) -> Double? { (m[key] as? NSNumber)?.doubleValue }
+        func intVal(_ key: String) -> Int? { (m[key] as? NSNumber)?.intValue }
+        let cached = ((m["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? NSNumber)?.intValue
+
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.md) {
+            StatCell(title: "Prefill Tk/s", value: dbl("prompt_tokens_per_second").map { String(format: "%.2f tok/s", $0) } ?? "—")
+            StatCell(title: "Generation Tk/s", value: dbl("generation_tokens_per_second").map { String(format: "%.2f tok/s", $0) } ?? "—")
+            StatCell(title: "Time to First Token", value: dbl("time_to_first_token").map { String(format: "%.2fs", $0) } ?? "—")
+            StatCell(title: "Total Time", value: dbl("total_time").map { String(format: "%.2fs", $0) } ?? "—")
+            StatCell(title: "Prompt Eval", value: dbl("prompt_eval_duration").map { String(format: "%.2fs", $0) } ?? "—")
+            StatCell(title: "Generation", value: dbl("generation_duration").map { String(format: "%.2fs", $0) } ?? "—")
+            StatCell(title: "Model Load", value: dbl("model_load_duration").map { String(format: "%.2fs", $0) } ?? "—")
+            StatCell(title: "Cached Tokens", value: cached.map { "\($0)" } ?? "—")
+            StatCell(title: "Prompt Tokens", value: intVal("prompt_tokens").map { "\($0)" } ?? "—")
+            StatCell(title: "Completion Tokens", value: intVal("completion_tokens").map { "\($0)" } ?? "—")
+            StatCell(title: "Total Tokens", value: intVal("total_tokens").map { "\($0)" } ?? "—")
+        }
+    }
+
+    private var anubisStatsGrid: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.md) {
                 // Row 1: Performance

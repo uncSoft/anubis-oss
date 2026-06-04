@@ -278,6 +278,82 @@ final class BenchmarkViewModel: ObservableObject {
         }
     }
 
+    /// True when the active backend is the built-in oMLX stock configuration.
+    /// Used to apply oMLX-specific verification — if the user points this at a
+    /// server that isn't actually oMLX, we warn rather than silently trust it.
+    var isBuiltInOMLXBackend: Bool {
+        selectedBackend == .openai &&
+        inferenceService.currentOpenAIConfig?.id == BackendConfiguration.defaultOMLX.id
+    }
+
+    /// True when the connected server has positively identified itself as oMLX.
+    /// Two independent signals, either of which suffices:
+    ///  - run-time: the last run returned oMLX's metric signature (the
+    ///    extended `usage` block) — proof the server actually produced it.
+    ///  - connect-time: its `/v1/models` listing stamps `owned_by: omlx`.
+    /// Guards against another OpenAI-compatible server on the oMLX port being
+    /// mistaken for the real thing.
+    var isVerifiedOMLX: Bool {
+        if currentSession?.serverMetricsJSON != nil { return true }
+        if let owner = selectedModel?.ownedBy?.lowercased(), owner.contains("omlx") { return true }
+        return false
+    }
+
+    /// Whether the current backend exposes a thinking toggle. Ollama uses the
+    /// `think` request field; oMLX uses `chat_template_kwargs.enable_thinking`.
+    /// Other OpenAI-compatible servers (LM Studio, vLLM, plain mlx-lm) don't,
+    /// so the picker stays hidden and the mode stays Auto for them.
+    var supportsThinkingToggle: Bool {
+        selectedBackend == .ollama || isBuiltInOMLXBackend || isVerifiedOMLX
+    }
+
+    /// Whether the selected model can be ejected (unloaded) from here. Both
+    /// Ollama (keep_alive: 0) and oMLX (admin unload) support it.
+    var canEjectSelectedModel: Bool {
+        guard selectedModel != nil else { return false }
+        if selectedBackend == .ollama { return true }
+        return isBuiltInOMLXBackend || isVerifiedOMLX
+    }
+
+    @Published var isEjectingModel = false
+    /// Transient, non-error feedback for the eject button (e.g. the model was
+    /// already unloaded). Auto-clears; shown as a caption near the picker.
+    @Published var ejectNotice: String?
+
+    /// Unload the selected model from the backend's memory (Ollama or oMLX).
+    func ejectSelectedModel() async {
+        guard canEjectSelectedModel, let model = selectedModel else { return }
+        isEjectingModel = true
+        ejectNotice = nil
+        defer { isEjectingModel = false }
+        do {
+            if selectedBackend == .ollama {
+                try await inferenceService.ollamaClient.unloadModel(model.id)
+            } else if let configId = inferenceService.currentOpenAIConfig?.id,
+                      let client = inferenceService.openAIClient(for: configId) {
+                try await client.unloadModel(model.id)
+            } else {
+                return
+            }
+            showEjectNotice("Unloaded \(model.name) from memory.")
+        } catch let e as OMLXAdminError where e.isBenignNotLoaded {
+            // Not loaded == already in the desired state; not an error.
+            showEjectNotice("\(model.name) wasn't loaded — nothing to unload.")
+        } catch let e as OMLXAdminError {
+            self.error = .backendMessage(e.errorDescription ?? "Failed to unload \(model.name).")
+        } catch {
+            self.error = .backendMessage("Failed to unload \(model.name): \(error.localizedDescription)")
+        }
+    }
+
+    private func showEjectNotice(_ text: String) {
+        ejectNotice = text
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            if self?.ejectNotice == text { self?.ejectNotice = nil }
+        }
+    }
+
     /// Active connection URL (resolved from backend + config)
     var connectionURL: String {
         switch selectedBackend {
@@ -518,6 +594,18 @@ final class BenchmarkViewModel: ObservableObject {
     // MARK: - Public Methods
 
     /// Load available models from current backend
+    private var didInitialLoad = false
+
+    /// One-time load on first appearance. The VM now outlives the view (it's
+    /// owned by AppState), so re-running this on every tab return would be
+    /// wasteful and could reset the selected model mid-run — guard it.
+    func loadInitialDataIfNeeded() async {
+        guard !didInitialLoad else { return }
+        didInitialLoad = true
+        await loadModels()
+        await loadRecentSessions()
+    }
+
     func loadModels() async {
         // Clear any stale error (e.g. backend-not-running from a previous switch)
         error = nil
@@ -826,7 +914,10 @@ final class BenchmarkViewModel: ObservableObject {
             // group orchestrator re-aggregates session-level fields.
             await flushSamplesToDatabase()
 
-            let ttft: TimeInterval? = finalBuf.firstTokenTime.map { $0.timeIntervalSince(startTime) }
+            // Prefer the backend's own TTFT (oMLX measures it inside the decode
+            // loop); fall back to our first-chunk wall-clock timing otherwise.
+            let ttft: TimeInterval? = finalBuf.stats?.serverReportedTTFT
+                ?? finalBuf.firstTokenTime.map { $0.timeIntervalSince(startTime) }
             let powerSummary = BenchmarkSample.computePowerSummary(from: self.currentSamplesInternal)
             let backendName = self.metricsService.latestMetrics?.backendProcessName
 
@@ -1342,6 +1433,130 @@ final class BenchmarkViewModel: ObservableObject {
         showBrowseLibrarySheet = false
         showPullSheet = true
         Task { await pullModel() }
+    }
+
+    // MARK: - oMLX Model Browser / Downloader
+
+    @Published var showOMLXBrowserSheet = false
+    @Published private(set) var omlxBrowseModels: [OMLXHFModel] = []
+    @Published private(set) var omlxBrowseLoading = false
+    @Published private(set) var omlxBrowseError: String?
+    @Published var omlxBrowseQuery = ""
+    /// Repo currently downloading (nil when idle).
+    @Published private(set) var omlxDownloadingRepo: String?
+    @Published private(set) var omlxDownloadProgress: Double = 0   // 0–1
+    @Published private(set) var omlxDownloadStatus: String = ""
+    private var omlxDownloadTask: Task<Void, Never>?
+    private var omlxActiveTaskId: String?
+
+    /// The oMLX client for the currently selected OpenAI-compatible backend.
+    private var currentOMLXClient: OpenAICompatibleClient? {
+        guard isBuiltInOMLXBackend || isVerifiedOMLX,
+              let configId = inferenceService.currentOpenAIConfig?.id else { return nil }
+        return inferenceService.openAIClient(for: configId)
+    }
+
+    var isDownloadingOMLXModel: Bool { omlxDownloadingRepo != nil }
+
+    func openOMLXBrowser() {
+        showOMLXBrowserSheet = true
+        omlxBrowseQuery = ""
+        Task { await reloadOMLXBrowse() }
+    }
+
+    /// Load recommended models (empty query) or search results.
+    func reloadOMLXBrowse() async {
+        guard let client = currentOMLXClient else {
+            omlxBrowseError = "oMLX backend is not selected."
+            return
+        }
+        omlxBrowseLoading = true
+        omlxBrowseError = nil
+        let query = omlxBrowseQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let models = query.isEmpty
+                ? try await client.hfRecommended()
+                : try await client.hfSearch(query: query)
+            // Ignore late results from a superseded query.
+            if query == omlxBrowseQuery.trimmingCharacters(in: .whitespacesAndNewlines) {
+                omlxBrowseModels = models
+            }
+        } catch {
+            omlxBrowseError = (error as? OMLXAdminError)?.errorDescription ?? error.localizedDescription
+            omlxBrowseModels = []
+        }
+        omlxBrowseLoading = false
+    }
+
+    /// True when a browser entry is already present locally.
+    func isOMLXModelInstalled(_ repoId: String) -> Bool {
+        let sanitized = repoId.replacingOccurrences(of: "/", with: "--")
+        return availableModels.contains { $0.id == sanitized || $0.id == repoId }
+    }
+
+    /// Download an HF model via oMLX, polling task progress until done.
+    func downloadOMLXModel(_ repoId: String) {
+        guard let client = currentOMLXClient, omlxDownloadingRepo == nil else { return }
+        omlxDownloadingRepo = repoId
+        omlxDownloadProgress = 0
+        omlxDownloadStatus = "Starting…"
+        omlxActiveTaskId = nil
+        omlxDownloadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await client.hfDownload(repoId: repoId)
+                while !Task.isCancelled {
+                    try await Task.sleep(nanoseconds: 800_000_000)
+                    let tasks = try await client.hfTasks()
+                    guard let t = tasks
+                        .filter({ $0.repoId == repoId })
+                        .max(by: { $0.createdAt < $1.createdAt }) else { continue }
+                    self.omlxActiveTaskId = t.taskId
+                    self.omlxDownloadProgress = t.progress / 100.0
+                    self.omlxDownloadStatus = Self.omlxStatusLabel(t)
+                    if t.status == "completed" { break }
+                    if t.status == "failed" {
+                        self.error = .backendMessage(t.error.isEmpty ? "Download failed." : t.error)
+                        break
+                    }
+                    if t.status == "cancelled" { break }
+                }
+                await self.loadModels()  // pick up the newly downloaded model
+            } catch is CancellationError {
+            } catch let e as OMLXAdminError {
+                self.error = .backendMessage(e.errorDescription ?? "Download failed.")
+            } catch {
+                self.error = .backendMessage("Download failed: \(error.localizedDescription)")
+            }
+            self.omlxDownloadingRepo = nil
+            self.omlxActiveTaskId = nil
+            self.omlxDownloadTask = nil
+        }
+    }
+
+    func cancelOMLXDownload() {
+        omlxDownloadTask?.cancel()
+        omlxDownloadTask = nil
+        if let id = omlxActiveTaskId, let client = currentOMLXClient {
+            Task { try? await client.hfCancel(id) }
+        }
+        omlxDownloadingRepo = nil
+        omlxActiveTaskId = nil
+    }
+
+    private static func omlxStatusLabel(_ t: OMLXHFTask) -> String {
+        switch t.status {
+        case "downloading":
+            if t.totalSize > 0 {
+                return "Downloading \(Formatters.bytes(t.downloadedSize)) / \(Formatters.bytes(t.totalSize))"
+            }
+            return "Downloading…"
+        case "pending": return "Queued…"
+        case "completed": return "Completed"
+        case "failed": return "Failed"
+        case "cancelled": return "Cancelled"
+        default: return t.status.capitalized
+        }
     }
 
     // MARK: - Process Selection

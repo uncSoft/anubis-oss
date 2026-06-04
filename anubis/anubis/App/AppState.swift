@@ -75,6 +75,11 @@ final class AppState: ObservableObject {
     /// Floating monitor HUD controller
     let floatingHUD = FloatingMonitorWindowController()
 
+    /// Benchmark view model — owned here (not by the view) so a running
+    /// benchmark keeps running and the last run's results stay visible when
+    /// the user navigates away from the Benchmark tab and back.
+    let benchmarkViewModel: BenchmarkViewModel
+
     // MARK: - App State
 
     /// Whether the app has completed initial setup
@@ -108,6 +113,13 @@ final class AppState: ObservableObject {
             // Log will work since Logger doesn't need initialization
             Log.database.error("Failed to initialize database: \(error.localizedDescription)")
         }
+
+        // Owned here so it survives Benchmark-tab navigation (see property doc).
+        self.benchmarkViewModel = BenchmarkViewModel(
+            inferenceService: self.inferenceService,
+            metricsService: self.metricsService,
+            databaseManager: self.databaseManager
+        )
 
         // Forward inferenceService changes to trigger view updates
         // This fixes nested ObservableObject observation issues

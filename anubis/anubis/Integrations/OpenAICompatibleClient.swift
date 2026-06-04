@@ -7,6 +7,66 @@
 
 import Foundation
 
+/// Errors from oMLX's admin API, derived from the server's `detail` message so
+/// callers can distinguish a benign "not loaded" from a genuine failure.
+enum OMLXAdminError: LocalizedError, Sendable {
+    case modelNotLoaded(detail: String)
+    case modelNotFound(detail: String)
+    case requestFailed(detail: String)
+
+    var errorDescription: String? {
+        switch self {
+        case .modelNotLoaded: return "This model isn't loaded, so there's nothing to unload."
+        case .modelNotFound:  return "This model wasn't found on the oMLX server."
+        case .requestFailed(let detail): return detail
+        }
+    }
+
+    /// True when the request "failed" only because the model wasn't loaded —
+    /// the caller can treat this as a no-op success for an unload action.
+    var isBenignNotLoaded: Bool {
+        if case .modelNotLoaded = self { return true }
+        return false
+    }
+}
+
+/// A HuggingFace model surfaced by oMLX's model browser (search/recommended).
+struct OMLXHFModel: Sendable, Identifiable {
+    var id: String { repoId }
+    let repoId: String
+    let name: String
+    let downloads: Int
+    let likes: Int
+    let sizeBytes: Int64
+    let sizeFormatted: String
+    let paramsFormatted: String?
+}
+
+/// A HuggingFace download task from oMLX (`/admin/api/hf/tasks`).
+struct OMLXHFTask: Sendable {
+    let taskId: String
+    let repoId: String
+    let status: String      // pending | downloading | completed | failed | cancelled
+    let progress: Double    // 0–100
+    let totalSize: Int64
+    let downloadedSize: Int64
+    let error: String
+    let createdAt: Double
+}
+
+/// A model entry from oMLX's admin API (`/admin/api/models`), carrying loaded
+/// state and real memory size. Surfaced in the Vault / Benchmark UI for
+/// oMLX model management (load / unload).
+struct OMLXManagedModel: Sendable, Identifiable {
+    let id: String
+    let loaded: Bool
+    let isLoading: Bool
+    let sizeBytes: Int64?
+    let sizeFormatted: String?
+    let pinned: Bool
+    let isDefault: Bool
+}
+
 /// Client for OpenAI-compatible API endpoints (LM Studio, LocalAI, vLLM, etc.)
 actor OpenAICompatibleClient: InferenceBackend {
     // MARK: - Properties
@@ -31,6 +91,15 @@ actor OpenAICompatibleClient: InferenceBackend {
                 if let fixed = URL(string: trimmed) { url = fixed }
                 break
             }
+        }
+        // Force IPv4 for localhost. macOS resolves "localhost" to ::1 first,
+        // but local inference servers (oMLX, LM Studio, mlx-lm, vLLM) bind
+        // 127.0.0.1 only — so the IPv6 attempt is refused and we'd rely on a
+        // flaky Happy-Eyeballs fallback (which the admin/HF calls don't get).
+        if var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           comps.host == "localhost" {
+            comps.host = "127.0.0.1"
+            if let fixed = comps.url { url = fixed }
         }
         self.baseURL = url
         self.apiKey = configuration.apiKey
@@ -129,9 +198,192 @@ actor OpenAICompatibleClient: InferenceBackend {
                 backend: .openai,
                 openAIConfigId: configId,
                 path: diskMatch?.path,
-                modifiedAt: diskMatch?.modifiedAt
+                modifiedAt: diskMatch?.modifiedAt,
+                ownedBy: model.ownedBy
             )
         }
+    }
+
+    // MARK: - oMLX Admin API (model management)
+    //
+    // oMLX exposes load/unload + loaded-state under /admin/api, gated by a
+    // session cookie obtained via /admin/api/login using the SAME api_key the
+    // user configured for inference. URLSessionConfiguration.default stores the
+    // cookie in shared storage and auto-attaches it to subsequent /admin calls.
+    // These endpoints exist only on oMLX; callers gate by oMLX identity.
+
+    /// Extract a human message from an OpenAI-style error body
+    /// (`{"error":{"message":"..."}}`) or a plain `{"detail":"..."}`.
+    private static func openAIErrorMessage(from body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let err = obj["error"] as? [String: Any], let msg = err["message"] as? String {
+            return msg
+        }
+        if let detail = obj["detail"] as? String { return detail }
+        return nil
+    }
+
+    /// Log in to oMLX's admin API with the configured API key. The
+    /// `omlx_admin_session` cookie is stored on this session for reuse.
+    @discardableResult
+    func adminLogin() async -> Bool {
+        guard let apiKey = apiKey, !apiKey.isEmpty else { return false }
+        let url = baseURL.appendingPathComponent("admin/api/login")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        request.httpBody = try? JSONSerialization.data(
+            withJSONObject: ["api_key": apiKey, "remember": true]
+        )
+        guard let (_, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            return false
+        }
+        return true
+    }
+
+    /// List oMLX's managed models with loaded state + sizes. Logs in on demand.
+    func managedModels() async throws -> [OMLXManagedModel] {
+        let data = try await adminRequest("admin/api/models", method: "GET")
+        let decoded = try JSONDecoder().decode(OMLXAdminModelsResponse.self, from: data)
+        return decoded.models.map { m in
+            OMLXManagedModel(
+                id: m.id,
+                loaded: m.loaded ?? false,
+                isLoading: m.isLoading ?? false,
+                sizeBytes: m.actualSize ?? m.estimatedSize,
+                sizeFormatted: m.actualSizeFormatted ?? m.estimatedSizeFormatted,
+                pinned: m.pinned ?? false,
+                isDefault: m.isDefault ?? false
+            )
+        }
+    }
+
+    /// Unload a model from oMLX's memory.
+    func unloadModel(_ id: String) async throws {
+        _ = try await adminRequest("admin/api/models/\(id)/unload", method: "POST", encodeComponent: id)
+    }
+
+    /// Load a model into oMLX's memory.
+    func loadModel(_ id: String) async throws {
+        _ = try await adminRequest("admin/api/models/\(id)/load", method: "POST", encodeComponent: id)
+    }
+
+    // MARK: - oMLX HuggingFace model browser/downloader
+
+    /// Curated/trending MLX models from oMLX's HF integration.
+    func hfRecommended(mlxOnly: Bool = true, limit: Int = 40) async throws -> [OMLXHFModel] {
+        let data = try await adminRequest("admin/api/hf/recommended", method: "GET", query: [
+            URLQueryItem(name: "mlx_only", value: mlxOnly ? "true" : "false"),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ])
+        // Recommended returns {trending: [...], popular: [...]}; tolerate
+        // {models: [...]} and a bare array too. Merge, trending first, deduped.
+        if let resp = try? JSONDecoder().decode(HFRecommendedResponse.self, from: data) {
+            let combined = (resp.trending ?? []) + (resp.popular ?? []) + (resp.models ?? [])
+            if !combined.isEmpty {
+                var seen = Set<String>()
+                return combined.compactMap { seen.insert($0.repoId).inserted ? $0.model : nil }
+            }
+        }
+        return (try JSONDecoder().decode([HFModelDTO].self, from: data)).map(\.model)
+    }
+
+    /// Search HuggingFace for MLX models via oMLX.
+    func hfSearch(query: String, mlxOnly: Bool = true, limit: Int = 40) async throws -> [OMLXHFModel] {
+        let data = try await adminRequest("admin/api/hf/search", method: "GET", query: [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "mlx_only", value: mlxOnly ? "true" : "false"),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ])
+        return (try JSONDecoder().decode(HFSearchResponse.self, from: data)).models.map(\.model)
+    }
+
+    /// Start a HuggingFace download. Progress is polled via `hfTasks()`.
+    func hfDownload(repoId: String) async throws {
+        _ = try await adminRequest("admin/api/hf/download", method: "POST", jsonBody: ["repo_id": repoId])
+    }
+
+    /// Current download tasks (poll for progress).
+    func hfTasks() async throws -> [OMLXHFTask] {
+        let data = try await adminRequest("admin/api/hf/tasks", method: "GET")
+        return (try JSONDecoder().decode(HFTasksResponse.self, from: data)).tasks.map(\.task)
+    }
+
+    /// Cancel an in-flight download task.
+    func hfCancel(_ taskId: String) async throws {
+        _ = try await adminRequest("admin/api/hf/cancel/\(taskId)", method: "POST", encodeComponent: taskId)
+    }
+
+    /// Issue an authenticated admin request, logging in + retrying once on 401.
+    /// `encodeComponent`, when set, is percent-encoded inside the path so model
+    /// ids with reserved characters resolve correctly.
+    private func adminRequest(
+        _ path: String,
+        method: String,
+        query: [URLQueryItem]? = nil,
+        encodeComponent: String? = nil,
+        jsonBody: [String: Any]? = nil
+    ) async throws -> Data {
+        func makeURL() -> URL {
+            var base: URL
+            if let comp = encodeComponent {
+                // Build the path safely around the single dynamic component.
+                let encoded = comp.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? comp
+                base = baseURL.appendingPathComponent(path.replacingOccurrences(of: comp, with: encoded))
+            } else {
+                base = baseURL.appendingPathComponent(path)
+            }
+            if let query = query,
+               var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) {
+                comps.queryItems = query
+                return comps.url ?? base
+            }
+            return base
+        }
+        func makeRequest() -> URLRequest {
+            var r = URLRequest(url: makeURL())
+            r.httpMethod = method
+            r.timeoutInterval = 30
+            if let apiKey = apiKey, !apiKey.isEmpty {
+                r.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            }
+            if let jsonBody = jsonBody {
+                r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                r.httpBody = try? JSONSerialization.data(withJSONObject: jsonBody)
+            }
+            return r
+        }
+
+        var (data, response) = try await session.data(for: makeRequest())
+        if (response as? HTTPURLResponse)?.statusCode == 401 {
+            // Session cookie missing/expired — authenticate and retry once.
+            _ = await adminLogin()
+            (data, response) = try await session.data(for: makeRequest())
+        }
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            // oMLX reports a JSON {"detail": "..."} — surface it so we can tell
+            // "Model not loaded" (benign) apart from a real failure.
+            let detail = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["detail"] as? String
+            if let detail = detail {
+                let lower = detail.lowercased()
+                if code == 400, lower.contains("not loaded") {
+                    throw OMLXAdminError.modelNotLoaded(detail: detail)
+                }
+                if code == 404, lower.contains("not found") {
+                    throw OMLXAdminError.modelNotFound(detail: detail)
+                }
+                throw OMLXAdminError.requestFailed(detail: detail)
+            }
+            throw OMLXAdminError.requestFailed(detail: "oMLX admin request failed (HTTP \(code)).")
+        }
+        return data
     }
 
     /// Attempt to fetch rich model metadata from LM Studio's extended endpoint.
@@ -234,6 +486,16 @@ actor OpenAICompatibleClient: InferenceBackend {
         }
         messages.append(["role": "user", "content": request.prompt])
 
+        // Translate the thinking toggle into chat_template_kwargs (oMLX/vLLM).
+        // Only sent when explicitly On/Off; Auto omits it so servers that don't
+        // understand the field are unaffected.
+        let templateKwargs: [String: Bool]?
+        switch request.ollamaThinkMode {
+        case .auto: templateKwargs = nil
+        case .on:   templateKwargs = ["enable_thinking": true, "preserve_thinking": false]
+        case .off:  templateKwargs = ["enable_thinking": false, "preserve_thinking": false]
+        }
+
         let body = OpenAIChatRequest(
             model: request.model,
             messages: messages,
@@ -246,7 +508,8 @@ actor OpenAICompatibleClient: InferenceBackend {
             temperature: request.temperature,
             topP: request.topP,
             stop: request.stopSequences,
-            seed: request.seed
+            seed: request.seed,
+            chatTemplateKwargs: templateKwargs
         )
 
         urlRequest.httpBody = try JSONEncoder().encode(body)
@@ -262,14 +525,43 @@ actor OpenAICompatibleClient: InferenceBackend {
             var errorBody = ""
             for try await line in bytes.lines {
                 errorBody += line
-                if errorBody.count > 500 { break } // Limit error body size
+                if errorBody.count > 800 { break } // Limit error body size
             }
-            throw AnubisError.invalidResponse(details: "Status \(httpResponse.statusCode): \(errorBody)")
+            // Surface the server's own message (OpenAI envelope: {"error":{"message":...}}).
+            let serverMsg = Self.openAIErrorMessage(from: errorBody)
+            let code = httpResponse.statusCode
+            if code >= 500 {
+                // A 500 on /v1/chat/completions almost always means the server
+                // couldn't run this model — common with non-chat models
+                // (vision/embedding) or experimental quants. Say so plainly.
+                let detail = serverMsg.map { " (\($0))" } ?? ""
+                throw AnubisError.backendMessage(
+                    "The server failed to generate with this model (HTTP \(code))\(detail). "
+                    + "It may not be a chat-capable model — some MLX models are vision, "
+                    + "embedding, or experimental-quant builds that this server can't run for chat."
+                )
+            }
+            throw AnubisError.backendMessage(serverMsg ?? "Request failed (HTTP \(code)).")
         }
 
         var state = StreamState()
         let startTime = Date()
         var lastUsage: OpenAIUsage?
+        // Raw usage object exactly as the backend sent it, captured only when
+        // it carries oMLX's extended timing. Persisted so the UI can show
+        // oMLX's numbers verbatim, including any fields we don't model yet.
+        var lastUsageRawJSON: String?
+        var finalized = false
+
+        // Emit the terminal chunk exactly once. Used by both the [DONE]
+        // sentinel and the stream-closed fallback below.
+        func emitFinal() {
+            guard !finalized else { return }
+            finalized = true
+            let stats = state.finalize(startTime: startTime, usage: lastUsage, rawUsageJSON: lastUsageRawJSON)
+            continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
+            continuation.finish()
+        }
 
         for try await line in bytes.lines {
             // SSE format: "data: {...}" or "data: [DONE]"
@@ -277,9 +569,7 @@ actor OpenAICompatibleClient: InferenceBackend {
             let jsonString = String(line.dropFirst(6))
 
             if jsonString == "[DONE]" {
-                let stats = state.finalize(startTime: startTime, usage: lastUsage)
-                continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
-                continuation.finish()
+                emitFinal()
                 return
             }
 
@@ -291,6 +581,16 @@ actor OpenAICompatibleClient: InferenceBackend {
                 // Capture usage if provided (typically on the final chunk)
                 if let usage = chunk.usage {
                     lastUsage = usage
+                    // For oMLX (the only backend that reports its own timing),
+                    // keep the raw usage object verbatim so we never lose or
+                    // round a field — including ones we don't decode.
+                    if usage.hasServerTiming,
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let usageObj = obj["usage"] as? [String: Any],
+                       let usageData = try? JSONSerialization.data(withJSONObject: usageObj, options: [.sortedKeys]),
+                       let usageStr = String(data: usageData, encoding: .utf8) {
+                        lastUsageRawJSON = usageStr
+                    }
                 }
 
                 let delta = chunk.choices.first?.delta
@@ -342,17 +642,18 @@ actor OpenAICompatibleClient: InferenceBackend {
                     }
                 }
 
-                // Check finish_reason - generation complete before [DONE]
+                // Check finish_reason - generation is complete. Do NOT finalize
+                // here: with stream_options.include_usage the server sends a
+                // trailing usage-only chunk (choices: []) AFTER this one, and
+                // oMLX packs its decode-loop timing into that block. Returning
+                // now would drop it and fall back to wall-clock timing. Keep
+                // reading; finalize on [DONE] or when the stream closes.
                 if let finishReason = chunk.choices.first?.finishReason,
                    finishReason == "stop" || finishReason == "length" {
                     if state.reasoningOpen && !state.reasoningClosedEmitted {
                         state.reasoningClosedEmitted = true
                         continuation.yield(InferenceChunk(text: "</think>", done: false))
                     }
-                    let stats = state.finalize(startTime: startTime, usage: lastUsage)
-                    continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
-                    continuation.finish()
-                    return
                 }
             } catch {
                 // Skip malformed chunks
@@ -360,7 +661,9 @@ actor OpenAICompatibleClient: InferenceBackend {
             }
         }
 
-        continuation.finish()
+        // Stream closed without a [DONE] sentinel (some servers omit it).
+        // Finalize with whatever usage we captured.
+        emitFinal()
     }
 }
 
@@ -445,11 +748,25 @@ private struct StreamState {
         return nil
     }
 
-    func finalize(startTime: Date, usage: OpenAIUsage?) -> InferenceStats {
+    func finalize(startTime: Date, usage: OpenAIUsage?, rawUsageJSON: String? = nil) -> InferenceStats {
         let now = Date()
-        let totalDuration = now.timeIntervalSince(startTime)
-        let promptEval = firstChunkTime.map { $0.timeIntervalSince(startTime) } ?? 0
-        let evalDuration = firstChunkTime.map { now.timeIntervalSince($0) } ?? totalDuration
+        let wallTotal = now.timeIntervalSince(startTime)
+
+        // Prefer the backend's own timing when it reports it (oMLX). These are
+        // measured inside the decode loop, so they're immune to the client-read
+        // bursts that make wall-clock evalDuration collapse toward zero and
+        // tok/s explode (issue #25). Fall back to wall-clock for plain mlx-lm,
+        // LM Studio, vLLM, llama.cpp, etc. which report only token counts.
+        let serverTiming = usage?.hasServerTiming ?? false
+
+        let totalDuration = usage?.totalTime ?? wallTotal
+        let promptEval = usage?.promptEvalDuration
+            ?? usage?.timeToFirstToken
+            ?? firstChunkTime.map { $0.timeIntervalSince(startTime) }
+            ?? 0
+        let evalDuration = usage?.generationDuration
+            ?? firstChunkTime.map { now.timeIntervalSince($0) }
+            ?? wallTotal
 
         // Reasoning duration: from first reasoning chunk to first content chunk
         // (or to end, if reasoning ran to completion without follow-on content).
@@ -485,10 +802,17 @@ private struct StreamState {
             totalDuration: totalDuration,
             promptEvalDuration: promptEval,
             evalDuration: evalDuration,
-            loadDuration: 0,
+            loadDuration: usage?.modelLoadDuration ?? 0,
             contextLength: promptToks > 0 ? promptToks + completionToks : 0,
             reasoningTokens: reasoningTokenCount,
-            reasoningDuration: reasoningDuration
+            reasoningDuration: reasoningDuration,
+            // oMLX hands us the exact decode-loop throughput and TTFT; use them
+            // verbatim so our headline numbers match the backend's own. nil for
+            // every other server, which leaves tok/s/TTFT derived as before.
+            reportedTokensPerSecond: serverTiming ? usage?.generationTokensPerSecond : nil,
+            serverReportedTTFT: serverTiming ? (usage?.timeToFirstToken ?? usage?.promptEvalDuration) : nil,
+            reportedPromptTokensPerSecond: serverTiming ? usage?.promptTokensPerSecond : nil,
+            serverReportedMetricsJSON: serverTiming ? rawUsageJSON : nil
         )
     }
 }
@@ -757,6 +1081,104 @@ private struct OpenAIModelsResponse: Codable {
     let data: [OpenAIModel]
 }
 
+// MARK: - oMLX Admin Models decode
+
+private struct HFSearchResponse: Codable { let models: [HFModelDTO] }
+private struct HFTasksResponse: Codable { let tasks: [HFTaskDTO] }
+private struct HFRecommendedResponse: Codable {
+    let trending: [HFModelDTO]?
+    let popular: [HFModelDTO]?
+    let models: [HFModelDTO]?
+}
+
+private struct HFModelDTO: Codable {
+    let repoId: String
+    let name: String?
+    let downloads: Int?
+    let likes: Int?
+    let size: Int64?
+    let sizeFormatted: String?
+    let paramsFormatted: String?
+
+    enum CodingKeys: String, CodingKey {
+        case repoId = "repo_id"
+        case name, downloads, likes, size
+        case sizeFormatted = "size_formatted"
+        case paramsFormatted = "params_formatted"
+    }
+
+    var model: OMLXHFModel {
+        OMLXHFModel(
+            repoId: repoId,
+            name: name ?? repoId,
+            downloads: downloads ?? 0,
+            likes: likes ?? 0,
+            sizeBytes: size ?? 0,
+            sizeFormatted: sizeFormatted ?? "",
+            paramsFormatted: paramsFormatted
+        )
+    }
+}
+
+private struct HFTaskDTO: Codable {
+    let taskId: String
+    let repoId: String?
+    let status: String?
+    let progress: Double?
+    let totalSize: Int64?
+    let downloadedSize: Int64?
+    let error: String?
+    let createdAt: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
+        case repoId = "repo_id"
+        case status, progress, error
+        case totalSize = "total_size"
+        case downloadedSize = "downloaded_size"
+        case createdAt = "created_at"
+    }
+
+    var task: OMLXHFTask {
+        OMLXHFTask(
+            taskId: taskId,
+            repoId: repoId ?? "",
+            status: status ?? "",
+            progress: progress ?? 0,
+            totalSize: totalSize ?? 0,
+            downloadedSize: downloadedSize ?? 0,
+            error: error ?? "",
+            createdAt: createdAt ?? 0
+        )
+    }
+}
+
+private struct OMLXAdminModelsResponse: Codable {
+    let models: [OMLXAdminModel]
+}
+
+private struct OMLXAdminModel: Codable {
+    let id: String
+    let loaded: Bool?
+    let isLoading: Bool?
+    let actualSize: Int64?
+    let estimatedSize: Int64?
+    let actualSizeFormatted: String?
+    let estimatedSizeFormatted: String?
+    let pinned: Bool?
+    let isDefault: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, loaded, pinned
+        case isLoading = "is_loading"
+        case actualSize = "actual_size"
+        case estimatedSize = "estimated_size"
+        case actualSizeFormatted = "actual_size_formatted"
+        case estimatedSizeFormatted = "estimated_size_formatted"
+        case isDefault = "is_default"
+    }
+}
+
 private struct OpenAIModel: Codable {
     let id: String
     let object: String?
@@ -779,12 +1201,17 @@ private struct OpenAIChatRequest: Codable {
     let topP: Double?
     let stop: [String]?
     let seed: Int64?
+    /// Passed to the model's chat template. oMLX (and vLLM) read
+    /// `enable_thinking` here to toggle a reasoning model's chain-of-thought.
+    /// Omitted (nil) unless the user explicitly set thinking On/Off.
+    let chatTemplateKwargs: [String: Bool]?
 
     enum CodingKeys: String, CodingKey {
         case model, messages, stream, temperature, stop, seed
         case streamOptions = "stream_options"
         case maxTokens = "max_tokens"
         case topP = "top_p"
+        case chatTemplateKwargs = "chat_template_kwargs"
     }
 }
 
@@ -810,10 +1237,48 @@ private struct OpenAIUsage: Codable {
     let completionTokens: Int?
     let totalTokens: Int?
 
+    // --- oMLX extension (github.com/jundot/omlx) ---
+    // oMLX reports authoritative timing in its usage object, measured
+    // inside the decode loop and immune to client-side read stalls. When
+    // present we trust these over wall-clock inference (which a bursty SSE
+    // reader can corrupt into implausibly high tok/s -- see issue #25).
+    // Values are seconds except the per-second rates. Plain mlx-lm, LM
+    // Studio, vLLM, etc. omit them and we fall back to wall-clock timing.
+    let timeToFirstToken: Double?
+    let promptEvalDuration: Double?
+    let generationDuration: Double?
+    let promptTokensPerSecond: Double?
+    let generationTokensPerSecond: Double?
+    let modelLoadDuration: Double?
+    let totalTime: Double?
+    let promptTokensDetails: PromptTokensDetails?
+
+    struct PromptTokensDetails: Codable {
+        let cachedTokens: Int?
+        enum CodingKeys: String, CodingKey {
+            case cachedTokens = "cached_tokens"
+        }
+    }
+
+    /// True when the server supplied its own generation timing -- i.e. this
+    /// is an oMLX-style backend and we should trust its numbers rather than
+    /// inferring from chunk-arrival wall-clock.
+    var hasServerTiming: Bool {
+        generationDuration != nil || generationTokensPerSecond != nil
+    }
+
     enum CodingKeys: String, CodingKey {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
         case totalTokens = "total_tokens"
+        case timeToFirstToken = "time_to_first_token"
+        case promptEvalDuration = "prompt_eval_duration"
+        case generationDuration = "generation_duration"
+        case promptTokensPerSecond = "prompt_tokens_per_second"
+        case generationTokensPerSecond = "generation_tokens_per_second"
+        case modelLoadDuration = "model_load_duration"
+        case totalTime = "total_time"
+        case promptTokensDetails = "prompt_tokens_details"
     }
 }
 

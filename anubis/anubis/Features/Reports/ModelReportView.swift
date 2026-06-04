@@ -174,8 +174,9 @@ struct ModelReportView: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(Color.dashboardBackground)
     }
 
     private func modelSelectorRow(_ model: ModelReportRow) -> some View {
@@ -414,33 +415,82 @@ struct ModelReportView: View {
         let best = models.max(by: { $0.avgTokensPerSecond < $1.avgTokensPerSecond })
         let mostEfficient = models.filter { $0.avgWattsPerToken != nil }.min(by: { $0.avgWattsPerToken! < $1.avgWattsPerToken! })
 
-        return HStack(spacing: Spacing.lg) {
-            if let best = best {
-                Label {
-                    Text("Fastest: **\(best.modelName)** (\(String(format: "%.1f", best.avgTokensPerSecond)) tk/s)")
-                        .font(.caption)
-                } icon: {
-                    Image(systemName: "bolt.fill")
-                        .foregroundStyle(.yellow)
+        return VStack(spacing: Spacing.sm) {
+            HStack(spacing: Spacing.md) {
+                if let best = best {
+                    winnerCard(
+                        title: "FASTEST",
+                        icon: "bolt.fill",
+                        accent: .chartFrequency,
+                        model: best.modelName,
+                        value: String(format: "%.1f", best.avgTokensPerSecond),
+                        unit: "tk/s"
+                    )
+                }
+                if let eff = mostEfficient {
+                    winnerCard(
+                        title: "MOST EFFICIENT",
+                        icon: "leaf.fill",
+                        accent: .chartEfficiency,
+                        model: eff.modelName,
+                        value: String(format: "%.2f", eff.avgWattsPerToken!),
+                        unit: "J/tk"
+                    )
                 }
             }
-            if let eff = mostEfficient {
-                Label {
-                    Text("Most efficient: **\(eff.modelName)** (\(String(format: "%.2f", eff.avgWattsPerToken!)) J/tk)")
-                        .font(.caption)
-                } icon: {
-                    Image(systemName: "leaf.fill")
-                        .foregroundStyle(.green)
-                }
-            }
-            Spacer()
+
             Text("\(models.count) models · \(models.reduce(0) { $0 + $1.runCount }) total runs")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.horizontal, Spacing.md)
-        .padding(.vertical, Spacing.sm)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(Spacing.md)
+        .background(Color.dashboardBackground)
+    }
+
+    /// A prominent "winner" highlight card for the comparison summary — the
+    /// payoff of a multi-model report, so it leads with a large value.
+    private func winnerCard(title: String, icon: String, accent: Color, model: String, value: String, unit: String) -> some View {
+        HStack(spacing: Spacing.md) {
+            ZStack {
+                Circle()
+                    .fill(accent.opacity(0.15))
+                    .frame(width: 46, height: 46)
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(accent)
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption2.weight(.bold))
+                    .tracking(0.6)
+                    .foregroundStyle(accent)
+                Text(model)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(value)
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                    Text(unit)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Spacing.md)
+        .frame(maxWidth: .infinity)
+        .background {
+            RoundedRectangle(cornerRadius: CornerRadius.lg)
+                .fill(accent.opacity(0.07))
+                .overlay {
+                    RoundedRectangle(cornerRadius: CornerRadius.lg)
+                        .strokeBorder(accent.opacity(0.30), lineWidth: 1)
+                }
+        }
     }
 
     // MARK: - Helpers

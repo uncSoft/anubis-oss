@@ -15,6 +15,7 @@
 //
 
 import SwiftUI
+import AppKit
 @preconcurrency import GRDB
 
 struct FlowRunView: View {
@@ -26,10 +27,6 @@ struct FlowRunView: View {
     /// Wall-clock elapsed time, ticked once a second while running.
     @State private var elapsed: TimeInterval = 0
     @State private var timer: Timer?
-
-    /// When non-nil, presents the FlowReportView sheet for the
-    /// just-completed run.
-    @State private var reportData: FlowReportData?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,7 +41,7 @@ struct FlowRunView: View {
             Divider()
             footer
         }
-        .frame(minWidth: 860, minHeight: 620)
+        .frame(minWidth: 640, minHeight: 440)
         .onAppear { startTimerIfNeeded() }
         .onDisappear { stopTimer() }
         .onChange(of: executor.state) { _, _ in
@@ -231,17 +228,6 @@ struct FlowRunView: View {
             }
             .padding(Spacing.md)
         }
-        .sheet(item: $reportData) { data in
-            FlowReportView(data: data) {
-                reportData = nil
-            }
-            // Bigger default than the old 1000x720 so the 16:9 preview
-            // renders at ~1500px wide instead of cramped 950px.
-            .frame(
-                minWidth: 1380, idealWidth: 1600,
-                minHeight: 1000, idealHeight: 1080
-            )
-        }
     }
 
     /// Fetch the just-completed sessions from the DB and present the
@@ -253,7 +239,9 @@ struct FlowRunView: View {
             let sessions = try databaseManager.queue.read { db in
                 try run.sessions(db: db)
             }
-            reportData = FlowReportData.compute(flowRun: run, sessions: sessions)
+            FlowReportWindowController.shared.present(
+                data: FlowReportData.compute(flowRun: run, sessions: sessions)
+            )
         } catch {
             // Surfacing this in the log is enough — the only realistic
             // failure mode is a deleted DB, which the user notices fast.
@@ -432,5 +420,71 @@ private extension FlowExecutor.LogEntry.Level {
         case .warning: return .orange
         case .error: return .red
         }
+    }
+}
+
+// MARK: - Flow Run Window
+
+/// Presents the live flow-run status in a real resizable window (not a modal
+/// sheet), matching the Flow Report. Non-modal by design: the run keeps going
+/// in the background even if the window is closed, so users can keep working.
+/// Frame/position persist across launches.
+@MainActor
+final class FlowRunWindowController: NSObject, NSWindowDelegate {
+    static let shared = FlowRunWindowController()
+    private var window: NSWindow?
+
+    func present(
+        executor: FlowExecutor,
+        flow: Flow,
+        databaseManager: DatabaseManager,
+        onClose: @escaping () -> Void
+    ) {
+        let root = FlowRunView(
+            executor: executor,
+            flow: flow,
+            databaseManager: databaseManager
+        ) { [weak self] in
+            onClose()
+            self?.close()
+        }
+
+        if let window {
+            window.contentViewController = NSHostingController(rootView: root)
+            window.makeKeyAndOrderFront(nil)
+            window.makeMain()
+            return
+        }
+
+        let controller = NSHostingController(rootView: root)
+        let mask: NSWindow.StyleMask = [.titled, .closable, .resizable, .miniaturizable]
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 700),
+            styleMask: mask,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.title = "Flow Run"
+        window.minSize = NSSize(width: 640, height: 460)
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        let autosave = NSWindow.FrameAutosaveName("AnubisFlowRunWindow")
+        if !window.setFrameAutosaveName(autosave) {
+            window.center()
+        } else if window.frame.width < window.minSize.width || window.frame.height < window.minSize.height {
+            window.setContentSize(NSSize(width: 960, height: 700))
+            window.center()
+        }
+        window.makeKeyAndOrderFront(nil)
+        self.window = window
+    }
+
+    func close() {
+        window?.close()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        window = nil
     }
 }
