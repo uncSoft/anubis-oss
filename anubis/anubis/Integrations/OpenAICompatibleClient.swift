@@ -30,6 +30,30 @@ enum OMLXAdminError: LocalizedError, Sendable {
     }
 }
 
+/// A HuggingFace model surfaced by oMLX's model browser (search/recommended).
+struct OMLXHFModel: Sendable, Identifiable {
+    var id: String { repoId }
+    let repoId: String
+    let name: String
+    let downloads: Int
+    let likes: Int
+    let sizeBytes: Int64
+    let sizeFormatted: String
+    let paramsFormatted: String?
+}
+
+/// A HuggingFace download task from oMLX (`/admin/api/hf/tasks`).
+struct OMLXHFTask: Sendable {
+    let taskId: String
+    let repoId: String
+    let status: String      // pending | downloading | completed | failed | cancelled
+    let progress: Double    // 0–100
+    let totalSize: Int64
+    let downloadedSize: Int64
+    let error: String
+    let createdAt: Double
+}
+
 /// A model entry from oMLX's admin API (`/admin/api/models`), carrying loaded
 /// state and real memory size. Surfaced in the Vault / Benchmark UI for
 /// oMLX model management (load / unload).
@@ -67,6 +91,15 @@ actor OpenAICompatibleClient: InferenceBackend {
                 if let fixed = URL(string: trimmed) { url = fixed }
                 break
             }
+        }
+        // Force IPv4 for localhost. macOS resolves "localhost" to ::1 first,
+        // but local inference servers (oMLX, LM Studio, mlx-lm, vLLM) bind
+        // 127.0.0.1 only — so the IPv6 attempt is refused and we'd rely on a
+        // flaky Happy-Eyeballs fallback (which the admin/HF calls don't get).
+        if var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           comps.host == "localhost" {
+            comps.host = "127.0.0.1"
+            if let fixed = comps.url { url = fixed }
         }
         self.baseURL = url
         self.apiKey = configuration.apiKey
@@ -179,6 +212,21 @@ actor OpenAICompatibleClient: InferenceBackend {
     // cookie in shared storage and auto-attaches it to subsequent /admin calls.
     // These endpoints exist only on oMLX; callers gate by oMLX identity.
 
+    /// Extract a human message from an OpenAI-style error body
+    /// (`{"error":{"message":"..."}}`) or a plain `{"detail":"..."}`.
+    private static func openAIErrorMessage(from body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        if let err = obj["error"] as? [String: Any], let msg = err["message"] as? String {
+            return msg
+        }
+        if let detail = obj["detail"] as? String { return detail }
+        return nil
+    }
+
     /// Log in to oMLX's admin API with the configured API key. The
     /// `omlx_admin_session` cookie is stored on this session for reuse.
     @discardableResult
@@ -226,25 +274,88 @@ actor OpenAICompatibleClient: InferenceBackend {
         _ = try await adminRequest("admin/api/models/\(id)/load", method: "POST", encodeComponent: id)
     }
 
+    // MARK: - oMLX HuggingFace model browser/downloader
+
+    /// Curated/trending MLX models from oMLX's HF integration.
+    func hfRecommended(mlxOnly: Bool = true, limit: Int = 40) async throws -> [OMLXHFModel] {
+        let data = try await adminRequest("admin/api/hf/recommended", method: "GET", query: [
+            URLQueryItem(name: "mlx_only", value: mlxOnly ? "true" : "false"),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ])
+        // Recommended returns {trending: [...], popular: [...]}; tolerate
+        // {models: [...]} and a bare array too. Merge, trending first, deduped.
+        if let resp = try? JSONDecoder().decode(HFRecommendedResponse.self, from: data) {
+            let combined = (resp.trending ?? []) + (resp.popular ?? []) + (resp.models ?? [])
+            if !combined.isEmpty {
+                var seen = Set<String>()
+                return combined.compactMap { seen.insert($0.repoId).inserted ? $0.model : nil }
+            }
+        }
+        return (try JSONDecoder().decode([HFModelDTO].self, from: data)).map(\.model)
+    }
+
+    /// Search HuggingFace for MLX models via oMLX.
+    func hfSearch(query: String, mlxOnly: Bool = true, limit: Int = 40) async throws -> [OMLXHFModel] {
+        let data = try await adminRequest("admin/api/hf/search", method: "GET", query: [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "mlx_only", value: mlxOnly ? "true" : "false"),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ])
+        return (try JSONDecoder().decode(HFSearchResponse.self, from: data)).models.map(\.model)
+    }
+
+    /// Start a HuggingFace download. Progress is polled via `hfTasks()`.
+    func hfDownload(repoId: String) async throws {
+        _ = try await adminRequest("admin/api/hf/download", method: "POST", jsonBody: ["repo_id": repoId])
+    }
+
+    /// Current download tasks (poll for progress).
+    func hfTasks() async throws -> [OMLXHFTask] {
+        let data = try await adminRequest("admin/api/hf/tasks", method: "GET")
+        return (try JSONDecoder().decode(HFTasksResponse.self, from: data)).tasks.map(\.task)
+    }
+
+    /// Cancel an in-flight download task.
+    func hfCancel(_ taskId: String) async throws {
+        _ = try await adminRequest("admin/api/hf/cancel/\(taskId)", method: "POST", encodeComponent: taskId)
+    }
+
     /// Issue an authenticated admin request, logging in + retrying once on 401.
     /// `encodeComponent`, when set, is percent-encoded inside the path so model
     /// ids with reserved characters resolve correctly.
-    private func adminRequest(_ path: String, method: String, encodeComponent: String? = nil) async throws -> Data {
+    private func adminRequest(
+        _ path: String,
+        method: String,
+        query: [URLQueryItem]? = nil,
+        encodeComponent: String? = nil,
+        jsonBody: [String: Any]? = nil
+    ) async throws -> Data {
         func makeURL() -> URL {
+            var base: URL
             if let comp = encodeComponent {
                 // Build the path safely around the single dynamic component.
                 let encoded = comp.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? comp
-                let rebuilt = path.replacingOccurrences(of: comp, with: encoded)
-                return baseURL.appendingPathComponent(rebuilt)
+                base = baseURL.appendingPathComponent(path.replacingOccurrences(of: comp, with: encoded))
+            } else {
+                base = baseURL.appendingPathComponent(path)
             }
-            return baseURL.appendingPathComponent(path)
+            if let query = query,
+               var comps = URLComponents(url: base, resolvingAgainstBaseURL: false) {
+                comps.queryItems = query
+                return comps.url ?? base
+            }
+            return base
         }
         func makeRequest() -> URLRequest {
             var r = URLRequest(url: makeURL())
             r.httpMethod = method
-            r.timeoutInterval = 15
+            r.timeoutInterval = 30
             if let apiKey = apiKey, !apiKey.isEmpty {
                 r.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+            }
+            if let jsonBody = jsonBody {
+                r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                r.httpBody = try? JSONSerialization.data(withJSONObject: jsonBody)
             }
             return r
         }
@@ -414,9 +525,23 @@ actor OpenAICompatibleClient: InferenceBackend {
             var errorBody = ""
             for try await line in bytes.lines {
                 errorBody += line
-                if errorBody.count > 500 { break } // Limit error body size
+                if errorBody.count > 800 { break } // Limit error body size
             }
-            throw AnubisError.invalidResponse(details: "Status \(httpResponse.statusCode): \(errorBody)")
+            // Surface the server's own message (OpenAI envelope: {"error":{"message":...}}).
+            let serverMsg = Self.openAIErrorMessage(from: errorBody)
+            let code = httpResponse.statusCode
+            if code >= 500 {
+                // A 500 on /v1/chat/completions almost always means the server
+                // couldn't run this model — common with non-chat models
+                // (vision/embedding) or experimental quants. Say so plainly.
+                let detail = serverMsg.map { " (\($0))" } ?? ""
+                throw AnubisError.backendMessage(
+                    "The server failed to generate with this model (HTTP \(code))\(detail). "
+                    + "It may not be a chat-capable model — some MLX models are vision, "
+                    + "embedding, or experimental-quant builds that this server can't run for chat."
+                )
+            }
+            throw AnubisError.backendMessage(serverMsg ?? "Request failed (HTTP \(code)).")
         }
 
         var state = StreamState()
@@ -957,6 +1082,76 @@ private struct OpenAIModelsResponse: Codable {
 }
 
 // MARK: - oMLX Admin Models decode
+
+private struct HFSearchResponse: Codable { let models: [HFModelDTO] }
+private struct HFTasksResponse: Codable { let tasks: [HFTaskDTO] }
+private struct HFRecommendedResponse: Codable {
+    let trending: [HFModelDTO]?
+    let popular: [HFModelDTO]?
+    let models: [HFModelDTO]?
+}
+
+private struct HFModelDTO: Codable {
+    let repoId: String
+    let name: String?
+    let downloads: Int?
+    let likes: Int?
+    let size: Int64?
+    let sizeFormatted: String?
+    let paramsFormatted: String?
+
+    enum CodingKeys: String, CodingKey {
+        case repoId = "repo_id"
+        case name, downloads, likes, size
+        case sizeFormatted = "size_formatted"
+        case paramsFormatted = "params_formatted"
+    }
+
+    var model: OMLXHFModel {
+        OMLXHFModel(
+            repoId: repoId,
+            name: name ?? repoId,
+            downloads: downloads ?? 0,
+            likes: likes ?? 0,
+            sizeBytes: size ?? 0,
+            sizeFormatted: sizeFormatted ?? "",
+            paramsFormatted: paramsFormatted
+        )
+    }
+}
+
+private struct HFTaskDTO: Codable {
+    let taskId: String
+    let repoId: String?
+    let status: String?
+    let progress: Double?
+    let totalSize: Int64?
+    let downloadedSize: Int64?
+    let error: String?
+    let createdAt: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case taskId = "task_id"
+        case repoId = "repo_id"
+        case status, progress, error
+        case totalSize = "total_size"
+        case downloadedSize = "downloaded_size"
+        case createdAt = "created_at"
+    }
+
+    var task: OMLXHFTask {
+        OMLXHFTask(
+            taskId: taskId,
+            repoId: repoId ?? "",
+            status: status ?? "",
+            progress: progress ?? 0,
+            totalSize: totalSize ?? 0,
+            downloadedSize: downloadedSize ?? 0,
+            error: error ?? "",
+            createdAt: createdAt ?? 0
+        )
+    }
+}
 
 private struct OMLXAdminModelsResponse: Codable {
     let models: [OMLXAdminModel]

@@ -138,12 +138,18 @@ struct BenchmarkView: View {
                 }
 
                 Button {
-                    viewModel.openBrowseLibrary()
+                    if viewModel.selectedBackend == .ollama {
+                        viewModel.openBrowseLibrary()
+                    } else {
+                        viewModel.openOMLXBrowser()
+                    }
                 } label: {
                     Label("Browse Models", systemImage: "books.vertical")
                 }
-                .help("Browse top Ollama models and pull from the registry")
-                .disabled(viewModel.selectedBackend != .ollama)
+                .help("Browse and download models (Ollama registry / oMLX HuggingFace)")
+                .disabled(!(viewModel.selectedBackend == .ollama
+                            || viewModel.isBuiltInOMLXBackend
+                            || viewModel.isVerifiedOMLX))
 
                 Button {
                     viewModel.startPull()
@@ -179,6 +185,9 @@ struct BenchmarkView: View {
         }
         .sheet(isPresented: $viewModel.showBrowseLibrarySheet) {
             BrowseOllamaLibrarySheet(viewModel: viewModel)
+        }
+        .sheet(isPresented: $viewModel.showOMLXBrowserSheet) {
+            OMLXModelBrowserSheet(viewModel: viewModel)
         }
         .task {
             await viewModel.loadInitialDataIfNeeded()
@@ -3154,5 +3163,188 @@ private struct LibraryEntryRow: View {
                         .strokeBorder(Color.cardBorder, lineWidth: 1)
                 )
         )
+    }
+}
+
+// MARK: - oMLX Model Browser
+
+/// Browse + download MLX models from oMLX's HuggingFace integration. Mirrors
+/// the Ollama library browser, but search/recommended/download all go through
+/// oMLX's admin HF endpoints (poll-based download progress).
+private struct OMLXModelBrowserSheet: View {
+    @ObservedObject var viewModel: BenchmarkViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var searchDebounce: Task<Void, Never>?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            Divider()
+            searchBar
+            Divider()
+            content
+            if viewModel.isDownloadingOMLXModel {
+                Divider()
+                downloadBar
+            }
+        }
+        .frame(width: 580, height: 620)
+    }
+
+    private var header: some View {
+        HStack {
+            Image(systemName: "square.and.arrow.down.on.square")
+                .foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Browse oMLX Models").font(.headline)
+                Text("MLX models from HuggingFace, downloaded by your oMLX server")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+        }
+        .padding(Spacing.md)
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: Spacing.xs) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Search HuggingFace (MLX) — leave empty for trending", text: $searchText)
+                .textFieldStyle(.plain)
+                .onChange(of: searchText) { _, _ in scheduleSearch() }
+            if !searchText.isEmpty {
+                Button { searchText = ""; fireSearch() } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if viewModel.omlxBrowseLoading && viewModel.omlxBrowseModels.isEmpty {
+            Spacer()
+            ProgressView().controlSize(.large)
+            Spacer()
+        } else if let err = viewModel.omlxBrowseError {
+            Spacer()
+            VStack(spacing: Spacing.sm) {
+                Image(systemName: "exclamationmark.triangle").font(.title).foregroundStyle(.orange)
+                Text(err).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("Try Again") { Task { await viewModel.reloadOMLXBrowse() } }
+                    .buttonStyle(.bordered)
+            }
+            .padding()
+            Spacer()
+        } else if viewModel.omlxBrowseModels.isEmpty {
+            Spacer()
+            Text(searchText.isEmpty ? "No models available." : "No matches for \"\(searchText)\".")
+                .font(.caption).foregroundStyle(.secondary)
+            Spacer()
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(viewModel.omlxBrowseModels) { model in
+                        OMLXModelRow(
+                            model: model,
+                            isInstalled: viewModel.isOMLXModelInstalled(model.repoId),
+                            isDownloadingThis: viewModel.omlxDownloadingRepo == model.repoId,
+                            downloadInFlight: viewModel.isDownloadingOMLXModel,
+                            onDownload: { viewModel.downloadOMLXModel(model.repoId) }
+                        )
+                        Divider().opacity(0.4)
+                    }
+                }
+            }
+        }
+    }
+
+    private var downloadBar: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(viewModel.omlxDownloadingRepo ?? "")
+                    .font(.caption.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Text("\(Int(viewModel.omlxDownloadProgress * 100))%")
+                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                Button("Cancel") { viewModel.cancelOMLXDownload() }
+                    .buttonStyle(.borderless).controlSize(.small)
+            }
+            ProgressView(value: viewModel.omlxDownloadProgress)
+            Text(viewModel.omlxDownloadStatus).font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(Spacing.md)
+    }
+
+    private func scheduleSearch() {
+        searchDebounce?.cancel()
+        searchDebounce = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if Task.isCancelled { return }
+            fireSearch()
+        }
+    }
+
+    private func fireSearch() {
+        viewModel.omlxBrowseQuery = searchText
+        Task { await viewModel.reloadOMLXBrowse() }
+    }
+}
+
+private struct OMLXModelRow: View {
+    let model: OMLXHFModel
+    let isInstalled: Bool
+    let isDownloadingThis: Bool
+    let downloadInFlight: Bool
+    let onDownload: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: Spacing.sm) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1).truncationMode(.middle)
+                HStack(spacing: 10) {
+                    if !model.sizeFormatted.isEmpty {
+                        metaChip("internaldrive", model.sizeFormatted)
+                    }
+                    if let params = model.paramsFormatted {
+                        metaChip("cpu", params)
+                    }
+                    if model.downloads > 0 {
+                        metaChip("arrow.down.circle", Formatters.compactCount(model.downloads))
+                    }
+                    if model.likes > 0 {
+                        metaChip("heart", "\(model.likes)")
+                    }
+                }
+            }
+            Spacer()
+            if isInstalled {
+                Label("Installed", systemImage: "checkmark.circle.fill")
+                    .font(.caption).foregroundStyle(.green)
+            } else if isDownloadingThis {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Download", action: onDownload)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(downloadInFlight)
+            }
+        }
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
+    }
+
+    private func metaChip(_ icon: String, _ text: String) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 9))
+            Text(text).font(.caption2)
+        }
+        .foregroundStyle(.secondary)
     }
 }

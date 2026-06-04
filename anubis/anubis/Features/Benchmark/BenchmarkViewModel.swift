@@ -1435,6 +1435,130 @@ final class BenchmarkViewModel: ObservableObject {
         Task { await pullModel() }
     }
 
+    // MARK: - oMLX Model Browser / Downloader
+
+    @Published var showOMLXBrowserSheet = false
+    @Published private(set) var omlxBrowseModels: [OMLXHFModel] = []
+    @Published private(set) var omlxBrowseLoading = false
+    @Published private(set) var omlxBrowseError: String?
+    @Published var omlxBrowseQuery = ""
+    /// Repo currently downloading (nil when idle).
+    @Published private(set) var omlxDownloadingRepo: String?
+    @Published private(set) var omlxDownloadProgress: Double = 0   // 0–1
+    @Published private(set) var omlxDownloadStatus: String = ""
+    private var omlxDownloadTask: Task<Void, Never>?
+    private var omlxActiveTaskId: String?
+
+    /// The oMLX client for the currently selected OpenAI-compatible backend.
+    private var currentOMLXClient: OpenAICompatibleClient? {
+        guard isBuiltInOMLXBackend || isVerifiedOMLX,
+              let configId = inferenceService.currentOpenAIConfig?.id else { return nil }
+        return inferenceService.openAIClient(for: configId)
+    }
+
+    var isDownloadingOMLXModel: Bool { omlxDownloadingRepo != nil }
+
+    func openOMLXBrowser() {
+        showOMLXBrowserSheet = true
+        omlxBrowseQuery = ""
+        Task { await reloadOMLXBrowse() }
+    }
+
+    /// Load recommended models (empty query) or search results.
+    func reloadOMLXBrowse() async {
+        guard let client = currentOMLXClient else {
+            omlxBrowseError = "oMLX backend is not selected."
+            return
+        }
+        omlxBrowseLoading = true
+        omlxBrowseError = nil
+        let query = omlxBrowseQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let models = query.isEmpty
+                ? try await client.hfRecommended()
+                : try await client.hfSearch(query: query)
+            // Ignore late results from a superseded query.
+            if query == omlxBrowseQuery.trimmingCharacters(in: .whitespacesAndNewlines) {
+                omlxBrowseModels = models
+            }
+        } catch {
+            omlxBrowseError = (error as? OMLXAdminError)?.errorDescription ?? error.localizedDescription
+            omlxBrowseModels = []
+        }
+        omlxBrowseLoading = false
+    }
+
+    /// True when a browser entry is already present locally.
+    func isOMLXModelInstalled(_ repoId: String) -> Bool {
+        let sanitized = repoId.replacingOccurrences(of: "/", with: "--")
+        return availableModels.contains { $0.id == sanitized || $0.id == repoId }
+    }
+
+    /// Download an HF model via oMLX, polling task progress until done.
+    func downloadOMLXModel(_ repoId: String) {
+        guard let client = currentOMLXClient, omlxDownloadingRepo == nil else { return }
+        omlxDownloadingRepo = repoId
+        omlxDownloadProgress = 0
+        omlxDownloadStatus = "Starting…"
+        omlxActiveTaskId = nil
+        omlxDownloadTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await client.hfDownload(repoId: repoId)
+                while !Task.isCancelled {
+                    try await Task.sleep(nanoseconds: 800_000_000)
+                    let tasks = try await client.hfTasks()
+                    guard let t = tasks
+                        .filter({ $0.repoId == repoId })
+                        .max(by: { $0.createdAt < $1.createdAt }) else { continue }
+                    self.omlxActiveTaskId = t.taskId
+                    self.omlxDownloadProgress = t.progress / 100.0
+                    self.omlxDownloadStatus = Self.omlxStatusLabel(t)
+                    if t.status == "completed" { break }
+                    if t.status == "failed" {
+                        self.error = .backendMessage(t.error.isEmpty ? "Download failed." : t.error)
+                        break
+                    }
+                    if t.status == "cancelled" { break }
+                }
+                await self.loadModels()  // pick up the newly downloaded model
+            } catch is CancellationError {
+            } catch let e as OMLXAdminError {
+                self.error = .backendMessage(e.errorDescription ?? "Download failed.")
+            } catch {
+                self.error = .backendMessage("Download failed: \(error.localizedDescription)")
+            }
+            self.omlxDownloadingRepo = nil
+            self.omlxActiveTaskId = nil
+            self.omlxDownloadTask = nil
+        }
+    }
+
+    func cancelOMLXDownload() {
+        omlxDownloadTask?.cancel()
+        omlxDownloadTask = nil
+        if let id = omlxActiveTaskId, let client = currentOMLXClient {
+            Task { try? await client.hfCancel(id) }
+        }
+        omlxDownloadingRepo = nil
+        omlxActiveTaskId = nil
+    }
+
+    private static func omlxStatusLabel(_ t: OMLXHFTask) -> String {
+        switch t.status {
+        case "downloading":
+            if t.totalSize > 0 {
+                return "Downloading \(Formatters.bytes(t.downloadedSize)) / \(Formatters.bytes(t.totalSize))"
+            }
+            return "Downloading…"
+        case "pending": return "Queued…"
+        case "completed": return "Completed"
+        case "failed": return "Failed"
+        case "cancelled": return "Cancelled"
+        default: return t.status.capitalized
+        }
+    }
+
     // MARK: - Process Selection
 
     /// Refresh the list of candidate processes for the picker

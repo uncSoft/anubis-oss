@@ -145,4 +145,14 @@ enum Formatters {
             return "\(count) tokens"
         }
     }
+
+    /// Compact integer (e.g. 15708 -> "15.7K", 1_200_000 -> "1.2M").
+    static func compactCount(_ count: Int) -> String {
+        if count >= 1_000_000 {
+            return String(format: "%.1fM", Double(count) / 1_000_000)
+        } else if count >= 1000 {
+            return String(format: "%.1fK", Double(count) / 1000)
+        }
+        return "\(count)"
+    }
 }
