@@ -111,6 +111,9 @@ struct TimelineChart: View {
             }
         }
         .chartYScale(domain: yDomain)
+        // Reserve a few points below the plot so the bottom y-axis label
+        // (centered on the 0 gridline) isn't sheared off by .clipped().
+        .chartPlotStyle { plot in plot.padding(.bottom, 8) }
         .frame(height: chartHeight)
         .clipped()
     }
@@ -275,6 +278,7 @@ struct MemoryTimelineChart: View {
             }
         }
         .chartYScale(domain: yDomain)
+        .chartPlotStyle { plot in plot.padding(.bottom, 8) }
         .frame(height: chartHeight)
         .clipped()
     }

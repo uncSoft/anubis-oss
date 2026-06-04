@@ -1146,7 +1146,7 @@ struct BenchmarkView: View {
     }
 
     private var detailedStatsGrid: some View {
-        VStack(alignment: .leading, spacing: Spacing.sm) {
+        VStack(alignment: .leading, spacing: Spacing.xs) {
             // The user selected the built-in oMLX backend but the server hasn't
             // identified as oMLX — warn that the metrics aren't server-verified.
             if viewModel.isBuiltInOMLXBackend && !viewModel.isVerifiedOMLX {
@@ -1182,6 +1182,7 @@ struct BenchmarkView: View {
                         Text("oMLX").tag(true)
                     }
                     .pickerStyle(.segmented)
+                    .controlSize(.small)
                     .labelsHidden()
                     .fixedSize()
                 }
@@ -1196,7 +1197,8 @@ struct BenchmarkView: View {
             // Chip info + backend summary line
             detailedStatsSummaryLine
         }
-        .padding(Spacing.md)
+        .padding(.horizontal, Spacing.md)
+        .padding(.vertical, Spacing.sm)
         .background {
             RoundedRectangle(cornerRadius: CornerRadius.lg)
                 .fill(Color.cardBackgroundElevated)
@@ -1227,7 +1229,7 @@ struct BenchmarkView: View {
         func intVal(_ key: String) -> Int? { (m[key] as? NSNumber)?.intValue }
         let cached = ((m["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? NSNumber)?.intValue
 
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 6), spacing: Spacing.xs) {
             serverCell("Prefill Speed", dbl("prompt_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
             serverCell("Generation Speed", dbl("generation_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
             serverCell("Time to First Token", dbl("time_to_first_token").map { String(format: "%.2fs", $0) })
@@ -1248,8 +1250,8 @@ struct BenchmarkView: View {
 
     private var anubisStatsGrid: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.sm) {
-                // Row 1: Latency / Load / Context / GPU Frequency
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 6), spacing: Spacing.xs) {
+                // 6-wide flow — two compact rows instead of three.
                 DetailStatCell(
                     title: "Avg Token Latency",
                     value: viewModel.currentSession?.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—",
@@ -1546,7 +1548,7 @@ struct DetailStatCell: View {
     var color: Color? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
                 if let icon, let color {
                     Image(systemName: icon)
@@ -1556,10 +1558,14 @@ struct DetailStatCell: View {
                 Text(title)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
             Text(value)
                 .font(.mono(13, weight: .medium))
                 .foregroundStyle(value == "—" ? .tertiary : .primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
