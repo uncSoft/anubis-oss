@@ -49,14 +49,44 @@ struct FlowParameters: Codable, Hashable {
     var maxTokens: Int
     var seedStrategy: SeedStrategy
     var fixedSeed: Int64?
+    /// Thinking toggle (Ollama `think` / oMLX `enable_thinking`). Auto omits it.
+    var thinkMode: OllamaThinkMode
 
     static let `default` = FlowParameters(
         temperature: 0.7,
         topP: 0.9,
         maxTokens: 512,
         seedStrategy: .random,
-        fixedSeed: nil
+        fixedSeed: nil,
+        thinkMode: .auto
     )
+
+    init(
+        temperature: Double,
+        topP: Double,
+        maxTokens: Int,
+        seedStrategy: SeedStrategy,
+        fixedSeed: Int64?,
+        thinkMode: OllamaThinkMode = .auto
+    ) {
+        self.temperature = temperature
+        self.topP = topP
+        self.maxTokens = maxTokens
+        self.seedStrategy = seedStrategy
+        self.fixedSeed = fixedSeed
+        self.thinkMode = thinkMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        temperature = try c.decode(Double.self, forKey: .temperature)
+        topP = try c.decode(Double.self, forKey: .topP)
+        maxTokens = try c.decode(Int.self, forKey: .maxTokens)
+        seedStrategy = try c.decode(SeedStrategy.self, forKey: .seedStrategy)
+        fixedSeed = try c.decodeIfPresent(Int64.self, forKey: .fixedSeed)
+        // Backward compatible: flows saved before the thinking toggle existed.
+        thinkMode = (try? c.decode(OllamaThinkMode.self, forKey: .thinkMode)) ?? .auto
+    }
 }
 
 /// Cool-down behaviour between heavy runs. `.thermal` blocks until

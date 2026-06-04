@@ -427,6 +427,27 @@ private struct SetParametersEditor: View {
                     .frame(width: 110)
                 }
             }
+
+            Divider().padding(.vertical, 2)
+
+            HStack {
+                Text("Thinking").font(.caption)
+                Spacer()
+                Picker("", selection: Binding(
+                    get: { params.thinkMode },
+                    set: { var p = params; p.thinkMode = $0; onChange(p) }
+                )) {
+                    ForEach(OllamaThinkMode.allCases, id: \.self) { mode in
+                        Text(mode.displayLabel).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+            }
+            Text("Ollama `think` / oMLX `enable_thinking`. Auto omits it — no effect on backends that don't support it.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
     }
 

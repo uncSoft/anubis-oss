@@ -299,6 +299,14 @@ final class BenchmarkViewModel: ObservableObject {
         return false
     }
 
+    /// Whether the current backend exposes a thinking toggle. Ollama uses the
+    /// `think` request field; oMLX uses `chat_template_kwargs.enable_thinking`.
+    /// Other OpenAI-compatible servers (LM Studio, vLLM, plain mlx-lm) don't,
+    /// so the picker stays hidden and the mode stays Auto for them.
+    var supportsThinkingToggle: Bool {
+        selectedBackend == .ollama || isBuiltInOMLXBackend || isVerifiedOMLX
+    }
+
     /// Active connection URL (resolved from backend + config)
     var connectionURL: String {
         switch selectedBackend {

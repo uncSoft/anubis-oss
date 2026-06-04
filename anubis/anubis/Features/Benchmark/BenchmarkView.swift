@@ -610,10 +610,10 @@ struct BenchmarkView: View {
                         .controlSize(.small)
                     }
 
-                    // Ollama-only: control the `think` request param. Older
-                    // Ollama versions and non-reasoning models reject the field,
-                    // so default `Auto` omits it entirely.
-                    if viewModel.selectedBackend == .ollama {
+                    // Thinking toggle. Ollama uses the `think` field; oMLX uses
+                    // chat_template_kwargs.enable_thinking. Default `Auto` omits
+                    // it (safest for models/servers that reject the field).
+                    if viewModel.supportsThinkingToggle {
                         HStack(spacing: Spacing.sm) {
                             Text("Thinking")
                                 .font(.caption)
@@ -652,7 +652,7 @@ struct BenchmarkView: View {
                         .foregroundStyle(.secondary)
                     if !viewModel.streamResponse
                         || !viewModel.showLiveCharts
-                        || (viewModel.selectedBackend == .ollama && viewModel.ollamaThinkMode != .auto) {
+                        || (viewModel.supportsThinkingToggle && viewModel.ollamaThinkMode != .auto) {
                         Text("modified")
                             .font(.caption2)
                             .foregroundStyle(.tertiary)

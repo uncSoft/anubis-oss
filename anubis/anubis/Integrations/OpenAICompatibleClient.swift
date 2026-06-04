@@ -235,6 +235,16 @@ actor OpenAICompatibleClient: InferenceBackend {
         }
         messages.append(["role": "user", "content": request.prompt])
 
+        // Translate the thinking toggle into chat_template_kwargs (oMLX/vLLM).
+        // Only sent when explicitly On/Off; Auto omits it so servers that don't
+        // understand the field are unaffected.
+        let templateKwargs: [String: Bool]?
+        switch request.ollamaThinkMode {
+        case .auto: templateKwargs = nil
+        case .on:   templateKwargs = ["enable_thinking": true, "preserve_thinking": false]
+        case .off:  templateKwargs = ["enable_thinking": false, "preserve_thinking": false]
+        }
+
         let body = OpenAIChatRequest(
             model: request.model,
             messages: messages,
@@ -247,7 +257,8 @@ actor OpenAICompatibleClient: InferenceBackend {
             temperature: request.temperature,
             topP: request.topP,
             stop: request.stopSequences,
-            seed: request.seed
+            seed: request.seed,
+            chatTemplateKwargs: templateKwargs
         )
 
         urlRequest.httpBody = try JSONEncoder().encode(body)
@@ -827,12 +838,17 @@ private struct OpenAIChatRequest: Codable {
     let topP: Double?
     let stop: [String]?
     let seed: Int64?
+    /// Passed to the model's chat template. oMLX (and vLLM) read
+    /// `enable_thinking` here to toggle a reasoning model's chain-of-thought.
+    /// Omitted (nil) unless the user explicitly set thinking On/Off.
+    let chatTemplateKwargs: [String: Bool]?
 
     enum CodingKeys: String, CodingKey {
         case model, messages, stream, temperature, stop, seed
         case streamOptions = "stream_options"
         case maxTokens = "max_tokens"
         case topP = "top_p"
+        case chatTemplateKwargs = "chat_template_kwargs"
     }
 }
 

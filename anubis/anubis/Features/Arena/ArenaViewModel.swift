@@ -39,6 +39,10 @@ final class ArenaViewModel: ObservableObject {
     /// OpenAI config for side B (when backendB == .openai)
     @Published var openAIConfigB: BackendConfiguration?
 
+    /// Thinking toggle per side (Ollama `think` / oMLX `enable_thinking`).
+    @Published var thinkModeA: OllamaThinkMode = .auto
+    @Published var thinkModeB: OllamaThinkMode = .auto
+
     /// Shared prompt
     @Published var prompt = ""
 
@@ -317,6 +321,7 @@ final class ArenaViewModel: ObservableObject {
             model: modelA,
             backend: backendA,
             openAIConfig: openAIConfigA,
+            thinkMode: thinkModeA,
             updateResponse: { [weak self] text in
                 self?.responseA = text
             },
@@ -342,6 +347,7 @@ final class ArenaViewModel: ObservableObject {
             model: modelB,
             backend: backendB,
             openAIConfig: openAIConfigB,
+            thinkMode: thinkModeB,
             updateResponse: { [weak self] text in
                 self?.responseB = text
             },
@@ -373,6 +379,7 @@ final class ArenaViewModel: ObservableObject {
                 model: modelA,
                 backend: self.backendA,
                 openAIConfig: self.openAIConfigA,
+                thinkMode: self.thinkModeA,
                 updateResponse: { [weak self] text in
                     self?.responseA = text
                 },
@@ -392,6 +399,7 @@ final class ArenaViewModel: ObservableObject {
                 model: modelB,
                 backend: self.backendB,
                 openAIConfig: self.openAIConfigB,
+                thinkMode: self.thinkModeB,
                 updateResponse: { [weak self] text in
                     self?.responseB = text
                 },
@@ -427,10 +435,25 @@ final class ArenaViewModel: ObservableObject {
         return inferenceService.ollamaClient
     }
 
+    /// Whether a side exposes a thinking toggle: Ollama, or oMLX (built-in
+    /// config or a model that reports `owned_by: omlx`).
+    func supportsThinking(backend: InferenceBackendType, openAIConfig: BackendConfiguration?, model: ModelInfo?) -> Bool {
+        if backend == .ollama { return true }
+        if backend == .openai {
+            if openAIConfig?.id == BackendConfiguration.defaultOMLX.id { return true }
+            if let owner = model?.ownedBy?.lowercased(), owner.contains("omlx") { return true }
+        }
+        return false
+    }
+
+    var supportsThinkingA: Bool { supportsThinking(backend: backendA, openAIConfig: openAIConfigA, model: modelA) }
+    var supportsThinkingB: Bool { supportsThinking(backend: backendB, openAIConfig: openAIConfigB, model: modelB) }
+
     private func runSingleModel(
         model: ModelInfo,
         backend: InferenceBackendType,
         openAIConfig: BackendConfiguration?,
+        thinkMode: OllamaThinkMode = .auto,
         updateResponse: @escaping (String) -> Void,
         updateDebug: @escaping (DebugInspectorState) -> Void
     ) async throws -> BenchmarkSession {
@@ -454,7 +477,8 @@ final class ArenaViewModel: ObservableObject {
             systemPrompt: systemPrompt.isEmpty ? nil : systemPrompt,
             maxTokens: maxTokens,
             temperature: temperature,
-            topP: topP
+            topP: topP,
+            ollamaThinkMode: thinkMode
         )
 
         // Resolve backend directly — no shared state mutation

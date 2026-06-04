@@ -235,7 +235,8 @@ final class FlowExecutor: ObservableObject {
 
             case .setParameters(let params):
                 context.params = params
-                await record(.info, "Parameters: temp=\(fmt(params.temperature)), top-p=\(fmt(params.topP)), max=\(params.maxTokens)")
+                let thinkNote = params.thinkMode == .auto ? "" : ", thinking=\(params.thinkMode.displayLabel.lowercased())"
+                await record(.info, "Parameters: temp=\(fmt(params.temperature)), top-p=\(fmt(params.topP)), max=\(params.maxTokens)\(thinkNote)")
 
             case .runBenchmark:
                 try await runOneBenchmark(context: context, runGroupId: runGroupId)
@@ -357,6 +358,7 @@ final class FlowExecutor: ObservableObject {
             maxTokens: context.params.maxTokens,
             temperature: context.params.temperature,
             topP: context.params.topP,
+            ollamaThinkMode: context.params.thinkMode,
             seed: seed
         )
 
