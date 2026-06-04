@@ -152,10 +152,14 @@ if [[ -d "$SPARKLE_FW" ]]; then
     # that rejection is root items being *regular files* (e.g. a zip flattening
     # symlinks) — so recreate them as proper symlinks instead. Gatekeeper accepts
     # this standard layout.
+    # -h is essential: Updater.app/XPCServices already exist as symlinks to
+    # directories, so a plain `ln -sf` would FOLLOW them and create the link
+    # *inside* the target dir (e.g. Updater.app/Updater.app) — "unsealed
+    # contents in the bundle root". -h replaces the symlink itself.
     ( cd "$SPARKLE_FW" \
-        && ln -sf Versions/Current/Autoupdate Autoupdate \
-        && ln -sf Versions/Current/Updater.app Updater.app \
-        && ln -sf Versions/Current/XPCServices XPCServices )
+        && ln -sfh Versions/Current/Autoupdate Autoupdate \
+        && ln -sfh Versions/Current/Updater.app Updater.app \
+        && ln -sfh Versions/Current/XPCServices XPCServices )
 
     echo "  Re-signing Sparkle internals..."
     codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
