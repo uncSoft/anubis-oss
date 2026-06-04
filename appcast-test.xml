@@ -1,0 +1,25 @@
+<?xml version="1.0" standalone="yes"?>
+<rss
+	xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+	<channel>
+		<title>anubis (test feed — self-update validation only)</title>
+  <item>
+      <title>Version 3.8.2</title>
+      <pubDate>Thu, 04 Jun 2026 12:10:00 -0400</pubDate>
+      <sparkle:version>3.8.2</sparkle:version>
+      <sparkle:shortVersionString>3.8.2</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Self-update validation build (3.8.2)</h2>
+          <p>Temporary test release to confirm that 3.8.1 can install updates via Sparkle. If you see this and the update installs cleanly, the framework fix works.</p>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.8.2/anubis-oss.zip"
+          sparkle:version="3.8.2"
+          sparkle:shortVersionString="3.8.2"
+          length="14977532"
+          type="application/octet-stream"
+          sparkle:edSignature="OrmRZsx19cIcGiOltGreiMv2OOcOKPGUtfa3pDaS046/6YjPGNcHzaEPYd6UyL5Kb5BRij0ZYm3Y4e1ni9/kAQ==" />
+  </item>
+	</channel>
+</rss>
