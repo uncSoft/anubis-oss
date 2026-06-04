@@ -307,8 +307,19 @@ EOF
     # Substitute the tag into the notes
     NOTES="${NOTES//\$TAG/$VERSION}"
 
+    # Upload TWO copies of the same zip under both naming conventions:
+    #   - anubis-oss.zip            → the Sparkle enclosure (appcast points here)
+    #   - Anubis-OSS-<major.minor>.zip → what bump-cask.sh fetches (see its ASSET_URL)
+    # Done here (after generate_appcast) so the second file never pollutes the
+    # export dir the appcast generator scans. Removes the old manual re-upload step.
+    MAJOR_MINOR="$(echo "$XCODE_VERSION" | cut -d. -f1-2)"
+    CASK_ZIP_PATH="$EXPORT_DIR/Anubis-OSS-${MAJOR_MINOR}.zip"
+    cp "$ZIP_PATH" "$CASK_ZIP_PATH"
+    echo "  Uploading: $(basename "$ZIP_PATH") + $(basename "$CASK_ZIP_PATH")"
+
     gh release create "$VERSION" \
         "$ZIP_PATH" \
+        "$CASK_ZIP_PATH" \
         --title "Anubis OSS $VERSION" \
         --notes "$NOTES"
 
