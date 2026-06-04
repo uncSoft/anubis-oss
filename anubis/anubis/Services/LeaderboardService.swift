@@ -272,6 +272,15 @@ actor LeaderboardService {
         group: BenchmarkRunGroup? = nil,
         repetitionIndex: Int? = nil
     ) async throws -> SubmitResponse {
+        // Open-source / forked builds ship without the official signing secret.
+        // Fail fast with a clear message rather than a server rejection.
+        guard !hmacSecret.isEmpty else {
+            throw AnubisError.leaderboardError(
+                reason: "Leaderboard upload isn't configured in this build. The official "
+                + "signing secret is kept private, so self-compiled builds can't submit to "
+                + "the public leaderboard."
+            )
+        }
         guard benchmarkSession.status == .completed else {
             throw AnubisError.leaderboardError(reason: "Only completed benchmarks can be uploaded")
         }
