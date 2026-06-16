@@ -95,6 +95,13 @@ private actor MetricsCollector {
         await processMonitor.autoDetectByPort(port)
     }
 
+    /// Best-effort discovery of the on-disk model file size for the currently
+    /// monitored backend, by reading its argv for `-m` / `--model <path>`.
+    /// Used to compensate `phys_footprint` for mmap-loaded models (issue #29).
+    func discoverBackendModelFileSize() async -> Int64? {
+        await processMonitor.discoverCurrentBackendModelFileSize()
+    }
+
     // MARK: - Private
 
     /// System-wide memory in use: active + wired + compressed pages (matches Activity Monitor).
@@ -318,6 +325,14 @@ final class MetricsService: ObservableObject {
     /// Call once when a benchmark starts to lock onto the actual server process.
     func autoDetectByPort(_ port: UInt16) async -> BackendProcessInfo? {
         await collector.autoDetectByPort(port)
+    }
+
+    /// One-shot best-effort discovery of the on-disk model file size for the
+    /// currently monitored backend (parses the server's argv for
+    /// `-m` / `--model <path>` and `stat`s the file). Used to compensate
+    /// `phys_footprint` for mmap-based backends — see GitHub issue #29.
+    func discoverBackendModelFileSize() async -> Int64? {
+        await collector.discoverBackendModelFileSize()
     }
 
     /// Take a single sample. If collecting is active, returns cached value (free).

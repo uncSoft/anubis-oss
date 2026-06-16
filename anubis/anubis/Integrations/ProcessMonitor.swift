@@ -600,6 +600,88 @@ actor ProcessMonitor {
         return nil
     }
 
+    /// Read a process's argv as discrete tokens (preserves entries that contain
+    /// spaces — unlike `getProcessArgs`, which joins with spaces for substring
+    /// matching). Returns nil if `sysctl(KERN_PROCARGS2)` can't read the process
+    /// (typically: process exited, or owned by a different user without privilege).
+    private func getProcessArgv(pid: pid_t) -> [String]? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size: Int = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return nil }
+        guard size > MemoryLayout<Int32>.size else { return nil }
+
+        var argc: Int32 = 0
+        _ = withUnsafeMutableBytes(of: &argc) { argcBytes in
+            buffer.withUnsafeBytes { bufBytes in
+                argcBytes.copyBytes(from: bufBytes.prefix(MemoryLayout<Int32>.size))
+            }
+        }
+        guard argc > 0 else { return nil }
+
+        var offset = MemoryLayout<Int32>.size
+        // Skip the exec path (NUL-terminated)
+        while offset < size && buffer[offset] != 0 { offset += 1 }
+        // Skip the run of padding NULs before argv[0]
+        while offset < size && buffer[offset] == 0 { offset += 1 }
+
+        var argv: [String] = []
+        var current = offset
+        while argv.count < Int(argc) && current < size {
+            var end = current
+            while end < size && buffer[end] != 0 { end += 1 }
+            if let token = String(bytes: buffer[current..<end], encoding: .utf8) {
+                argv.append(token)
+            }
+            current = end + 1
+        }
+        return argv
+    }
+
+    /// Best-effort discovery of the model file backing a mmap-based inference server
+    /// (llama.cpp `llama-server`, ds4-server, any GGUF-based service). Scans the
+    /// process's argv for `-m` / `--model` / `--model-path` followed by a `.gguf`
+    /// or `.safetensors` path, then `stat`s it. Returns the file size in bytes, or
+    /// nil if no path is found or the file isn't readable.
+    ///
+    /// This is the cmdline fallback for the on-disk-model-size compensation in
+    /// `BenchmarkViewModel.fetchModelMemory()`. Without it, `phys_footprint`
+    /// silently under-reports memory by the size of the model for every
+    /// llama.cpp-derived backend (see GitHub issue #29).
+    func discoverModelFileSize(pid: pid_t) -> Int64? {
+        guard let argv = getProcessArgv(pid: pid), argv.count > 1 else { return nil }
+
+        let flags: Set<String> = ["-m", "--model", "--model-path"]
+        let modelExtensions = [".gguf", ".safetensors"]
+        let fm = FileManager.default
+
+        var i = 0
+        while i < argv.count - 1 {
+            if flags.contains(argv[i]) {
+                let path = argv[i + 1]
+                let lower = path.lowercased()
+                if modelExtensions.contains(where: { lower.hasSuffix($0) }),
+                   let attrs = try? fm.attributesOfItem(atPath: path),
+                   let size = attrs[.size] as? Int64,
+                   size > 0 {
+                    return size
+                }
+            }
+            i += 1
+        }
+        return nil
+    }
+
+    /// Cmdline-derived model-file-size lookup for the currently-monitored backend.
+    /// Returns nil if no backend is being monitored or no model path is discoverable.
+    func discoverCurrentBackendModelFileSize() -> Int64? {
+        let pid: pid_t? = customPID ?? primaryBackend?.pid
+        guard let pid else { return nil }
+        return discoverModelFileSize(pid: pid)
+    }
+
     // MARK: - lsof Port Resolution
 
     /// Use lsof to find which PID is listening on a TCP port

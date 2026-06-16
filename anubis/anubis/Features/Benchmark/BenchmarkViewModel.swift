@@ -220,7 +220,13 @@ final class BenchmarkViewModel: ObservableObject {
     /// Peak memory usage during benchmark
     private(set) var currentPeakMemory: Int64 = 0
 
-    /// Model memory info (from Ollama /api/ps)
+    /// Model memory info. Sources by backend:
+    /// • Ollama — `/api/ps` returns size + size_vram (split CPU/GPU shown in card).
+    /// • OpenAI-compatible (LM Studio, llama-server, ds4-server, etc.) — on-disk
+    ///   model file size, from `selectedModel.sizeBytes` (LM Studio registry / disk
+    ///   index) or from the backend process's argv `-m <path>` (cmdline fallback).
+    ///   GPU/CPU split unknown here; the total is what feeds Peak Memory
+    ///   compensation for mmap-based backends (issue #29).
     @Published private(set) var modelMemoryTotal: Int64 = 0
     @Published private(set) var modelMemoryGPU: Int64 = 0
     @Published private(set) var modelMemoryCPU: Int64 = 0
@@ -1930,16 +1936,36 @@ final class BenchmarkViewModel: ObservableObject {
         objectWillChange.send()
     }
 
-    /// Fetch model memory breakdown from Ollama /api/ps
+    /// Populate `modelMemoryTotal` once per run, so the Peak Memory compensation
+    /// at `collectSample` can correct for backends whose `phys_footprint` doesn't
+    /// see the model:
+    ///
+    /// • Ollama: `/api/ps` returns the runner's allocation (Ollama's tree RSS can
+    ///   miss the child runner — see comment at the compensation branch).
+    /// • OpenAI-compatible (LM Studio, llama-server, ds4-server, …): the model is
+    ///   loaded via `mmap()` and lives in clean file-backed pages — kernel-defined
+    ///   `phys_footprint` excludes those (issue #29). We approximate the missing
+    ///   bytes with the on-disk model file size, preferring (a) the registry size
+    ///   already attached to `selectedModel` (LM Studio, HF cache discovery), and
+    ///   (b) the backend process's argv `-m <path>` as a fallback for arbitrary
+    ///   `llama-server`-style invocations. MLX models are skipped — MLX uses its
+    ///   own allocator and is already counted in `phys_footprint`.
+    /// • Apple Intelligence: no compensation; in-OS provider.
     private func fetchModelMemory() async {
-        guard selectedBackend == .ollama else { return }
+        switch selectedBackend {
+        case .ollama:
+            await fetchOllamaModelMemory()
+        case .openai:
+            await fetchMmapModelMemory()
+        case .appleIntelligence:
+            return
+        }
+    }
 
+    private func fetchOllamaModelMemory() async {
         let ollamaClient = inferenceService.ollamaClient
-
         do {
             let runningModels = try await ollamaClient.listRunningModels()
-
-            // Find the current model (or just take the first one if only one loaded)
             if let running = runningModels.first(where: { $0.name == selectedModel?.id }) ?? runningModels.first {
                 modelMemoryTotal = running.sizeBytes
                 modelMemoryGPU = running.sizeVRAM
@@ -1947,6 +1973,32 @@ final class BenchmarkViewModel: ObservableObject {
             }
         } catch {
             Log.benchmark.warning("Failed to fetch model memory: \(error.localizedDescription)")
+        }
+    }
+
+    private func fetchMmapModelMemory() async {
+        // MLX has its own Metal allocator that phys_footprint already sees; never
+        // compensate it (would double-count). Treat unknown/nil format as
+        // potentially-mmap (most llama-server endpoints don't advertise a format).
+        if selectedModel?.modelFormat == .mlx {
+            return
+        }
+
+        // Step 1: prefer the size we already know from model discovery (LM Studio's
+        // /api/v1/models extended response, HF/LM Studio cache disk scan).
+        if let size = selectedModel?.sizeBytes, size > 0 {
+            modelMemoryTotal = size
+            modelMemoryGPU = size
+            modelMemoryCPU = 0
+            return
+        }
+
+        // Step 2: cmdline fallback — peek at `-m <path>` in the backend's argv
+        // (covers standalone llama-server, ds4-server, etc.).
+        if let size = await metricsService.discoverBackendModelFileSize(), size > 0 {
+            modelMemoryTotal = size
+            modelMemoryGPU = size
+            modelMemoryCPU = 0
         }
     }
 
@@ -1996,10 +2048,17 @@ final class BenchmarkViewModel: ObservableObject {
         // Read cached metrics — NO system calls, just a property read
         guard let metrics = metricsService.latestMetrics else { return }
 
-        // Process tree walk may miss the model runner process (e.g. ollama_llama_server).
-        // When the API reports a model allocation larger than the tree RSS, the runner
-        // wasn't captured — add model size on top. When tree RSS already exceeds the
-        // model allocation, the tree captured everything — use it as-is.
+        // Two ways the per-process measurement can miss the model's memory, both
+        // patched by the same compensation:
+        //   1. Ollama: process tree walk may miss the runner child (ollama_llama_server),
+        //      so the tree RSS is smaller than the API-reported model allocation.
+        //   2. mmap-based backends (LM Studio, llama-server, ds4-server, …): the model
+        //      weights live in clean file-backed pages that `phys_footprint` excludes
+        //      by kernel design (issue #29), so the reported number captures only the
+        //      KV cache + compute buffers.
+        // In both cases, when the model size we know about exceeds what was
+        // reported, add it on top. When reported already exceeds the model size,
+        // the runner was fully captured — leave it alone.
         let reportedMemory = metrics.memoryUsedBytes
         let effectiveMemory: Int64
         if modelMemoryTotal > 0, reportedMemory < modelMemoryTotal {
@@ -2466,9 +2525,12 @@ extension BenchmarkViewModel {
         return String(format: "%.2f J/tok", wpt)
     }
 
-    /// Effective backend memory: compensates when process tree walk misses the model runner.
-    /// When the API-reported model allocation exceeds the tree RSS, the runner wasn't captured
-    /// — add model size on top. Otherwise the tree already includes it.
+    /// Effective backend memory. Adds the known model size on top of the
+    /// per-process measurement when the latter is smaller — covers both the
+    /// Ollama-runner-missed-by-tree-walk case and the mmap-based-backend case
+    /// where `phys_footprint` excludes the model's clean file-backed pages.
+    /// When the reported value already exceeds the model size, the model was
+    /// fully captured and we leave it alone.
     var effectiveBackendMemoryBytes: Int64 {
         let reported = currentMetrics?.memoryUsedBytes ?? 0
         if modelMemoryTotal > 0, reported < modelMemoryTotal {
