@@ -175,10 +175,16 @@ struct InferenceStats: Sendable, Codable {
         completionTokens > 100 && evalDuration > 0 && evalDuration < 1.0
     }
 
-    /// Average latency per output token in milliseconds.
-    var averageTokenLatencyMs: Double {
+    /// Average latency per visible-output token, in milliseconds.
+    ///
+    /// `nil` (rather than 0) when there were no visible output tokens — typically
+    /// a reasoning-capable model that exhausted `max_tokens` entirely inside its
+    /// thinking trace. The metric is undefined in that case, and writing 0 would
+    /// silently bias downstream aggregates / leaderboard averages toward 0.
+    /// See GitHub issue #30.
+    var averageTokenLatencyMs: Double? {
         let toks = outputTokens
-        guard toks > 0 else { return 0 }
+        guard toks > 0 else { return nil }
         return (outputEvalDuration * 1000) / Double(toks)
     }
 
