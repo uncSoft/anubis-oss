@@ -69,9 +69,44 @@ struct OMLXManagedModel: Sendable, Identifiable {
 
 /// Server-specific request/metrics behavior discovered from the stock config
 /// or the `owned_by` fingerprint returned by `/v1/models`.
-private enum OpenAIServerFlavor {
+nonisolated enum OpenAIServerFlavor: Equatable, Sendable {
     case generic
     case mtplx
+
+    mutating func update(ownedBy owners: [String?]) {
+        if owners.contains(where: { $0?.lowercased().contains("mtplx") == true }) {
+            self = .mtplx
+        }
+    }
+
+    func thinkingFields(for mode: OllamaThinkMode) -> OpenAIThinkingFields {
+        let enableThinking: Bool?
+        switch mode {
+        case .auto: enableThinking = nil
+        case .on:   enableThinking = true
+        case .off:  enableThinking = false
+        }
+
+        switch self {
+        case .generic:
+            return OpenAIThinkingFields(
+                chatTemplateKwargs: enableThinking.map {
+                    ["enable_thinking": $0, "preserve_thinking": false]
+                },
+                enableThinking: nil
+            )
+        case .mtplx:
+            return OpenAIThinkingFields(
+                chatTemplateKwargs: nil,
+                enableThinking: enableThinking
+            )
+        }
+    }
+}
+
+nonisolated struct OpenAIThinkingFields: Equatable, Sendable {
+    let chatTemplateKwargs: [String: Bool]?
+    let enableThinking: Bool?
 }
 
 /// Client for OpenAI-compatible API endpoints (LM Studio, LocalAI, vLLM, etc.)
@@ -90,7 +125,7 @@ actor OpenAICompatibleClient: InferenceBackend {
 
     init(configuration: BackendConfiguration) {
         self.configuration = configuration
-        self.serverFlavor = configuration.id.uuidString == "00000000-0000-0000-0000-000000000006"
+        self.serverFlavor = configuration.id == BackendConfiguration.defaultMTPLX.id
             ? .mtplx
             : .generic
         // Strip trailing /v1 or /v1/ — Anubis appends the versioned path automatically
@@ -223,9 +258,11 @@ actor OpenAICompatibleClient: InferenceBackend {
     }
 
     private func updateServerFlavor(from response: OpenAIModelsResponse) {
-        if response.data.contains(where: { $0.ownedBy?.lowercased().contains("mtplx") == true }) {
-            serverFlavor = .mtplx
-        }
+        // The normal UI fetches models before enabling inference, so custom
+        // MTPLX configurations are fingerprinted before their first request.
+        // Direct callers that skip discovery remain generic by design rather
+        // than granting MTPLX-specific behavior without an `owned_by` proof.
+        serverFlavor.update(ownedBy: response.data.map(\.ownedBy))
     }
 
     // MARK: - oMLX Admin API (model management)
@@ -513,19 +550,7 @@ actor OpenAICompatibleClient: InferenceBackend {
         // oMLX/vLLM consume the toggle in `chat_template_kwargs`; MTPLX exposes
         // the same control as a top-level `enable_thinking` request field.
         // Auto omits both representations so server defaults remain intact.
-        let enableThinking: Bool?
-        switch request.ollamaThinkMode {
-        case .auto: enableThinking = nil
-        case .on:   enableThinking = true
-        case .off:  enableThinking = false
-        }
-        let isMTPLX = serverFlavor == .mtplx
-        let templateKwargs: [String: Bool]?
-        if !isMTPLX, let enableThinking {
-            templateKwargs = ["enable_thinking": enableThinking, "preserve_thinking": false]
-        } else {
-            templateKwargs = nil
-        }
+        let thinkingFields = serverFlavor.thinkingFields(for: request.ollamaThinkMode)
 
         let body = OpenAIChatRequest(
             model: request.model,
@@ -540,8 +565,8 @@ actor OpenAICompatibleClient: InferenceBackend {
             topP: request.topP,
             stop: request.stopSequences,
             seed: request.seed,
-            chatTemplateKwargs: templateKwargs,
-            enableThinking: isMTPLX ? enableThinking : nil
+            chatTemplateKwargs: thinkingFields.chatTemplateKwargs,
+            enableThinking: thinkingFields.enableThinking
         )
 
         urlRequest.httpBody = try JSONEncoder().encode(body)
@@ -1311,7 +1336,7 @@ private struct OpenAIChatStreamResponse: Codable {
 
 /// Authoritative per-request timing returned by MTPLX on the terminal SSE
 /// chunk. Field names mirror MTPLX's public `mtplx_stats` contract.
-struct MTPLXStats: Codable {
+nonisolated struct MTPLXStats: Codable, Sendable {
     let elapsed: Double?
     let requestElapsed: Double?
     let promptEvalTime: Double?

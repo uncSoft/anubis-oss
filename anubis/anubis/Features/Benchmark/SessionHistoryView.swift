@@ -614,7 +614,7 @@ struct SessionDetailView: View {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.caption2)
                             .foregroundStyle(.green)
-                        Text("Reported directly by the \(serverReportedSourceName) server")
+                        Text("Reported directly by the \(session.serverReportedSourceName) server")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -624,7 +624,7 @@ struct SessionDetailView: View {
                         set: { detailsSourceOverride = $0 }
                     )) {
                         Text("Anubis").tag(false)
-                        Text(serverReportedSourceName).tag(true)
+                        Text(session.serverReportedSourceName).tag(true)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
@@ -650,10 +650,6 @@ struct SessionDetailView: View {
     }
 
     private var hasServerReportedMetrics: Bool { currentServerMetrics != nil }
-
-    private var serverReportedSourceName: String {
-        currentServerMetrics?["decode_tok_s"] != nil ? "MTPLX" : "oMLX"
-    }
 
     private var showServerReportedDetails: Bool {
         detailsSourceOverride ?? hasServerReportedMetrics

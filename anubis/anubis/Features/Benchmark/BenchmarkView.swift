@@ -1178,7 +1178,7 @@ struct BenchmarkView: View {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.caption2)
                             .foregroundStyle(.green)
-                        Text("Reported directly by the \(serverReportedSourceName) server")
+                        Text("Reported directly by the \(viewModel.currentSession?.serverReportedSourceName ?? "server") server")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -1188,7 +1188,7 @@ struct BenchmarkView: View {
                         set: { detailsSourceOverride = $0 }
                     )) {
                         Text("Anubis").tag(false)
-                        Text(serverReportedSourceName).tag(true)
+                        Text(viewModel.currentSession?.serverReportedSourceName ?? "server").tag(true)
                     }
                     .pickerStyle(.segmented)
                     .controlSize(.small)
@@ -1229,10 +1229,6 @@ struct BenchmarkView: View {
     }
 
     private var hasServerReportedMetrics: Bool { currentServerMetrics != nil }
-
-    private var serverReportedSourceName: String {
-        currentServerMetrics?["decode_tok_s"] != nil ? "MTPLX" : "oMLX"
-    }
 
     /// Session Details grid built straight from the backend's reported metrics —
     /// every value is the server's own number, not Anubis-derived.
@@ -1483,7 +1479,7 @@ private struct InferenceStatsButton: View {
             if !serverRows.isEmpty {
                 Divider()
                     .padding(.vertical, 3)
-                Text("Reported by \(serverReportedSourceName)")
+                Text("Reported by \(session.serverReportedSourceName)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 2)
@@ -1494,11 +1490,6 @@ private struct InferenceStatsButton: View {
         }
         .padding(Spacing.sm)
         .frame(width: 260)
-    }
-
-    private var serverReportedSourceName: String {
-        guard let json = session.serverMetricsJSON else { return "server" }
-        return json.contains("\"decode_tok_s\"") ? "MTPLX" : "oMLX"
     }
 
     /// Parse the backend's raw metrics JSON into flat label/value rows,

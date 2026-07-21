@@ -210,7 +210,7 @@ struct InferenceStats: Sendable, Codable {
 /// `auto` omits the field entirely so the model uses its server-side default
 /// (the safe choice — older Ollama versions and non-thinking models reject
 /// the parameter outright). `on`/`off` force `think:true` / `think:false`.
-enum OllamaThinkMode: String, Sendable, Codable, CaseIterable {
+nonisolated enum OllamaThinkMode: String, Sendable, Codable, CaseIterable {
     case auto
     case on
     case off

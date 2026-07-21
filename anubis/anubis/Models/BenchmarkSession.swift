@@ -16,6 +16,41 @@ enum BenchmarkStatus: String, Codable, DatabaseValueConvertible {
     case cancelled
 }
 
+/// Identifies the server that produced a stored server-metrics object.
+/// The JSON is kept verbatim, so classification uses the backend's public
+/// field names rather than rewriting the payload or adding another DB column.
+nonisolated enum ServerReportedMetricsSource: Equatable, Sendable {
+    case omlx
+    case mtplx
+
+    var displayName: String {
+        switch self {
+        case .omlx: return "oMLX"
+        case .mtplx: return "MTPLX"
+        }
+    }
+
+    init?(metricsJSON: String?) {
+        guard let metricsJSON,
+              let data = metricsJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              !object.isEmpty
+        else { return nil }
+
+        let mtplxKeys: Set<String> = [
+            "elapsed_s",
+            "request_elapsed_s",
+            "prompt_eval_time_s",
+            "prompt_tps",
+            "prefill_tok_s",
+            "ttft_s",
+            "decode_elapsed_s",
+            "decode_tok_s"
+        ]
+        self = object.keys.contains(where: mtplxKeys.contains) ? .mtplx : .omlx
+    }
+}
+
 /// A benchmark session recording inference performance
 struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, MutablePersistableRecord {
     static let databaseTableName = "benchmark_session"
@@ -264,6 +299,14 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     var chipInfo: ChipInfo? {
         guard let json = chipInfoJSON, let data = json.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(ChipInfo.self, from: data)
+    }
+
+    var serverReportedMetricsSource: ServerReportedMetricsSource? {
+        ServerReportedMetricsSource(metricsJSON: serverMetricsJSON)
+    }
+
+    var serverReportedSourceName: String {
+        serverReportedMetricsSource?.displayName ?? "server"
     }
 
     // MARK: - MutablePersistableRecord
