@@ -441,7 +441,9 @@ final class ArenaViewModel: ObservableObject {
         if backend == .ollama { return true }
         if backend == .openai {
             if openAIConfig?.id == BackendConfiguration.defaultOMLX.id { return true }
-            if let owner = model?.ownedBy?.lowercased(), owner.contains("omlx") { return true }
+            if openAIConfig?.id == BackendConfiguration.defaultMTPLX.id { return true }
+            if let owner = model?.ownedBy?.lowercased(),
+               owner.contains("omlx") || owner.contains("mtplx") { return true }
         }
         return false
     }

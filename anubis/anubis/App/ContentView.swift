@@ -643,7 +643,7 @@ struct SettingsView: View {
             } header: {
                 Text("OpenAI-Compatible Servers")
             } footer: {
-                Text("Add servers that support the OpenAI API format (LM Studio, LocalAI, vLLM, etc.)")
+                Text("Add servers that support the OpenAI API format (MTPLX, LM Studio, LocalAI, vLLM, etc.)")
             }
 
             // Actions

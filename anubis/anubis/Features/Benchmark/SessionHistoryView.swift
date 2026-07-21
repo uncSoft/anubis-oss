@@ -544,7 +544,7 @@ struct SessionDetailView: View {
     @ObservedObject var viewModel: BenchmarkViewModel
     @State private var samples: [BenchmarkSample] = []
     @State private var statistics: SampleStatistics?
-    /// Session Details source override (oMLX runs only). nil = default to the
+    /// Session Details source override (runs with server metrics only). nil = default to the
     /// server's own metrics; once toggled it sticks. See BenchmarkView.
     @State private var detailsSourceOverride: Bool? = nil
 
@@ -606,15 +606,15 @@ struct SessionDetailView: View {
 
     private var statsSection: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            // oMLX runs carry the server's own metrics — let the user swap to
-            // the verbatim server-reported figures (defaults to oMLX).
+            // Some servers carry their own metrics — let the user swap to
+            // the verbatim server-reported figures.
             if hasServerReportedMetrics {
                 HStack(spacing: 6) {
                     if showServerReportedDetails {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.caption2)
                             .foregroundStyle(.green)
-                        Text("Reported directly by the oMLX server")
+                        Text("Reported directly by the \(serverReportedSourceName) server")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -624,7 +624,7 @@ struct SessionDetailView: View {
                         set: { detailsSourceOverride = $0 }
                     )) {
                         Text("Anubis").tag(false)
-                        Text("oMLX").tag(true)
+                        Text(serverReportedSourceName).tag(true)
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
@@ -640,7 +640,7 @@ struct SessionDetailView: View {
         }
     }
 
-    /// oMLX's reported `usage` block, parsed. nil for non-oMLX sessions.
+    /// The backend's reported metrics, parsed. nil when none were supplied.
     private var currentServerMetrics: [String: Any]? {
         guard let json = session.serverMetricsJSON,
               let data = json.data(using: .utf8),
@@ -651,29 +651,39 @@ struct SessionDetailView: View {
 
     private var hasServerReportedMetrics: Bool { currentServerMetrics != nil }
 
+    private var serverReportedSourceName: String {
+        currentServerMetrics?["decode_tok_s"] != nil ? "MTPLX" : "oMLX"
+    }
+
     private var showServerReportedDetails: Bool {
         detailsSourceOverride ?? hasServerReportedMetrics
     }
 
-    /// Stats grid built straight from oMLX's reported usage — every value is
+    /// Stats grid built straight from the backend's reported metrics — every value is
     /// the server's own number, not Anubis-derived.
     private func serverReportedStatsGrid(_ m: [String: Any]) -> some View {
         func dbl(_ key: String) -> Double? { (m[key] as? NSNumber)?.doubleValue }
         func intVal(_ key: String) -> Int? { (m[key] as? NSNumber)?.intValue }
+        func firstDouble(_ keys: String...) -> Double? {
+            keys.lazy.compactMap { dbl($0) }.first
+        }
         let cached = ((m["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? NSNumber)?.intValue
+            ?? intVal("cached_tokens")
+        let totalTokens = intVal("total_tokens")
+            ?? intVal("prompt_tokens").map { $0 + (intVal("completion_tokens") ?? 0) }
 
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.md) {
-            StatCell(title: "Prefill Tk/s", value: dbl("prompt_tokens_per_second").map { String(format: "%.2f tok/s", $0) } ?? "—")
-            StatCell(title: "Generation Tk/s", value: dbl("generation_tokens_per_second").map { String(format: "%.2f tok/s", $0) } ?? "—")
-            StatCell(title: "Time to First Token", value: dbl("time_to_first_token").map { String(format: "%.2fs", $0) } ?? "—")
-            StatCell(title: "Total Time", value: dbl("total_time").map { String(format: "%.2fs", $0) } ?? "—")
-            StatCell(title: "Prompt Eval", value: dbl("prompt_eval_duration").map { String(format: "%.2fs", $0) } ?? "—")
-            StatCell(title: "Generation", value: dbl("generation_duration").map { String(format: "%.2fs", $0) } ?? "—")
+            StatCell(title: "Prefill Tk/s", value: firstDouble("prompt_tokens_per_second", "prompt_tps", "prefill_tok_s").map { String(format: "%.2f tok/s", $0) } ?? "—")
+            StatCell(title: "Generation Tk/s", value: firstDouble("generation_tokens_per_second", "decode_tok_s").map { String(format: "%.2f tok/s", $0) } ?? "—")
+            StatCell(title: "Time to First Token", value: firstDouble("time_to_first_token", "ttft_s").map { String(format: "%.2fs", $0) } ?? "—")
+            StatCell(title: "Total Time", value: firstDouble("total_time", "request_elapsed_s", "elapsed_s").map { String(format: "%.2fs", $0) } ?? "—")
+            StatCell(title: "Prompt Eval", value: firstDouble("prompt_eval_duration", "prompt_eval_time_s").map { String(format: "%.2fs", $0) } ?? "—")
+            StatCell(title: "Generation", value: firstDouble("generation_duration", "decode_elapsed_s").map { String(format: "%.2fs", $0) } ?? "—")
             StatCell(title: "Model Load", value: dbl("model_load_duration").map { String(format: "%.2fs", $0) } ?? "—")
             StatCell(title: "Cached Tokens", value: cached.map { "\($0)" } ?? "—")
             StatCell(title: "Prompt Tokens", value: intVal("prompt_tokens").map { "\($0)" } ?? "—")
             StatCell(title: "Completion Tokens", value: intVal("completion_tokens").map { "\($0)" } ?? "—")
-            StatCell(title: "Total Tokens", value: intVal("total_tokens").map { "\($0)" } ?? "—")
+            StatCell(title: "Total Tokens", value: totalTokens.map { "\($0)" } ?? "—")
         }
     }
 

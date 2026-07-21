@@ -74,9 +74,10 @@ struct ModelInfo: Identifiable, Hashable, Codable {
     let modifiedAt: Date?
 
     /// The `owned_by` field from an OpenAI-compatible `/v1/models` listing.
-    /// oMLX stamps every model with `owned_by: "omlx"`, which we use as a
-    /// connect-time identity fingerprint (another server squatting on the
-    /// oMLX port won't claim this). nil when the server doesn't report it.
+    /// oMLX and MTPLX stamp their models with distinct values, which we use as
+    /// connect-time identity fingerprints (another server sharing port 8000
+    /// won't accidentally enable their server-specific behavior). nil when
+    /// the server doesn't report it.
     var ownedBy: String? = nil
 
     /// Formatted size for display

@@ -72,9 +72,9 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     // step fires inside a flow.
     var flowRunId: Int64?
 
-    // v11: the backend's raw `usage` object as JSON, captured verbatim when
-    // the server reports its own metrics (oMLX). NULL for every other backend.
-    // Surfaced in the Inference Stats popover so oMLX's numbers display exactly
+    // v11: the backend's raw metrics object as JSON, captured verbatim when
+    // the server reports its own metrics (oMLX/MTPLX). NULL for other backends.
+    // Surfaced in the Inference Stats popover so the server's numbers display exactly
     // as the server sent them.
     var serverMetricsJSON: String?
 

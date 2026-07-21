@@ -302,6 +302,7 @@ Vault - View model details, unload, and Pull models directly for Ollama
 |---------|------|--------------|-------|
 | **Apple Intelligence** | On-device (Foundation Models) | — | macOS 26+ with Apple Intelligence enabled. No setup; appears in the backend menu when supported. |
 | **Ollama** | Native support | 11434 | Install from [ollama.com](https://ollama.com) - auto-detected on launch |
+| **MTPLX** | OpenAI-compatible + native timing | 8000 | `brew install youssofal/mtplx/mtplx && mtplx serve --port 8000` |
 | **LM Studio** | OpenAI-compatible | 1234 | Enable local server in LM Studio settings |
 | **mlx-lm** | OpenAI-compatible | 8080 | `pip install mlx-lm && mlx_lm.server --model <model>` |
 | **vLLM** | OpenAI-compatible | 8000 | Add in Settings |
@@ -333,7 +334,7 @@ Anubis captures Apple Silicon telemetry during inference via IOReport and system
 Anubis automatically detects which process is serving your model:
 
 - **Port-based detection**: Uses `lsof` to find the PID listening on the inference port (called once per benchmark start)
-- **Backend identification**: Matches process path and command-line args to identify Ollama, LM Studio, mlx-lm, vLLM, LocalAI, llama.cpp
+- **Backend identification**: Matches process path and command-line args to identify Ollama, MTPLX, LM Studio, mlx-lm, vLLM, LocalAI, llama.cpp
 - **Memory accounting**: Uses `phys_footprint` (same as Activity Monitor) which includes Metal/GPU buffer allocations - critical for MLX and other GPU-accelerated backends
 - **LM Studio support**: Walks Electron app bundle descendants to find the model-serving process
 - **Manual override**: Process picker lets you select any process by name, sorted by memory usage

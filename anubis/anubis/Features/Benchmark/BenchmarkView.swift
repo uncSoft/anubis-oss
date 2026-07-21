@@ -1148,7 +1148,7 @@ struct BenchmarkView: View {
         }
     }
 
-    /// Effective Session Details source: default to oMLX's own metrics whenever
+    /// Effective Session Details source: default to the backend's own metrics whenever
     /// the run has them; respect the user's explicit choice once they make one.
     private var showServerReportedDetails: Bool {
         detailsSourceOverride ?? hasServerReportedMetrics
@@ -1170,7 +1170,7 @@ struct BenchmarkView: View {
                 }
             }
 
-            // oMLX reports its own metrics — let the user swap the grid to the
+            // A supported server reports its own metrics — let the user swap the grid to the
             // server's verbatim figures, marked as server-verified.
             if hasServerReportedMetrics {
                 HStack(spacing: 6) {
@@ -1178,7 +1178,7 @@ struct BenchmarkView: View {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.caption2)
                             .foregroundStyle(.green)
-                        Text("Reported directly by the oMLX server")
+                        Text("Reported directly by the \(serverReportedSourceName) server")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -1188,7 +1188,7 @@ struct BenchmarkView: View {
                         set: { detailsSourceOverride = $0 }
                     )) {
                         Text("Anubis").tag(false)
-                        Text("oMLX").tag(true)
+                        Text(serverReportedSourceName).tag(true)
                     }
                     .pickerStyle(.segmented)
                     .controlSize(.small)
@@ -1219,8 +1219,7 @@ struct BenchmarkView: View {
         }
     }
 
-    /// The current session's oMLX-reported `usage` block, parsed. nil unless
-    /// the run was against a server that reports its own metrics (oMLX).
+    /// The current session's backend-reported metrics, parsed.
     private var currentServerMetrics: [String: Any]? {
         guard let json = viewModel.currentSession?.serverMetricsJSON,
               let data = json.data(using: .utf8),
@@ -1231,25 +1230,35 @@ struct BenchmarkView: View {
 
     private var hasServerReportedMetrics: Bool { currentServerMetrics != nil }
 
-    /// Session Details grid built straight from oMLX's reported usage block —
+    private var serverReportedSourceName: String {
+        currentServerMetrics?["decode_tok_s"] != nil ? "MTPLX" : "oMLX"
+    }
+
+    /// Session Details grid built straight from the backend's reported metrics —
     /// every value is the server's own number, not Anubis-derived.
     private func serverReportedStatsGrid(_ m: [String: Any]) -> some View {
         func dbl(_ key: String) -> Double? { (m[key] as? NSNumber)?.doubleValue }
         func intVal(_ key: String) -> Int? { (m[key] as? NSNumber)?.intValue }
+        func firstDouble(_ keys: String...) -> Double? {
+            keys.lazy.compactMap { dbl($0) }.first
+        }
         let cached = ((m["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? NSNumber)?.intValue
+            ?? intVal("cached_tokens")
+        let totalTokens = intVal("total_tokens")
+            ?? (intVal("prompt_tokens").map { $0 + (intVal("completion_tokens") ?? 0) })
 
         return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 6), spacing: Spacing.xs) {
-            serverCell("Prefill Speed", dbl("prompt_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
-            serverCell("Generation Speed", dbl("generation_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
-            serverCell("Time to First Token", dbl("time_to_first_token").map { String(format: "%.2fs", $0) })
-            serverCell("Total Time", dbl("total_time").map { String(format: "%.2fs", $0) })
-            serverCell("Prompt Eval", dbl("prompt_eval_duration").map { String(format: "%.2fs", $0) })
-            serverCell("Generation", dbl("generation_duration").map { String(format: "%.2fs", $0) })
+            serverCell("Prefill Speed", firstDouble("prompt_tokens_per_second", "prompt_tps", "prefill_tok_s").map { String(format: "%.2f tok/s", $0) })
+            serverCell("Generation Speed", firstDouble("generation_tokens_per_second", "decode_tok_s").map { String(format: "%.2f tok/s", $0) })
+            serverCell("Time to First Token", firstDouble("time_to_first_token", "ttft_s").map { String(format: "%.2fs", $0) })
+            serverCell("Total Time", firstDouble("total_time", "request_elapsed_s", "elapsed_s").map { String(format: "%.2fs", $0) })
+            serverCell("Prompt Eval", firstDouble("prompt_eval_duration", "prompt_eval_time_s").map { String(format: "%.2fs", $0) })
+            serverCell("Generation", firstDouble("generation_duration", "decode_elapsed_s").map { String(format: "%.2fs", $0) })
             serverCell("Model Load", dbl("model_load_duration").map { String(format: "%.2fs", $0) })
             serverCell("Cached Tokens", cached.map { "\($0)" })
             serverCell("Prompt Tokens", intVal("prompt_tokens").map { "\($0)" })
             serverCell("Completion Tokens", intVal("completion_tokens").map { "\($0)" })
-            serverCell("Total Tokens", intVal("total_tokens").map { "\($0)" })
+            serverCell("Total Tokens", totalTokens.map { "\($0)" })
         }
     }
 
@@ -1468,13 +1477,13 @@ private struct InferenceStatsButton: View {
                 }
             }
 
-            // oMLX reports its own metrics; show them verbatim, exactly as the
+            // Supported servers report their own metrics; show them verbatim, exactly as the
             // server sent them (including fields we don't otherwise surface).
-            let serverRows = omlxReportedRows
+            let serverRows = serverReportedRows
             if !serverRows.isEmpty {
                 Divider()
                     .padding(.vertical, 3)
-                Text("Reported by oMLX")
+                Text("Reported by \(serverReportedSourceName)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 2)
@@ -1487,9 +1496,14 @@ private struct InferenceStatsButton: View {
         .frame(width: 260)
     }
 
-    /// Parse the backend's raw `usage` JSON (oMLX) into flat label/value rows,
+    private var serverReportedSourceName: String {
+        guard let json = session.serverMetricsJSON else { return "server" }
+        return json.contains("\"decode_tok_s\"") ? "MTPLX" : "oMLX"
+    }
+
+    /// Parse the backend's raw metrics JSON into flat label/value rows,
     /// preserving the server's own numbers without rounding or renaming.
-    private var omlxReportedRows: [(label: String, value: String)] {
+    private var serverReportedRows: [(label: String, value: String)] {
         guard let json = session.serverMetricsJSON,
               let data = json.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]

@@ -18,6 +18,7 @@ enum BackendProcessType: String, Sendable {
     case lmStudio = "lm_studio"
     case mlxLM = "mlx_lm"
     case omlx
+    case mtplx
     case vllm = "vllm"
     case localAI = "local_ai"
     case llamaServer = "llama_server"
@@ -103,6 +104,8 @@ actor ProcessMonitor {
         // below, but keep it ahead so the more specific label always wins.
         ({ $0.lowercased().contains("omlx") },
          .omlx, "oMLX"),
+        ({ $0.lowercased().contains("mtplx") },
+         .mtplx, "MTPLX"),
         ({ $0.contains("mlx_lm") || $0.contains("mlx-lm") || $0.hasSuffix("/mlx_lm.server") },
          .mlxLM, "mlx-lm"),
         ({ $0.hasSuffix("/vllm") || $0.contains("vllm.entrypoints") },
@@ -116,6 +119,7 @@ actor ProcessMonitor {
     /// Python-based backends detected via command-line arguments
     private static let pythonPatterns: [(argCheck: (String) -> Bool, type: BackendProcessType, name: String)] = [
         ({ $0.lowercased().contains("omlx") }, .omlx, "oMLX"),
+        ({ $0.lowercased().contains("mtplx") }, .mtplx, "MTPLX"),
         ({ $0.contains("mlx_lm") || $0.contains("mlx-lm") }, .mlxLM, "mlx-lm"),
         ({ $0.contains("vllm") }, .vllm, "vLLM"),
         ({ $0.contains("tabbyAPI") || $0.contains("tabby_api") }, .unknown, "TabbyAPI"),
@@ -193,8 +197,8 @@ actor ProcessMonitor {
             return match
         }
 
-        // Default priority: Ollama > LM Studio > llama-server > oMLX > mlx-lm > vLLM > LocalAI
-        let priority: [BackendProcessType] = [.ollama, .lmStudio, .llamaServer, .omlx, .mlxLM, .vllm, .localAI]
+        // Default priority: Ollama > LM Studio > llama-server > MTPLX > oMLX > mlx-lm > vLLM > LocalAI
+        let priority: [BackendProcessType] = [.ollama, .lmStudio, .llamaServer, .mtplx, .omlx, .mlxLM, .vllm, .localAI]
         for type in priority {
             if let match = backends.first(where: { $0.type == type }) {
                 primaryBackend = match

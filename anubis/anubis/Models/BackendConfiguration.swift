@@ -97,13 +97,26 @@ struct BackendConfiguration: Identifiable, Codable, Hashable {
         isEnabled: true
     )
 
+    /// Default MTPLX configuration (mtplx.com).
+    /// MTPLX exposes an OpenAI-compatible API on port 8000 and identifies its
+    /// models with `owned_by: "mtplx"`. OpenAICompatibleClient also consumes
+    /// its `mtplx_stats` response extension for server-measured benchmark data.
+    static let defaultMTPLX = BackendConfiguration(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000006")!,
+        name: "MTPLX",
+        type: .openaiCompatible,
+        baseURL: "http://localhost:8000",
+        isEnabled: true
+    )
+
     /// IDs of built-in default configurations that cannot be deleted
     static let defaultIDs: Set<UUID> = [
         defaultOllama.id,
         defaultMLX.id,
         defaultLMStudio.id,
         defaultVLLM.id,
-        defaultOMLX.id
+        defaultOMLX.id,
+        defaultMTPLX.id
     ]
 }
 
@@ -122,7 +135,8 @@ class BackendConfigurationManager: ObservableObject {
         .defaultMLX,
         .defaultLMStudio,
         .defaultVLLM,
-        .defaultOMLX
+        .defaultOMLX,
+        .defaultMTPLX
     ]
 
     init() {

@@ -300,17 +300,34 @@ final class BenchmarkViewModel: ObservableObject {
     /// Guards against another OpenAI-compatible server on the oMLX port being
     /// mistaken for the real thing.
     var isVerifiedOMLX: Bool {
-        if currentSession?.serverMetricsJSON != nil { return true }
         if let owner = selectedModel?.ownedBy?.lowercased(), owner.contains("omlx") { return true }
+        // oMLX metrics are stored from its extended `usage` object. MTPLX now
+        // also stores server metrics, but under a distinct `mtplx_stats`
+        // schema, so the mere presence of JSON is no longer an oMLX signal.
+        if let json = currentSession?.serverMetricsJSON {
+            return json.contains("\"generation_tokens_per_second\"")
+                || json.contains("\"generation_duration\"")
+        }
         return false
     }
 
+    /// True for the stock MTPLX connection or a server positively identified
+    /// by its `/v1/models` `owned_by` fingerprint.
+    var isMTPLXBackend: Bool {
+        guard selectedBackend == .openai else { return false }
+        if inferenceService.currentOpenAIConfig?.id == BackendConfiguration.defaultMTPLX.id {
+            return true
+        }
+        return selectedModel?.ownedBy?.lowercased().contains("mtplx") == true
+    }
+
     /// Whether the current backend exposes a thinking toggle. Ollama uses the
-    /// `think` request field; oMLX uses `chat_template_kwargs.enable_thinking`.
+    /// `think` request field; oMLX uses `chat_template_kwargs.enable_thinking`;
+    /// MTPLX uses the top-level `enable_thinking` field.
     /// Other OpenAI-compatible servers (LM Studio, vLLM, plain mlx-lm) don't,
     /// so the picker stays hidden and the mode stays Auto for them.
     var supportsThinkingToggle: Bool {
-        selectedBackend == .ollama || isBuiltInOMLXBackend || isVerifiedOMLX
+        selectedBackend == .ollama || isBuiltInOMLXBackend || isVerifiedOMLX || isMTPLXBackend
     }
 
     /// Whether the selected model can be ejected (unloaded) from here. Both

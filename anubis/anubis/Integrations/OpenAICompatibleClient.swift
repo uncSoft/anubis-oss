@@ -67,6 +67,13 @@ struct OMLXManagedModel: Sendable, Identifiable {
     let isDefault: Bool
 }
 
+/// Server-specific request/metrics behavior discovered from the stock config
+/// or the `owned_by` fingerprint returned by `/v1/models`.
+private enum OpenAIServerFlavor {
+    case generic
+    case mtplx
+}
+
 /// Client for OpenAI-compatible API endpoints (LM Studio, LocalAI, vLLM, etc.)
 actor OpenAICompatibleClient: InferenceBackend {
     // MARK: - Properties
@@ -77,11 +84,15 @@ actor OpenAICompatibleClient: InferenceBackend {
     private let baseURL: URL
     private let session: URLSession
     private let apiKey: String?
+    private var serverFlavor: OpenAIServerFlavor
 
     // MARK: - Initialization
 
     init(configuration: BackendConfiguration) {
         self.configuration = configuration
+        self.serverFlavor = configuration.id.uuidString == "00000000-0000-0000-0000-000000000006"
+            ? .mtplx
+            : .generic
         // Strip trailing /v1 or /v1/ — Anubis appends the versioned path automatically
         var url = Constants.URLs.parse(configuration.baseURL, fallback: Constants.URLs.openAIDefault)
         let pathSuffixes = ["/v1/", "/v1"]
@@ -136,12 +147,13 @@ actor OpenAICompatibleClient: InferenceBackend {
         }
 
         do {
-            let (_, response) = try await session.data(for: request)
+            let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 return .unhealthy(error: "Not an HTTP response")
             }
 
             if httpResponse.statusCode == 200 {
+                updateServerFlavor(fromModelsResponse: data)
                 return .healthy(version: nil)
             } else if httpResponse.statusCode == 401 {
                 return .unhealthy(error: "Authentication required")
@@ -173,6 +185,7 @@ actor OpenAICompatibleClient: InferenceBackend {
         }
 
         let modelsResponse = try JSONDecoder().decode(OpenAIModelsResponse.self, from: data)
+        updateServerFlavor(from: modelsResponse)
         let configId = configuration.id
 
         // Try to fetch richer metadata from LM Studio-style endpoint
@@ -194,13 +207,24 @@ actor OpenAICompatibleClient: InferenceBackend {
                 quantization: richMatch?.quantization ?? diskMatch?.quantization ?? parsed.quantization,
                 modelFormat: richMatch?.modelFormat ?? diskMatch?.modelFormat ?? parsed.modelFormat,
                 sizeBytes: richMatch?.sizeBytes ?? diskMatch?.sizeBytes,
-                contextLength: richMatch?.contextLength,
+                contextLength: richMatch?.contextLength ?? model.contextLength,
                 backend: .openai,
                 openAIConfigId: configId,
                 path: diskMatch?.path,
                 modifiedAt: diskMatch?.modifiedAt,
                 ownedBy: model.ownedBy
             )
+        }
+    }
+
+    private func updateServerFlavor(fromModelsResponse data: Data) {
+        guard let response = try? JSONDecoder().decode(OpenAIModelsResponse.self, from: data) else { return }
+        updateServerFlavor(from: response)
+    }
+
+    private func updateServerFlavor(from response: OpenAIModelsResponse) {
+        if response.data.contains(where: { $0.ownedBy?.lowercased().contains("mtplx") == true }) {
+            serverFlavor = .mtplx
         }
     }
 
@@ -486,14 +510,21 @@ actor OpenAICompatibleClient: InferenceBackend {
         }
         messages.append(["role": "user", "content": request.prompt])
 
-        // Translate the thinking toggle into chat_template_kwargs (oMLX/vLLM).
-        // Only sent when explicitly On/Off; Auto omits it so servers that don't
-        // understand the field are unaffected.
-        let templateKwargs: [String: Bool]?
+        // oMLX/vLLM consume the toggle in `chat_template_kwargs`; MTPLX exposes
+        // the same control as a top-level `enable_thinking` request field.
+        // Auto omits both representations so server defaults remain intact.
+        let enableThinking: Bool?
         switch request.ollamaThinkMode {
-        case .auto: templateKwargs = nil
-        case .on:   templateKwargs = ["enable_thinking": true, "preserve_thinking": false]
-        case .off:  templateKwargs = ["enable_thinking": false, "preserve_thinking": false]
+        case .auto: enableThinking = nil
+        case .on:   enableThinking = true
+        case .off:  enableThinking = false
+        }
+        let isMTPLX = serverFlavor == .mtplx
+        let templateKwargs: [String: Bool]?
+        if !isMTPLX, let enableThinking {
+            templateKwargs = ["enable_thinking": enableThinking, "preserve_thinking": false]
+        } else {
+            templateKwargs = nil
         }
 
         let body = OpenAIChatRequest(
@@ -509,7 +540,8 @@ actor OpenAICompatibleClient: InferenceBackend {
             topP: request.topP,
             stop: request.stopSequences,
             seed: request.seed,
-            chatTemplateKwargs: templateKwargs
+            chatTemplateKwargs: templateKwargs,
+            enableThinking: isMTPLX ? enableThinking : nil
         )
 
         urlRequest.httpBody = try JSONEncoder().encode(body)
@@ -547,10 +579,12 @@ actor OpenAICompatibleClient: InferenceBackend {
         var state = StreamState()
         let startTime = Date()
         var lastUsage: OpenAIUsage?
+        var lastMTPLXStats: MTPLXStats?
         // Raw usage object exactly as the backend sent it, captured only when
         // it carries oMLX's extended timing. Persisted so the UI can show
         // oMLX's numbers verbatim, including any fields we don't model yet.
         var lastUsageRawJSON: String?
+        var lastMTPLXStatsRawJSON: String?
         var finalized = false
 
         // Emit the terminal chunk exactly once. Used by both the [DONE]
@@ -558,7 +592,12 @@ actor OpenAICompatibleClient: InferenceBackend {
         func emitFinal() {
             guard !finalized else { return }
             finalized = true
-            let stats = state.finalize(startTime: startTime, usage: lastUsage, rawUsageJSON: lastUsageRawJSON)
+            let stats = state.finalize(
+                startTime: startTime,
+                usage: lastUsage,
+                mtplxStats: lastMTPLXStats,
+                rawMetricsJSON: lastMTPLXStatsRawJSON ?? lastUsageRawJSON
+            )
             continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
             continuation.finish()
         }
@@ -590,6 +629,19 @@ actor OpenAICompatibleClient: InferenceBackend {
                        let usageData = try? JSONSerialization.data(withJSONObject: usageObj, options: [.sortedKeys]),
                        let usageStr = String(data: usageData, encoding: .utf8) {
                         lastUsageRawJSON = usageStr
+                    }
+                }
+
+                // MTPLX returns authoritative timing alongside standard usage
+                // in a top-level `mtplx_stats` extension on its final chunk.
+                if let mtplxStats = chunk.mtplxStats {
+                    lastMTPLXStats = mtplxStats
+                    serverFlavor = .mtplx
+                    if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let statsObj = obj["mtplx_stats"] as? [String: Any],
+                       let statsData = try? JSONSerialization.data(withJSONObject: statsObj, options: [.sortedKeys]),
+                       let statsString = String(data: statsData, encoding: .utf8) {
+                        lastMTPLXStatsRawJSON = statsString
                     }
                 }
 
@@ -748,25 +800,33 @@ private struct StreamState {
         return nil
     }
 
-    func finalize(startTime: Date, usage: OpenAIUsage?, rawUsageJSON: String? = nil) -> InferenceStats {
+    func finalize(
+        startTime: Date,
+        usage: OpenAIUsage?,
+        mtplxStats: MTPLXStats? = nil,
+        rawMetricsJSON: String? = nil
+    ) -> InferenceStats {
         let now = Date()
         let wallTotal = now.timeIntervalSince(startTime)
 
-        // Prefer the backend's own timing when it reports it (oMLX). These are
+        // Prefer the backend's own timing when it reports it (oMLX/MTPLX). These are
         // measured inside the decode loop, so they're immune to the client-read
         // bursts that make wall-clock evalDuration collapse toward zero and
         // tok/s explode (issue #25). Fall back to wall-clock for plain mlx-lm,
         // LM Studio, vLLM, llama.cpp, etc. which report only token counts.
-        let serverTiming = usage?.hasServerTiming ?? false
+        let serverTiming = (usage?.hasServerTiming ?? false) || (mtplxStats?.hasServerTiming ?? false)
 
-        let totalDuration = usage?.totalTime ?? wallTotal
-        let promptEval = usage?.promptEvalDuration
-            ?? usage?.timeToFirstToken
-            ?? firstChunkTime.map { $0.timeIntervalSince(startTime) }
-            ?? 0
-        let evalDuration = usage?.generationDuration
-            ?? firstChunkTime.map { now.timeIntervalSince($0) }
-            ?? wallTotal
+        let mtplxTotal = mtplxStats?.requestElapsed ?? mtplxStats?.elapsed
+        let totalDuration = mtplxTotal ?? usage?.totalTime ?? wallTotal
+
+        let clientPromptEval = firstChunkTime.map { $0.timeIntervalSince(startTime) } ?? 0
+        let usagePromptEval = usage?.promptEvalDuration ?? usage?.timeToFirstToken
+        let promptEval = mtplxStats?.promptEvalTime ?? usagePromptEval ?? clientPromptEval
+
+        let clientEvalDuration = firstChunkTime.map { now.timeIntervalSince($0) } ?? wallTotal
+        let evalDuration = mtplxStats?.decodeElapsed
+            ?? usage?.generationDuration
+            ?? clientEvalDuration
 
         // Reasoning duration: from first reasoning chunk to first content chunk
         // (or to end, if reasoning ran to completion without follow-on content).
@@ -806,13 +866,19 @@ private struct StreamState {
             contextLength: promptToks > 0 ? promptToks + completionToks : 0,
             reasoningTokens: reasoningTokenCount,
             reasoningDuration: reasoningDuration,
-            // oMLX hands us the exact decode-loop throughput and TTFT; use them
+            // oMLX/MTPLX hand us exact decode-loop throughput and TTFT; use them
             // verbatim so our headline numbers match the backend's own. nil for
             // every other server, which leaves tok/s/TTFT derived as before.
-            reportedTokensPerSecond: serverTiming ? usage?.generationTokensPerSecond : nil,
-            serverReportedTTFT: serverTiming ? (usage?.timeToFirstToken ?? usage?.promptEvalDuration) : nil,
-            reportedPromptTokensPerSecond: serverTiming ? usage?.promptTokensPerSecond : nil,
-            serverReportedMetricsJSON: serverTiming ? rawUsageJSON : nil
+            reportedTokensPerSecond: serverTiming
+                ? (mtplxStats?.decodeTokensPerSecond ?? usage?.generationTokensPerSecond)
+                : nil,
+            serverReportedTTFT: serverTiming
+                ? (mtplxStats?.timeToFirstToken ?? usage?.timeToFirstToken ?? usage?.promptEvalDuration)
+                : nil,
+            reportedPromptTokensPerSecond: serverTiming
+                ? (mtplxStats?.promptTokensPerSecond ?? usage?.promptTokensPerSecond)
+                : nil,
+            serverReportedMetricsJSON: serverTiming ? rawMetricsJSON : nil
         )
     }
 }
@@ -1184,10 +1250,12 @@ private struct OpenAIModel: Codable {
     let object: String?
     let created: Int?
     let ownedBy: String?
+    let contextLength: Int?
 
     enum CodingKeys: String, CodingKey {
         case id, object, created
         case ownedBy = "owned_by"
+        case contextLength = "context_length"
     }
 }
 
@@ -1205,6 +1273,8 @@ private struct OpenAIChatRequest: Codable {
     /// `enable_thinking` here to toggle a reasoning model's chain-of-thought.
     /// Omitted (nil) unless the user explicitly set thinking On/Off.
     let chatTemplateKwargs: [String: Bool]?
+    /// MTPLX's top-level thinking control. Omitted for all other servers.
+    let enableThinking: Bool?
 
     enum CodingKeys: String, CodingKey {
         case model, messages, stream, temperature, stop, seed
@@ -1212,6 +1282,7 @@ private struct OpenAIChatRequest: Codable {
         case maxTokens = "max_tokens"
         case topP = "top_p"
         case chatTemplateKwargs = "chat_template_kwargs"
+        case enableThinking = "enable_thinking"
     }
 }
 
@@ -1230,6 +1301,41 @@ private struct OpenAIChatStreamResponse: Codable {
     let model: String?
     let choices: [OpenAIStreamChoice]
     let usage: OpenAIUsage?
+    let mtplxStats: MTPLXStats?
+
+    enum CodingKeys: String, CodingKey {
+        case id, object, created, model, choices, usage
+        case mtplxStats = "mtplx_stats"
+    }
+}
+
+/// Authoritative per-request timing returned by MTPLX on the terminal SSE
+/// chunk. Field names mirror MTPLX's public `mtplx_stats` contract.
+struct MTPLXStats: Codable {
+    let elapsed: Double?
+    let requestElapsed: Double?
+    let promptEvalTime: Double?
+    let promptTPS: Double?
+    let prefillTPS: Double?
+    let timeToFirstToken: Double?
+    let decodeElapsed: Double?
+    let decodeTokensPerSecond: Double?
+
+    var promptTokensPerSecond: Double? { promptTPS ?? prefillTPS }
+    var hasServerTiming: Bool {
+        decodeElapsed != nil || decodeTokensPerSecond != nil
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case elapsed = "elapsed_s"
+        case requestElapsed = "request_elapsed_s"
+        case promptEvalTime = "prompt_eval_time_s"
+        case promptTPS = "prompt_tps"
+        case prefillTPS = "prefill_tok_s"
+        case timeToFirstToken = "ttft_s"
+        case decodeElapsed = "decode_elapsed_s"
+        case decodeTokensPerSecond = "decode_tok_s"
+    }
 }
 
 private struct OpenAIUsage: Codable {

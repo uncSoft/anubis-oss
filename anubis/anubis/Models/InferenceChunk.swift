@@ -64,22 +64,22 @@ struct InferenceStats: Sendable, Codable {
     let reasoningDuration: TimeInterval
 
     /// Backend-reported generation throughput (tok/s), when the server measures
-    /// it itself inside the decode loop (oMLX). Preferred over our wall-clock
+    /// it itself inside the decode loop (oMLX/MTPLX). Preferred over our wall-clock
     /// derivation, which a bursty SSE reader can inflate wildly (issue #25).
     /// nil for backends that report only token counts (mlx-lm, LM Studio, ...).
     let reportedTokensPerSecond: Double?
 
-    /// Backend-reported time-to-first-token in seconds (oMLX). nil otherwise,
+    /// Backend-reported time-to-first-token in seconds (oMLX/MTPLX). nil otherwise,
     /// in which case the ViewModel uses its own first-chunk wall-clock timing.
     let serverReportedTTFT: TimeInterval?
 
-    /// Backend-reported prompt (prefill) throughput in tok/s (oMLX). Preferred
+    /// Backend-reported prompt (prefill) throughput in tok/s (oMLX/MTPLX). Preferred
     /// over deriving prompt_tokens / prompt_eval_duration, which rounds slightly
     /// differently from the backend's own figure. nil for other servers.
     let reportedPromptTokensPerSecond: Double?
 
-    /// The backend's raw `usage` object as a JSON string, captured verbatim
-    /// when it reports its own metrics (oMLX). Lets the UI display every field
+    /// The backend's raw metrics object as a JSON string, captured verbatim
+    /// when it reports its own metrics (oMLX/MTPLX). Lets the UI display every field
     /// exactly as the server sent it, including ones we don't model. nil
     /// for backends that report only standard token counts.
     let serverReportedMetricsJSON: String?
@@ -151,7 +151,7 @@ struct InferenceStats: Sendable, Codable {
     /// something meaningful instead of a spurious zero.
     var tokensPerSecond: Double {
         // Trust the backend's own decode-loop measurement when it provides one
-        // (oMLX). It can't be corrupted by client-side read bursts the way our
+        // (oMLX/MTPLX). It can't be corrupted by client-side read bursts the way our
         // wall-clock derivation can (issue #25).
         if let reported = reportedTokensPerSecond, reported > 0 {
             return reported
@@ -190,7 +190,7 @@ struct InferenceStats: Sendable, Codable {
 
     /// Prompt processing speed — input tokens/sec (prefill speed).
     var promptProcessingSpeed: Double {
-        // Trust the backend's own prefill rate when it reports one (oMLX).
+        // Trust the backend's own prefill rate when it reports one (oMLX/MTPLX).
         if let reported = reportedPromptTokensPerSecond, reported > 0 {
             return reported
         }
