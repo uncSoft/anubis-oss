@@ -102,6 +102,70 @@ struct RunConditionsTests {
         #expect(session.seed == 42)
     }
 
+    // MARK: - Completion plumbing
+
+    /// The path a real run takes: stats carry the backend's finish_reason,
+    /// the sample roll-up carries thermal, and `complete` lands both.
+    @Test func completeCarriesFinishReasonAndThermalOntoTheSession() {
+        var session = makeSession()
+        let stats = InferenceStats(
+            totalTokens: 534,
+            promptTokens: 22,
+            completionTokens: 512,
+            totalDuration: 10.4,
+            promptEvalDuration: 0.5,
+            evalDuration: 9.9,
+            loadDuration: 0,
+            contextLength: 534,
+            finishReason: "length"
+        )
+        let thermal = BenchmarkSample.computeThermalSummary(
+            from: [0, 0, 1, 1].map { BenchmarkSample(sessionId: 1, thermalState: $0) }
+        )
+
+        session.complete(with: stats, response: "ok", thermalSummary: thermal)
+
+        #expect(session.finishReason == "length")
+        #expect(session.hitTokenCap)
+        #expect(session.thermalNonNominalFraction == 0.5)
+        #expect(session.thermalStateAtStart == 0)
+        #expect(session.ranUnderThermalPressure)
+        #expect(session.status == .completed)
+    }
+
+    /// A backend that reports no finish_reason must leave the field nil rather
+    /// than implying the run finished on its own.
+    @Test func completeLeavesFinishReasonNilWhenTheBackendOmitsIt() {
+        var session = makeSession()
+        let stats = InferenceStats(
+            totalTokens: 10, promptTokens: 2, completionTokens: 8,
+            totalDuration: 1, promptEvalDuration: 0.1, evalDuration: 0.9,
+            loadDuration: 0, contextLength: 10
+        )
+        session.complete(with: stats, response: "ok")
+        #expect(session.finishReason == nil)
+        #expect(!session.hitTokenCap)
+    }
+
+    /// With no samples, the run keeps the thermal state snapshotted at init
+    /// rather than overwriting it with nothing.
+    @Test func completeKeepsInitialThermalStateWhenNoSamplesExist() {
+        var session = makeSession()
+        let before = session.thermalStateAtStart
+        let stats = InferenceStats(
+            totalTokens: 10, promptTokens: 2, completionTokens: 8,
+            totalDuration: 1, promptEvalDuration: 0.1, evalDuration: 0.9,
+            loadDuration: 0, contextLength: 10
+        )
+        session.complete(
+            with: stats,
+            response: "ok",
+            thermalSummary: BenchmarkSample.computeThermalSummary(from: [])
+        )
+        #expect(session.thermalStateAtStart == before)
+        #expect(session.thermalNonNominalFraction == nil)
+    }
+
     // MARK: - Export
 
     @Test func csvHeaderCarriesTheRunConditionColumns() {
