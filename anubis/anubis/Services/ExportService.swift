@@ -24,6 +24,10 @@ enum ExportService {
         csv += "avg_gpu_power_watts,peak_gpu_power_watts,avg_system_power_watts,peak_system_power_watts,"
         csv += "avg_gpu_frequency_mhz,peak_gpu_frequency_mhz,avg_watts_per_token,"
         csv += "backend_process_name,chip_info,"
+        // v12 run conditions — what was asked for, whether the cap bound, and
+        // whether the machine was under thermal pressure while it ran.
+        csv += "max_tokens_requested,finish_reason,hit_token_cap,temperature,top_p,seed,"
+        csv += "thermal_state_at_start,thermal_non_nominal_fraction,"
         csv += "prompt\n"
 
         let dateFormatter = ISO8601DateFormatter()
@@ -77,6 +81,15 @@ enum ExportService {
             row.append(session.avgWattsPerToken.map { String(format: "%.4f", $0) } ?? "")
             row.append(escapeCSV(session.backendProcessName ?? ""))
             row.append(escapeCSV(session.chipInfo?.summary ?? ""))
+            // v12 run conditions
+            row.append(session.maxTokensRequested.map { "\($0)" } ?? "")
+            row.append(escapeCSV(session.finishReason ?? ""))
+            row.append(session.finishReason == nil ? "" : (session.hitTokenCap ? "true" : "false"))
+            row.append(session.temperature.map { String(format: "%.3f", $0) } ?? "")
+            row.append(session.topP.map { String(format: "%.3f", $0) } ?? "")
+            row.append(session.seed.map { "\($0)" } ?? "")
+            row.append(session.thermalStateAtStart.map { "\($0)" } ?? "")
+            row.append(session.thermalNonNominalFraction.map { String(format: "%.4f", $0) } ?? "")
             row.append(escapeCSV(session.prompt))
 
             csv += row.joined(separator: ",") + "\n"

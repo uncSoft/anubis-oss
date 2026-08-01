@@ -702,6 +702,21 @@ struct BenchmarkView: View {
                    session.status == .completed,
                    session.evalDuration != nil {
                     InferenceStatsButton(session: session)
+                    // Surface thermal contamination on the row itself, not only
+                    // behind the stats popover — a run recorded under pressure
+                    // is not comparable to one at nominal.
+                    if session.ranUnderThermalPressure {
+                        Image(systemName: "thermometer.high")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.orange)
+                            .help("Ran under thermal pressure — not comparable to a run at nominal.")
+                    }
+                    if session.hitTokenCap {
+                        Image(systemName: "scissors")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .help("Generation stopped at the max_tokens cap rather than finishing on its own.")
+                    }
                 }
                 Spacer()
                 Text(Formatters.tokens(viewModel.tokensGenerated))
@@ -1468,6 +1483,42 @@ private struct InferenceStatsButton: View {
                 }
             }
 
+            // v12 run conditions. What was asked for and what the machine was
+            // doing while it ran — without these two a result cannot be
+            // compared against another one.
+            if session.maxTokensRequested != nil || session.finishReason != nil
+                || session.thermalNonNominalFraction != nil {
+                Divider()
+                    .padding(.vertical, 3)
+                Text("Run conditions")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 2)
+
+                if let v = session.maxTokensRequested {
+                    statRow("max_tokens", "\(v)")
+                }
+                if let reason = session.finishReason {
+                    statRow("finish_reason", reason)
+                }
+                if let t = session.temperature {
+                    statRow("temperature", formatDecimal(t))
+                }
+                if let p = session.topP {
+                    statRow("top_p", formatDecimal(p))
+                }
+                if let s = session.seed {
+                    statRow("seed", "\(s)")
+                }
+                if let frac = session.thermalNonNominalFraction {
+                    statRow("thermal_non_nominal", "\(Int((frac * 100).rounded()))%")
+                }
+            }
+
+            if session.ranUnderThermalPressure {
+                thermalWarning
+            }
+
             // oMLX reports its own metrics; show them verbatim, exactly as the
             // server sent them (including fields we don't otherwise surface).
             let serverRows = omlxReportedRows
@@ -1526,6 +1577,22 @@ private struct InferenceStatsButton: View {
             return String(format: "%g", d)
         }
         return String(describing: value)
+    }
+
+    /// Shown when any part of the run executed under thermal pressure.
+    /// Sustained decode can cut throughput several-fold before the OS raises
+    /// the flag, so such a run is not comparable to one recorded at nominal.
+    private var thermalWarning: some View {
+        HStack(alignment: .top, spacing: 5) {
+            Image(systemName: "thermometer.high")
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
+            Text("Ran under thermal pressure — not comparable to a run at nominal.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4)
     }
 
     private func statRow(_ label: String, _ value: String) -> some View {

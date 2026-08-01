@@ -805,6 +805,13 @@ final class BenchmarkViewModel: ObservableObject {
                 seed: seed
             )
 
+            session.recordRequestParameters(
+                maxTokens: maxTokens,
+                temperature: temperature,
+                topP: topP,
+                seed: seed
+            )
+
             self.debugState.backendType = self.selectedBackend
             self.debugState.endpointURL = self.connectionURL
             self.debugState.modelId = model.id
@@ -925,6 +932,7 @@ final class BenchmarkViewModel: ObservableObject {
             let ttft: TimeInterval? = finalBuf.stats?.serverReportedTTFT
                 ?? finalBuf.firstTokenTime.map { $0.timeIntervalSince(startTime) }
             let powerSummary = BenchmarkSample.computePowerSummary(from: self.currentSamplesInternal)
+            let thermalSummary = BenchmarkSample.computeThermalSummary(from: self.currentSamplesInternal)
             let backendName = self.metricsService.latestMetrics?.backendProcessName
 
             if let finalStats = finalBuf.stats {
@@ -934,7 +942,8 @@ final class BenchmarkViewModel: ObservableObject {
                     timeToFirstToken: ttft,
                     peakMemoryBytes: currentPeakMemory > 0 ? currentPeakMemory : nil,
                     powerSummary: powerSummary,
-                    backendProcessName: backendName
+                    backendProcessName: backendName,
+                    thermalSummary: thermalSummary
                 )
             } else {
                 let duration = Date().timeIntervalSince(startTime)
@@ -954,7 +963,8 @@ final class BenchmarkViewModel: ObservableObject {
                     timeToFirstToken: ttft,
                     peakMemoryBytes: currentPeakMemory > 0 ? currentPeakMemory : nil,
                     powerSummary: powerSummary,
-                    backendProcessName: backendName
+                    backendProcessName: backendName,
+                    thermalSummary: thermalSummary
                 )
             }
 

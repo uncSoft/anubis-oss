@@ -596,6 +596,7 @@ final class ArenaViewModel: ObservableObject {
 
         // Compute power summary from collected samples
         let powerSummary = BenchmarkSample.computePowerSummary(from: collectedSamples)
+        let thermalSummary = BenchmarkSample.computeThermalSummary(from: collectedSamples)
         let backendName = metricsService.latestMetrics?.backendProcessName
 
         // Complete session
@@ -607,7 +608,8 @@ final class ArenaViewModel: ObservableObject {
                 timeToFirstToken: ttft,
                 peakMemoryBytes: nil,
                 powerSummary: powerSummary,
-                backendProcessName: backendName
+                backendProcessName: backendName,
+                thermalSummary: thermalSummary
             )
             debugState.finalTokensPerSecond = finalStats.tokensPerSecond
             debugState.finalTotalTokens = finalStats.totalTokens
@@ -629,7 +631,8 @@ final class ArenaViewModel: ObservableObject {
                 timeToFirstToken: ttft,
                 peakMemoryBytes: nil,
                 powerSummary: powerSummary,
-                backendProcessName: backendName
+                backendProcessName: backendName,
+                thermalSummary: thermalSummary
             )
         }
 

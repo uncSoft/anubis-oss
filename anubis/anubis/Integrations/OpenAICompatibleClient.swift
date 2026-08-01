@@ -650,6 +650,7 @@ actor OpenAICompatibleClient: InferenceBackend {
                 // reading; finalize on [DONE] or when the stream closes.
                 if let finishReason = chunk.choices.first?.finishReason,
                    finishReason == "stop" || finishReason == "length" {
+                    state.finishReason = finishReason
                     if state.reasoningOpen && !state.reasoningClosedEmitted {
                         state.reasoningClosedEmitted = true
                         continuation.yield(InferenceChunk(text: "</think>", done: false))
@@ -686,6 +687,10 @@ private struct StreamState {
 
     var reasoningOpen = false
     var reasoningClosedEmitted = false
+
+    /// The backend's `finish_reason` for this stream, kept so the finished run
+    /// records whether it hit the token cap or stopped on its own.
+    var finishReason: String?
 
     /// True while we're inside an inline `<think>` block in the content stream.
     private var insideThinkTag = false
@@ -812,7 +817,8 @@ private struct StreamState {
             reportedTokensPerSecond: serverTiming ? usage?.generationTokensPerSecond : nil,
             serverReportedTTFT: serverTiming ? (usage?.timeToFirstToken ?? usage?.promptEvalDuration) : nil,
             reportedPromptTokensPerSecond: serverTiming ? usage?.promptTokensPerSecond : nil,
-            serverReportedMetricsJSON: serverTiming ? rawUsageJSON : nil
+            serverReportedMetricsJSON: serverTiming ? rawUsageJSON : nil,
+            finishReason: finishReason
         )
     }
 }

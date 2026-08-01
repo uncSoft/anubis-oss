@@ -78,6 +78,27 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
     // as the server sent them.
     var serverMetricsJSON: String?
 
+    // v12: the conditions this run executed under, so an exported result can
+    // be compared against another one.
+    var maxTokensRequested: Int?
+    var temperature: Double?
+    var topP: Double?
+    var seed: Int64?
+
+    /// The backend's `finish_reason` for this run — "length" when generation
+    /// hit the token cap, "stop" when it ended on its own. Without it, a run
+    /// that was truncated is indistinguishable from one that finished, and
+    /// throughput across differing output lengths is not comparable.
+    var finishReason: String?
+
+    /// `ProcessInfo.ThermalState` raw value when the run started.
+    var thermalStateAtStart: Int?
+
+    /// Share (0...1) of this run's samples taken while the machine reported a
+    /// non-nominal thermal state. Non-zero means the run competed with thermal
+    /// management and should not be compared against a run at 0.
+    var thermalNonNominalFraction: Double?
+
     enum CodingKeys: String, CodingKey, ColumnExpression {
         case id
         case modelId = "model_id"
@@ -116,6 +137,13 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         case runGroupId = "run_group_id"
         case flowRunId = "flow_run_id"
         case serverMetricsJSON = "server_metrics_json"
+        case maxTokensRequested = "max_tokens_requested"
+        case temperature
+        case topP = "top_p"
+        case seed
+        case finishReason = "finish_reason"
+        case thermalStateAtStart = "thermal_state_at_start"
+        case thermalNonNominalFraction = "thermal_non_nominal_fraction"
     }
 
     /// Create a new benchmark session
@@ -163,6 +191,13 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         self.reasoningDuration = nil
         self.runGroupId = nil
         self.flowRunId = nil
+        self.maxTokensRequested = nil
+        self.temperature = nil
+        self.topP = nil
+        self.seed = nil
+        self.finishReason = nil
+        self.thermalStateAtStart = ProcessInfo.processInfo.thermalState.rawValue
+        self.thermalNonNominalFraction = nil
 
         // Snapshot chip info as JSON
         if let data = try? JSONEncoder().encode(ChipInfo.current),
@@ -173,6 +208,21 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         }
     }
 
+    /// Record the sampling parameters this run was requested with. Called at
+    /// dispatch, before any tokens arrive, so the conditions survive even if
+    /// the run fails or is cancelled.
+    mutating func recordRequestParameters(
+        maxTokens: Int?,
+        temperature: Double?,
+        topP: Double?,
+        seed: Int64?
+    ) {
+        self.maxTokensRequested = maxTokens
+        self.temperature = temperature
+        self.topP = topP
+        self.seed = seed
+    }
+
     /// Update session with inference stats
     mutating func complete(
         with stats: InferenceStats,
@@ -180,7 +230,8 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         timeToFirstToken: TimeInterval? = nil,
         peakMemoryBytes: Int64? = nil,
         powerSummary: PowerSummary? = nil,
-        backendProcessName: String? = nil
+        backendProcessName: String? = nil,
+        thermalSummary: ThermalSummary? = nil
     ) {
         self.endedAt = Date()
         self.response = response
@@ -224,6 +275,29 @@ struct BenchmarkSession: Identifiable, Codable, Hashable, FetchableRecord, Mutab
         }
         self.backendProcessName = backendProcessName
         self.serverMetricsJSON = stats.serverReportedMetricsJSON
+        self.finishReason = stats.finishReason
+
+        // v12 thermal conditions. Prefer the first sample's state over the
+        // one snapshotted at init — the run may have queued behind a model
+        // load — and fall back to the init snapshot when no samples exist.
+        if let thermal = thermalSummary {
+            self.thermalNonNominalFraction = thermal.nonNominalFraction
+            if let start = thermal.stateAtStart {
+                self.thermalStateAtStart = start
+            }
+        }
+    }
+
+    /// True when any part of this run executed under thermal pressure. Such a
+    /// run is not comparable to one recorded at nominal — throughput can fall
+    /// several-fold before the OS raises the flag at all.
+    var ranUnderThermalPressure: Bool {
+        (thermalNonNominalFraction ?? 0) > 0 || (thermalStateAtStart ?? 0) > 0
+    }
+
+    /// True when generation stopped because it hit the requested token cap.
+    var hitTokenCap: Bool {
+        finishReason == "length"
     }
 
     /// Mark session as failed

@@ -513,6 +513,31 @@ final class DatabaseManager {
             }
         }
 
+        // v12: the conditions a run executed under. Until now a session
+        // recorded what it produced but not what was asked for, so an
+        // exported result could not be compared against another: the token
+        // cap was unknown, whether generation hit that cap or stopped on its
+        // own was unknown, and the machine's thermal state during the run was
+        // sampled per-tick but never summarized on the run itself.
+        //
+        // thermal_non_nominal_fraction is the share of this session's samples
+        // taken while ProcessInfo reported anything other than .nominal.
+        // Sustained decode can cut throughput several-fold on a laptop well
+        // before that flag moves, so a run with a non-zero fraction is not
+        // comparable to one without — see
+        // docs/anubis-battery-results-2026-08-01.md.
+        migrator.registerMigration("v12") { db in
+            try db.alter(table: "benchmark_session") { t in
+                t.add(column: "max_tokens_requested", .integer)
+                t.add(column: "temperature", .double)
+                t.add(column: "top_p", .double)
+                t.add(column: "seed", .integer)
+                t.add(column: "finish_reason", .text)
+                t.add(column: "thermal_state_at_start", .integer)
+                t.add(column: "thermal_non_nominal_fraction", .double)
+            }
+        }
+
         try migrator.migrate(queue)
     }
 

@@ -241,6 +241,24 @@ extension BenchmarkSample {
             avgWattsPerToken: wpt.isEmpty ? nil : wpt.reduce(0, +) / Double(wpt.count)
         )
     }
+
+    /// Summarize the thermal conditions a run executed under, from the samples
+    /// it produced. `thermalState` is already recorded per sample; this rolls
+    /// it up onto the session so a reader can tell, without re-fetching the
+    /// time series, whether the run competed with thermal management.
+    static func computeThermalSummary(from samples: [BenchmarkSample]) -> ThermalSummary {
+        let states = samples.compactMap { $0.thermalState }
+        guard !states.isEmpty else {
+            return ThermalSummary(stateAtStart: nil, nonNominalFraction: nil)
+        }
+        // ProcessInfo.ThermalState.nominal is rawValue 0; anything higher is
+        // the OS reporting pressure.
+        let nonNominal = states.filter { $0 != 0 }.count
+        return ThermalSummary(
+            stateAtStart: states.first,
+            nonNominalFraction: Double(nonNominal) / Double(states.count)
+        )
+    }
 }
 
 // MARK: - Statistics
@@ -262,6 +280,14 @@ struct SampleStatistics {
     let avgGpuFrequencyMHz: Double?
     let peakGpuFrequencyMHz: Double?
     let avgWattsPerToken: Double?
+}
+
+/// Thermal conditions computed from samples (used by BenchmarkSession.complete)
+struct ThermalSummary {
+    /// `ProcessInfo.ThermalState` raw value at the first sample of the run.
+    let stateAtStart: Int?
+    /// Share (0...1) of samples taken while the state was non-nominal.
+    let nonNominalFraction: Double?
 }
 
 /// Power summary computed from samples (used by BenchmarkSession.complete)

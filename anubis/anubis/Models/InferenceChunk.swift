@@ -84,6 +84,13 @@ struct InferenceStats: Sendable, Codable {
     /// for backends that report only standard token counts.
     let serverReportedMetricsJSON: String?
 
+    /// The backend's `finish_reason` — "length" when generation hit the token
+    /// cap, "stop" when the model ended on its own. Recorded because a
+    /// truncated run and a completed one are otherwise indistinguishable in
+    /// the results, and throughput across differing output lengths is not
+    /// comparable. nil for backends that don't report one.
+    let finishReason: String?
+
     init(
         totalTokens: Int,
         promptTokens: Int,
@@ -98,7 +105,8 @@ struct InferenceStats: Sendable, Codable {
         reportedTokensPerSecond: Double? = nil,
         serverReportedTTFT: TimeInterval? = nil,
         reportedPromptTokensPerSecond: Double? = nil,
-        serverReportedMetricsJSON: String? = nil
+        serverReportedMetricsJSON: String? = nil,
+        finishReason: String? = nil
     ) {
         self.totalTokens = totalTokens
         self.promptTokens = promptTokens
@@ -114,6 +122,7 @@ struct InferenceStats: Sendable, Codable {
         self.serverReportedTTFT = serverReportedTTFT
         self.reportedPromptTokensPerSecond = reportedPromptTokensPerSecond
         self.serverReportedMetricsJSON = serverReportedMetricsJSON
+        self.finishReason = finishReason
     }
 
     init(from decoder: Decoder) throws {
@@ -132,6 +141,7 @@ struct InferenceStats: Sendable, Codable {
         self.serverReportedTTFT = try? c.decode(TimeInterval.self, forKey: .serverReportedTTFT)
         self.reportedPromptTokensPerSecond = try? c.decode(Double.self, forKey: .reportedPromptTokensPerSecond)
         self.serverReportedMetricsJSON = try? c.decode(String.self, forKey: .serverReportedMetricsJSON)
+        self.finishReason = try? c.decode(String.self, forKey: .finishReason)
     }
 
     /// Output token count excluding reasoning/thinking tokens.
