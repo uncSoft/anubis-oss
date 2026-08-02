@@ -525,7 +525,7 @@ final class DatabaseManager {
         // Sustained decode can cut throughput several-fold on a laptop well
         // before that flag moves, so a run with a non-zero fraction is not
         // comparable to one without — see
-        // docs/anubis-battery-results-2026-08-01.md.
+        // docs/benchmark-run-conditions.md.
         migrator.registerMigration("v12") { db in
             try db.alter(table: "benchmark_session") { t in
                 t.add(column: "max_tokens_requested", .integer)
