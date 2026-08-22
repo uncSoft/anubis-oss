@@ -87,6 +87,14 @@ struct LeaderboardSubmission: Codable {
     /// - v2 (sent starting v3.4): per-channel scale fix, systemPower
     ///   includes proper CPU/ANE/DRAM contribution, J/Tok reflects
     ///   true SoC energy per token.
+    /// - v3 (sent starting v3.9): tokens_per_second is decode throughput
+    ///   over ALL generated tokens (reasoning included), matching Ollama's
+    ///   eval rate — the old visible-output-only formula exploded when a
+    ///   run was reasoning-dominated. avg_token_latency_ms is its exact
+    ///   reciprocal. TTFT excludes server-reported model load time and is
+    ///   anchored at request dispatch. total_duration is end-to-end wall
+    ///   time (previously could sit below TTFT on JIT-loading servers).
+    ///   llama.cpp `timings` are used verbatim when present.
     let methodologyVersion: Int
 
     // MARK: - Run-group context (Phase 1.2)
@@ -285,6 +293,23 @@ actor LeaderboardService {
             throw AnubisError.leaderboardError(reason: "Only completed benchmarks can be uploaded")
         }
 
+        // Plausibility gate — mirrors submit.php's server-side checks so the
+        // user gets a clear local message instead of an opaque HTTP 422.
+        // Historical clients uploaded reasoning-dominated runs claiming up to
+        // 29,000 tok/s, which then topped the public ranking.
+        let sessionTps = benchmarkSession.tokensPerSecond ?? 0
+        guard (benchmarkSession.completionTokens ?? 0) >= 1 else {
+            throw AnubisError.leaderboardError(
+                reason: "This run produced no completion tokens, so its metrics are undefined and can't be ranked."
+            )
+        }
+        guard sessionTps > 0, sessionTps < 2000 else {
+            throw AnubisError.leaderboardError(
+                reason: "This run's tokens/sec (\(Int(sessionTps))) is outside the plausible range — "
+                    + "usually a sign the backend buffered its output instead of streaming. Not uploading."
+            )
+        }
+
         let trimmedName = String(displayName.prefix(Constants.Leaderboard.maxDisplayNameLength))
         guard !trimmedName.isEmpty else {
             throw AnubisError.leaderboardError(reason: "Display name cannot be empty")
@@ -469,5 +494,5 @@ actor LeaderboardService {
     /// Bump when a material change to how metrics are computed lands,
     /// so the leaderboard can segregate or badge per-era submissions.
     /// See LeaderboardSubmission.methodologyVersion for the changelog.
-    static let methodologyVersion: Int = 2
+    static let methodologyVersion: Int = 3
 }

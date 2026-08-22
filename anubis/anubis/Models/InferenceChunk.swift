@@ -144,21 +144,24 @@ struct InferenceStats: Sendable, Codable {
         max(0, evalDuration - reasoningDuration)
     }
 
-    /// Tokens per second for visible output (excludes thinking).
+    /// Decode throughput over ALL generated tokens (reasoning included),
+    /// matching the convention every other tool uses: Ollama's `eval rate`
+    /// (`eval_count / eval_duration`), llama.cpp's `predicted_per_second`,
+    /// and llmperf/genai-perf output throughput. Reasoning tokens are decoded
+    /// at the same hardware speed as visible ones, so they belong in the rate.
     ///
-    /// If the model produced only reasoning tokens with no visible output
-    /// (`outputTokens == 0`), fall back to total throughput so the user sees
-    /// something meaningful instead of a spurious zero.
+    /// The previous "visible output only" variant — (completion − reasoning) /
+    /// (eval − reasoningDuration) — divided two small differences of
+    /// independently-estimated quantities. When a model spent nearly its whole
+    /// token budget thinking, the denominator collapsed and the leaderboard
+    /// received rows claiming 5,000–29,000 tok/s. Use
+    /// `reasoningTokensPerSecond` for the thinking-phase rate instead.
     var tokensPerSecond: Double {
         // Trust the backend's own decode-loop measurement when it provides one
-        // (oMLX). It can't be corrupted by client-side read bursts the way our
-        // wall-clock derivation can (issue #25).
+        // (oMLX, llama.cpp timings). It can't be corrupted by client-side read
+        // bursts the way our wall-clock derivation can (issue #25).
         if let reported = reportedTokensPerSecond, reported > 0 {
             return reported
-        }
-        let dur = outputEvalDuration
-        if dur > 0 && outputTokens > 0 {
-            return Double(outputTokens) / dur
         }
         if completionTokens > 0 && evalDuration > 0 {
             return Double(completionTokens) / evalDuration
@@ -175,17 +178,18 @@ struct InferenceStats: Sendable, Codable {
         completionTokens > 100 && evalDuration > 0 && evalDuration < 1.0
     }
 
-    /// Average latency per visible-output token, in milliseconds.
+    /// Average latency per generated token in milliseconds (TPOT). Defined as
+    /// the exact reciprocal of `tokensPerSecond` so the two can never disagree
+    /// — including when the backend reports its own throughput (oMLX,
+    /// llama.cpp), which the old formula ignored.
     ///
-    /// `nil` (rather than 0) when there were no visible output tokens — typically
-    /// a reasoning-capable model that exhausted `max_tokens` entirely inside its
-    /// thinking trace. The metric is undefined in that case, and writing 0 would
-    /// silently bias downstream aggregates / leaderboard averages toward 0.
-    /// See GitHub issue #30.
+    /// `nil` (rather than 0) when no tokens were generated: the metric is
+    /// undefined then, and writing 0 would silently bias downstream
+    /// aggregates / leaderboard averages toward 0. See GitHub issue #30.
     var averageTokenLatencyMs: Double? {
-        let toks = outputTokens
-        guard toks > 0 else { return nil }
-        return (outputEvalDuration * 1000) / Double(toks)
+        let tps = tokensPerSecond
+        guard tps > 0 else { return nil }
+        return 1000 / tps
     }
 
     /// Prompt processing speed — input tokens/sec (prefill speed).

@@ -521,7 +521,12 @@ final class ArenaViewModel: ObservableObject {
 
         let stream = await resolvedBackend.generate(request: request)
 
-        // Wrap stream consumption with a timeout to prevent hanging on stalled backends
+        // Wrap stream consumption with a STALL watchdog. This used to be a
+        // hard 120 s cap on total generation time, which killed slow-but-
+        // healthy runs mid-stream (issue #31) — a legitimate benchmark on a
+        // modest machine easily exceeds 2 minutes. Now it only fires when no
+        // chunk has arrived for the configured window (0 disables it).
+        let lastChunkAt = OSAllocatedUnfairLock(initialState: Date())
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
                 group.addTask { @MainActor in
@@ -538,6 +543,7 @@ final class ArenaViewModel: ObservableObject {
                         tokenCount += 1
                         debugState.chunksReceived = chunkCount
                         debugState.bytesReceived += chunk.text.utf8.count
+                        lastChunkAt.withLock { $0 = Date() }
                         debugState.lastChunkAt = Date()
                         debugState.phase = .streaming
 
@@ -548,9 +554,12 @@ final class ArenaViewModel: ObservableObject {
                         if now.timeIntervalSince(lastSampleTime) >= sampleInterval,
                            let sessionId = session.id,
                            let metrics = self.metricsService.latestMetrics {
-                            let tps = now.timeIntervalSince(startTime) > 0
-                                ? Double(tokenCount) / now.timeIntervalSince(startTime)
-                                : 0
+                            // Anchor at first token, not request start — the
+                            // Benchmark tab computes cumulative tok/s the same
+                            // way, and including TTFT/prefill in the divisor
+                            // understated Arena's live rate.
+                            let genElapsed = now.timeIntervalSince(firstTokenTime ?? startTime)
+                            let tps = genElapsed > 0 ? Double(tokenCount) / genElapsed : 0
                             let sample = BenchmarkSample(
                                 sessionId: sessionId,
                                 metrics: metrics,
@@ -572,8 +581,19 @@ final class ArenaViewModel: ObservableObject {
                     }
                 }
                 group.addTask {
-                    try await Task.sleep(for: .seconds(120))
-                    throw AnubisError.inferenceTimeout(after: 120)
+                    let stallLimit = Constants.inferenceStallTimeout
+                    guard stallLimit > 0 else {
+                        // Disabled — park until the stream task finishes and
+                        // the group is cancelled.
+                        while true { try await Task.sleep(for: .seconds(3600)) }
+                    }
+                    while true {
+                        try await Task.sleep(for: .seconds(min(5, stallLimit)))
+                        let idle = Date().timeIntervalSince(lastChunkAt.withLock { $0 })
+                        if idle > stallLimit {
+                            throw AnubisError.inferenceTimeout(after: stallLimit)
+                        }
+                    }
                 }
                 // First task to finish wins; cancel the other
                 do {
@@ -598,8 +618,12 @@ final class ArenaViewModel: ObservableObject {
         let powerSummary = BenchmarkSample.computePowerSummary(from: collectedSamples)
         let backendName = metricsService.latestMetrics?.backendProcessName
 
-        // Complete session
-        let ttft = firstTokenTime.map { $0.timeIntervalSince(startTime) }
+        // Complete session. Subtract server-reported model load time (Ollama
+        // cold starts) so TTFT measures a loaded model — matching the
+        // Benchmark tab and backends that report their own TTFT.
+        let ttft = firstTokenTime.map {
+            max(0, $0.timeIntervalSince(startTime) - (stats?.loadDuration ?? 0))
+        }
         if let finalStats = stats {
             session.complete(
                 with: finalStats,

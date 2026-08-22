@@ -860,7 +860,7 @@ struct BenchmarkView: View {
                 icon: "clock.arrow.circlepath",
                 color: .chartTokens,
                 subtitle: viewModel.prefillTokensPerSecond.map { "Prefill: \(Formatters.tokensPerSecond($0))" },
-                help: "Time to first token (includes any reasoning/thinking phase for reasoning models). Subtitle shows prefill speed: input tokens ÷ TTFT."
+                help: "Time from request to first generated token (thinking tokens count as generation). Excludes model load time when the backend reports it (Ollama). Subtitle shows prefill speed: input tokens ÷ prompt processing time (server-reported where available, otherwise ÷ TTFT)."
             )
 
             // Row 2: Power & System

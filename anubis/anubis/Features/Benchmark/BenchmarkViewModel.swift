@@ -823,8 +823,12 @@ final class BenchmarkViewModel: ObservableObject {
 
             self.streamLock.withLock { $0 = StreamBuffers() }
 
-            let stream = await inferenceService.generate(request: request)
+            // Stamp before generate(): the stream's producer task is already
+            // spawned (and may have issued the HTTP POST) by the time the
+            // await returns, so stamping after biases TTFT low by a
+            // nondeterministic scheduling gap.
             let startTime = Date()
+            let stream = await inferenceService.generate(request: request)
             self.streamLock.withLock { $0.startTime = startTime }
             let instantaneousSampleInterval: TimeInterval = 0.25
 
@@ -922,8 +926,13 @@ final class BenchmarkViewModel: ObservableObject {
 
             // Prefer the backend's own TTFT (oMLX measures it inside the decode
             // loop); fall back to our first-chunk wall-clock timing otherwise.
+            // Subtract server-reported model load time (Ollama cold starts) so
+            // TTFT measures a loaded model, like every backend that reports its
+            // own TTFT — load_duration is stored separately on the session.
             let ttft: TimeInterval? = finalBuf.stats?.serverReportedTTFT
-                ?? finalBuf.firstTokenTime.map { $0.timeIntervalSince(startTime) }
+                ?? finalBuf.firstTokenTime.map {
+                    max(0, $0.timeIntervalSince(startTime) - (finalBuf.stats?.loadDuration ?? 0))
+                }
             let powerSummary = BenchmarkSample.computePowerSummary(from: self.currentSamplesInternal)
             let backendName = self.metricsService.latestMetrics?.backendProcessName
 
@@ -1862,11 +1871,16 @@ final class BenchmarkViewModel: ObservableObject {
             responseText += text
         }
 
-        // First token detection (one-time)
+        // First token detection (one-time). Anchor to the per-rep request
+        // start, not benchmarkStartTime — the latter is stamped once per
+        // group, so reps 2..N would display a TTFT inflated by every prior
+        // rep's wall time. (The persisted per-rep TTFT was always correct;
+        // only this live card diverged.)
         if self.timeToFirstToken == nil {
-            let ft = streamLock.withLock { $0.firstTokenTime }
+            let (ft, repStart) = streamLock.withLock { ($0.firstTokenTime, $0.startTime) }
             if let ft {
-                self.timeToFirstToken = ft.timeIntervalSince(benchmarkStartTime!)
+                let anchor = repStart > .distantPast ? repStart : (benchmarkStartTime ?? ft)
+                self.timeToFirstToken = ft.timeIntervalSince(anchor)
                 self.debugState.firstChunkAt = ft
                 Task { await self.fetchModelMemory() }
             }

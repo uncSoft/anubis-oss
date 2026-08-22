@@ -105,8 +105,12 @@ actor OpenAICompatibleClient: InferenceBackend {
         self.apiKey = configuration.apiKey
 
         let config = URLSessionConfiguration.default
+        // Request timeout is idle time between bytes — 5 min covers even a
+        // glacial prefill. Resource timeout caps the WHOLE response; 600 s
+        // silently killed any run longer than 10 minutes (issue #31), so
+        // give long benchmarks on slow hardware two hours.
         config.timeoutIntervalForRequest = 300
-        config.timeoutIntervalForResource = 600
+        config.timeoutIntervalForResource = 7200
         // Optimize delivery path for streaming chat completions —
         // URLSession buffers less aggressively in this mode, so SSE
         // chunks land in the async iterator the moment they arrive
@@ -514,6 +518,14 @@ actor OpenAICompatibleClient: InferenceBackend {
 
         urlRequest.httpBody = try JSONEncoder().encode(body)
 
+        // Stamp BEFORE the request goes out. `session.bytes(for:)` doesn't
+        // return until response headers arrive, and a JIT-loading server
+        // (LM Studio with the model not yet resident) holds those headers
+        // until the model is loaded — stamping after the await produced
+        // total durations that excluded the load and sat far below the
+        // TTFT measured upstream (leaderboard rows with ttft > total).
+        let requestStart = Date()
+
         let (bytes, response) = try await session.bytes(for: urlRequest)
 
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -545,8 +557,11 @@ actor OpenAICompatibleClient: InferenceBackend {
         }
 
         var state = StreamState()
-        let startTime = Date()
+        let startTime = requestStart
         var lastUsage: OpenAIUsage?
+        // llama.cpp llama-server attaches decode-loop timing to the trailing
+        // usage chunk; captured here and preferred over wall-clock derivation.
+        var lastTimings: LlamaCppTimings?
         // Raw usage object exactly as the backend sent it, captured only when
         // it carries oMLX's extended timing. Persisted so the UI can show
         // oMLX's numbers verbatim, including any fields we don't model yet.
@@ -558,7 +573,7 @@ actor OpenAICompatibleClient: InferenceBackend {
         func emitFinal() {
             guard !finalized else { return }
             finalized = true
-            let stats = state.finalize(startTime: startTime, usage: lastUsage, rawUsageJSON: lastUsageRawJSON)
+            let stats = state.finalize(startTime: startTime, usage: lastUsage, timings: lastTimings, rawUsageJSON: lastUsageRawJSON)
             continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
             continuation.finish()
         }
@@ -590,6 +605,20 @@ actor OpenAICompatibleClient: InferenceBackend {
                        let usageData = try? JSONSerialization.data(withJSONObject: usageObj, options: [.sortedKeys]),
                        let usageStr = String(data: usageData, encoding: .utf8) {
                         lastUsageRawJSON = usageStr
+                    }
+                }
+
+                // llama.cpp servers attach their own prefill/decode timing —
+                // capture it (and its raw JSON for verbatim display, unless an
+                // oMLX-style usage block already claimed that slot).
+                if let timings = chunk.timings, timings.predictedMs != nil || timings.predictedPerSecond != nil {
+                    lastTimings = timings
+                    if lastUsageRawJSON == nil,
+                       let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let timingsObj = obj["timings"] as? [String: Any],
+                       let timingsData = try? JSONSerialization.data(withJSONObject: timingsObj, options: [.sortedKeys]),
+                       let timingsStr = String(data: timingsData, encoding: .utf8) {
+                        lastUsageRawJSON = timingsStr
                     }
                 }
 
@@ -748,24 +777,34 @@ private struct StreamState {
         return nil
     }
 
-    func finalize(startTime: Date, usage: OpenAIUsage?, rawUsageJSON: String? = nil) -> InferenceStats {
+    func finalize(startTime: Date, usage: OpenAIUsage?, timings: LlamaCppTimings? = nil, rawUsageJSON: String? = nil) -> InferenceStats {
         let now = Date()
         let wallTotal = now.timeIntervalSince(startTime)
 
-        // Prefer the backend's own timing when it reports it (oMLX). These are
-        // measured inside the decode loop, so they're immune to the client-read
-        // bursts that make wall-clock evalDuration collapse toward zero and
-        // tok/s explode (issue #25). Fall back to wall-clock for plain mlx-lm,
-        // LM Studio, vLLM, llama.cpp, etc. which report only token counts.
-        let serverTiming = usage?.hasServerTiming ?? false
+        // Prefer the backend's own timing when it reports it — oMLX via usage
+        // extensions, llama.cpp via its `timings` object (milliseconds). These
+        // are measured inside the decode loop, so they're immune to the
+        // client-read bursts that make wall-clock evalDuration collapse toward
+        // zero and tok/s explode (issue #25). Fall back to wall-clock for
+        // plain mlx-lm, LM Studio /v1, vLLM, etc. which report only token counts.
+        let serverTiming = (usage?.hasServerTiming ?? false) || timings != nil
 
-        let totalDuration = usage?.totalTime ?? wallTotal
+        // End-to-end wall time, always. Server-side totals (oMLX total_time)
+        // exclude connection setup and any JIT model load that happens before
+        // response headers, which made total_duration land below TTFT.
+        let totalDuration = wallTotal
+        let timingsPromptSeconds: Double? = timings?.promptMs.map { $0 / 1000 }
+        let timingsEvalSeconds: Double? = timings?.predictedMs.map { $0 / 1000 }
+        let clientPromptEval: Double? = firstChunkTime.map { $0.timeIntervalSince(startTime) }
+        let clientEvalDuration: Double? = firstChunkTime.map { now.timeIntervalSince($0) }
         let promptEval = usage?.promptEvalDuration
             ?? usage?.timeToFirstToken
-            ?? firstChunkTime.map { $0.timeIntervalSince(startTime) }
+            ?? timingsPromptSeconds
+            ?? clientPromptEval
             ?? 0
         let evalDuration = usage?.generationDuration
-            ?? firstChunkTime.map { now.timeIntervalSince($0) }
+            ?? timingsEvalSeconds
+            ?? clientEvalDuration
             ?? wallTotal
 
         // Reasoning duration: from first reasoning chunk to first content chunk
@@ -780,8 +819,11 @@ private struct StreamState {
 
         // Prefer backend-reported counts. If usage gives a single completion count
         // it includes reasoning — we approximate the split using our local counts.
-        let promptToks = usage?.promptTokens ?? 0
-        let backendCompletion = usage?.completionTokens
+        // llama.cpp timings carry real token counts too (prompt_n excludes
+        // KV-cache hits, so add cache_n back for the full prompt size).
+        let timingsPromptTotal = timings?.promptN.map { $0 + (timings?.cacheN ?? 0) }
+        let promptToks = usage?.promptTokens ?? timingsPromptTotal ?? 0
+        let backendCompletion = usage?.completionTokens ?? timings?.predictedN
         let localCompletion = reasoningTokens + outputTokens
         let completionToks = backendCompletion ?? localCompletion
 
@@ -806,12 +848,14 @@ private struct StreamState {
             contextLength: promptToks > 0 ? promptToks + completionToks : 0,
             reasoningTokens: reasoningTokenCount,
             reasoningDuration: reasoningDuration,
-            // oMLX hands us the exact decode-loop throughput and TTFT; use them
-            // verbatim so our headline numbers match the backend's own. nil for
-            // every other server, which leaves tok/s/TTFT derived as before.
-            reportedTokensPerSecond: serverTiming ? usage?.generationTokensPerSecond : nil,
-            serverReportedTTFT: serverTiming ? (usage?.timeToFirstToken ?? usage?.promptEvalDuration) : nil,
-            reportedPromptTokensPerSecond: serverTiming ? usage?.promptTokensPerSecond : nil,
+            // oMLX and llama.cpp hand us the exact decode-loop throughput; use
+            // it verbatim so our headline numbers match the backend's own. nil
+            // for every other server, which leaves tok/s derived as before.
+            // TTFT stays oMLX-only: llama.cpp's prompt_ms is prefill compute,
+            // not request-to-first-token, so the client wall clock is truer.
+            reportedTokensPerSecond: serverTiming ? (usage?.generationTokensPerSecond ?? timings?.predictedPerSecond) : nil,
+            serverReportedTTFT: (usage?.hasServerTiming ?? false) ? (usage?.timeToFirstToken ?? usage?.promptEvalDuration) : nil,
+            reportedPromptTokensPerSecond: serverTiming ? (usage?.promptTokensPerSecond ?? timings?.promptPerSecond) : nil,
             serverReportedMetricsJSON: serverTiming ? rawUsageJSON : nil
         )
     }
@@ -1230,6 +1274,35 @@ private struct OpenAIChatStreamResponse: Codable {
     let model: String?
     let choices: [OpenAIStreamChoice]
     let usage: OpenAIUsage?
+    let timings: LlamaCppTimings?
+}
+
+/// llama.cpp `llama-server` measures prefill and decode inside its own loop
+/// and attaches a `timings` object to every final response — on the trailing
+/// usage chunk (choices: []) in streaming mode, no request flag needed.
+/// Durations are MILLISECONDS. llama-swap and other llama.cpp frontends pass
+/// it through; LM Studio strips it from /v1.
+private struct LlamaCppTimings: Codable {
+    /// Prompt tokens actually evaluated this request (excludes KV-cache hits).
+    let promptN: Int?
+    let promptMs: Double?
+    let promptPerSecond: Double?
+    /// Generated token count.
+    let predictedN: Int?
+    let predictedMs: Double?
+    let predictedPerSecond: Double?
+    /// Prompt tokens reused from the KV cache.
+    let cacheN: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case promptN = "prompt_n"
+        case promptMs = "prompt_ms"
+        case promptPerSecond = "prompt_per_second"
+        case predictedN = "predicted_n"
+        case predictedMs = "predicted_ms"
+        case predictedPerSecond = "predicted_per_second"
+        case cacheN = "cache_n"
+    }
 }
 
 private struct OpenAIUsage: Codable {

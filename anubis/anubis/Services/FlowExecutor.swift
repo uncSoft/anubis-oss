@@ -402,7 +402,11 @@ final class FlowExecutor: ObservableObject {
         }
         inferenceService.clearGenerating()
 
-        let ttft = firstTokenAt.map { $0.timeIntervalSince(startTime) }
+        // Subtract server-reported model load time (Ollama cold starts) so
+        // TTFT measures a loaded model — consistent with the Benchmark tab.
+        let ttft = firstTokenAt.map {
+            max(0, $0.timeIntervalSince(startTime) - (finalStats?.loadDuration ?? 0))
+        }
         let stats: InferenceStats
         if let backendStats = finalStats {
             stats = backendStats

@@ -22,8 +22,10 @@ actor OllamaClient: InferenceBackend {
         self.baseURL = baseURL
 
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 300 // 5 minutes for long generations
-        config.timeoutIntervalForResource = 600 // 10 minutes total
+        config.timeoutIntervalForRequest = 300 // idle time between chunks
+        // Whole-response cap: 600 s silently killed any run longer than
+        // 10 minutes (issue #31) — allow two hours for slow hardware.
+        config.timeoutIntervalForResource = 7200
         // Low-latency delivery: tells URLSession to optimize the data
         // path for responsiveness rather than throughput, which
         // significantly reduces internal buffering of streamed bytes.
