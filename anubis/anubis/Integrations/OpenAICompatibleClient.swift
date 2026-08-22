@@ -807,7 +807,7 @@ actor OpenAICompatibleClient: InferenceBackend {
 /// Tracks reasoning vs. output tokens during a streaming chat completion.
 /// Splits inline <think>…</think> blocks across chunks and surfaces the
 /// timing needed for accurate prefill TPS, thinking TPS, and output TPS.
-private struct StreamState {
+struct StreamState {
     enum PieceKind { case reasoning, output }
     struct Piece { let kind: PieceKind; let text: String }
 
@@ -1373,7 +1373,7 @@ private struct OpenAIStreamOptions: Codable {
     }
 }
 
-private struct OpenAIChatStreamResponse: Codable {
+struct OpenAIChatStreamResponse: Codable {
     let id: String?
     let object: String?
     let created: Int?
@@ -1388,7 +1388,7 @@ private struct OpenAIChatStreamResponse: Codable {
 /// usage chunk (choices: []) in streaming mode, no request flag needed.
 /// Durations are MILLISECONDS. llama-swap and other llama.cpp frontends pass
 /// it through; LM Studio strips it from /v1.
-private struct LlamaCppTimings: Codable {
+struct LlamaCppTimings: Codable {
     /// Prompt tokens actually evaluated this request (excludes KV-cache hits).
     let promptN: Int?
     let promptMs: Double?
@@ -1411,7 +1411,7 @@ private struct LlamaCppTimings: Codable {
     }
 }
 
-private struct OpenAIUsage: Codable {
+struct OpenAIUsage: Codable {
     let promptTokens: Int?
     let completionTokens: Int?
     let totalTokens: Int?
@@ -1461,7 +1461,7 @@ private struct OpenAIUsage: Codable {
     }
 }
 
-private struct OpenAIStreamChoice: Codable {
+struct OpenAIStreamChoice: Codable {
     let index: Int?
     let delta: OpenAIDelta
     let finishReason: String?
@@ -1472,7 +1472,7 @@ private struct OpenAIStreamChoice: Codable {
     }
 }
 
-private struct OpenAIDelta: Codable {
+struct OpenAIDelta: Codable {
     let role: String?
     let content: String?
     /// DeepSeek/Qwen/GLM convention — reasoning streamed in a separate field.

@@ -180,4 +180,99 @@ struct anubisTests {
         #expect(s.reportedTokensPerSecond == nil)
         #expect(abs(s.totalDuration - 5) < 0.001)
     }
+
+    // MARK: - OpenAI-compat stream finalization (timing fallback chains)
+
+    private func decodeChunk(_ json: String) throws -> OpenAIChatStreamResponse {
+        try JSONDecoder().decode(OpenAIChatStreamResponse.self, from: Data(json.utf8))
+    }
+
+    /// llama-server's final stream chunk, shape verified against llama.cpp
+    /// master (timings ride the trailing usage chunk, durations in ms).
+    private static let llamaCppFinalChunk = #"""
+    {"id":"chatcmpl-x","object":"chat.completion.chunk","created":1724300000,"model":"m","choices":[],"usage":{"prompt_tokens":56,"completion_tokens":128,"total_tokens":184},"timings":{"cache_n":48,"prompt_n":8,"prompt_ms":42.5,"prompt_per_token_ms":5.3,"prompt_per_second":188.2,"predicted_n":128,"predicted_ms":1600.0,"predicted_per_token_ms":12.5,"predicted_per_second":80.0}}
+    """#
+
+    @Test func llamaCppTimingsDecodeFromFinalChunk() throws {
+        let chunk = try decodeChunk(Self.llamaCppFinalChunk)
+        let t = try #require(chunk.timings)
+        #expect(t.promptN == 8)
+        #expect(t.cacheN == 48)
+        #expect(t.promptMs == 42.5)
+        #expect(t.predictedN == 128)
+        #expect(t.predictedMs == 1600.0)
+        #expect(t.predictedPerSecond == 80.0)
+        #expect(chunk.usage?.hasServerTiming == false)
+    }
+
+    @Test func finalizeUsesLlamaCppTimingsOverWallClock() throws {
+        let chunk = try decodeChunk(Self.llamaCppFinalChunk)
+        var state = StreamState()
+        state.markFirstChunk(Date())
+        let s = state.finalize(startTime: Date().addingTimeInterval(-10),
+                               usage: chunk.usage, timings: chunk.timings)
+        // ms → s conversion, decode-loop values win over chunk-arrival timing
+        #expect(abs(s.evalDuration - 1.6) < 0.0001)
+        #expect(abs(s.promptEvalDuration - 0.0425) < 0.0001)
+        #expect(s.reportedTokensPerSecond == 80.0)
+        #expect(s.tokensPerSecond == 80.0)
+        // usage present → its counts win; llama.cpp TTFT is prefill-only,
+        // so client wall clock stays authoritative for TTFT
+        #expect(s.completionTokens == 128)
+        #expect(s.promptTokens == 56)
+        #expect(s.serverReportedTTFT == nil)
+        // end-to-end wall total, not the server's decode window
+        #expect(abs(s.totalDuration - 10) < 1.0)
+    }
+
+    @Test func finalizeUsesTimingsTokenCountsWhenUsageAbsent() throws {
+        let chunk = try decodeChunk(Self.llamaCppFinalChunk)
+        var state = StreamState()
+        let s = state.finalize(startTime: Date(), usage: nil, timings: chunk.timings)
+        #expect(s.completionTokens == 128)          // predicted_n
+        #expect(s.promptTokens == 56)               // prompt_n + cache_n
+    }
+
+    @Test func finalizePrefersOmlxUsageTiming() throws {
+        let chunk = try decodeChunk(#"""
+        {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":200,"total_tokens":300,"time_to_first_token":0.35,"prompt_eval_duration":0.3,"generation_duration":4.0,"prompt_tokens_per_second":333.3,"generation_tokens_per_second":50.0,"model_load_duration":1.2,"total_time":4.4}}
+        """#)
+        let usage = try #require(chunk.usage)
+        #expect(usage.hasServerTiming)
+        var state = StreamState()
+        let s = state.finalize(startTime: Date().addingTimeInterval(-6), usage: usage, timings: nil)
+        #expect(s.evalDuration == 4.0)
+        #expect(s.promptEvalDuration == 0.3)
+        #expect(s.reportedTokensPerSecond == 50.0)
+        #expect(s.serverReportedTTFT == 0.35)
+        #expect(s.reportedPromptTokensPerSecond == 333.3)
+        #expect(s.loadDuration == 1.2)
+        // avg latency must be the reciprocal of the REPORTED rate
+        #expect(abs(s.averageTokenLatencyMs! - 20.0) < 0.0001)
+    }
+
+    @Test func finalizeWallClockFallbackWhenServerReportsNothing() throws {
+        let chunk = try decodeChunk(#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":40,"total_tokens":50}}"#)
+        var state = StreamState()
+        let start = Date().addingTimeInterval(-5)
+        state.markFirstChunk(start.addingTimeInterval(1))   // first chunk 1 s in
+        let s = state.finalize(startTime: start, usage: chunk.usage, timings: nil)
+        #expect(abs(s.promptEvalDuration - 1.0) < 0.5)      // start → first chunk
+        #expect(abs(s.evalDuration - 4.0) < 0.5)            // first chunk → now
+        #expect(s.reportedTokensPerSecond == nil)
+        #expect(s.serverReportedTTFT == nil)
+        #expect(s.completionTokens == 40)
+    }
+
+    /// Backend gives one completion count including reasoning; the local
+    /// reasoning/output piece counts scale it into a token split.
+    @Test func finalizeScalesReasoningSplitToBackendCount() throws {
+        let chunk = try decodeChunk(#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":200,"total_tokens":210}}"#)
+        var state = StreamState()
+        state.reasoningTokens = 30    // local piece counts, 30% reasoning
+        state.outputTokens = 70
+        let s = state.finalize(startTime: Date(), usage: chunk.usage, timings: nil)
+        #expect(s.completionTokens == 200)
+        #expect(s.reasoningTokens == 60)              // 30% of backend's 200
+    }
 }

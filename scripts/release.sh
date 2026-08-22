@@ -17,6 +17,7 @@ KEYCHAIN_PROFILE="${ANUBIS_KEYCHAIN_PROFILE:-notarytool}"
 VERSION=""
 SKIP_NOTARIZE=false
 SKIP_GITHUB=false
+SKIP_TESTS=false
 
 usage() {
     echo "Usage: $0 --version <tag> [--skip-notarize] [--skip-github]"
@@ -29,6 +30,8 @@ usage() {
     echo "                   updated in the pbxproj before archiving."
     echo "  --skip-notarize  Skip notarization (for testing)"
     echo "  --skip-github    Build and sign only, don't create GitHub release"
+    echo "  --skip-tests     Skip the unit-test gate (only when the test"
+    echo "                   harness itself is broken and the fix is urgent)"
     echo ""
     echo "Examples:"
     echo "  $0 --version v2.3.0"
@@ -42,6 +45,7 @@ while [[ $# -gt 0 ]]; do
         --version) VERSION="$2"; shift 2 ;;
         --skip-notarize) SKIP_NOTARIZE=true; shift ;;
         --skip-github) SKIP_GITHUB=true; shift ;;
+        --skip-tests) SKIP_TESTS=true; shift ;;
         *) usage ;;
     esac
 done
@@ -80,6 +84,31 @@ echo "  CURRENT_PROJECT_VERSION = $XCODE_VERSION  (${FOUND_CPV} occurrences)"
 if [[ "$FOUND_MV" -lt 2 || "$FOUND_CPV" -lt 2 ]]; then
     echo "  ⚠ Expected at least 2 occurrences each (Debug + Release). Check pbxproj."
     exit 1
+fi
+
+# ─── Step 1.5: Unit tests (release gate) ────────────────────────
+# Metric formulas and stream parsing live behind unit tests
+# (anubisTests) — a release must not ship if they fail. Escape hatch:
+# --skip-tests, for when the test *harness* is broken but the fix is
+# urgent. UI tests are excluded (slow, machine-dependent).
+if [[ "$SKIP_TESTS" == false ]]; then
+    echo "→ Running unit tests (anubisTests)..."
+    TEST_LOG=/tmp/anubis-release-tests.log
+    if ! xcodebuild test \
+        -project "$PROJECT_DIR/anubis.xcodeproj" \
+        -scheme "$SCHEME" \
+        -configuration Debug \
+        -only-testing:anubisTests \
+        -destination 'platform=macOS' \
+        -quiet > "$TEST_LOG" 2>&1; then
+        grep -E "Test case .* (failed|passed)|error:" "$TEST_LOG" | tail -25 || true
+        echo "✗ Unit tests failed — aborting release. Full log: $TEST_LOG"
+        exit 1
+    fi
+    PASSED=$(grep -c "Test case .* passed" "$TEST_LOG" || true)
+    echo "  Unit tests passed (${PASSED} cases). Log: $TEST_LOG"
+else
+    echo "→ SKIPPING unit tests (--skip-tests)"
 fi
 
 # ─── Step 2: Clean build directory ──────────────────────────────
