@@ -175,7 +175,11 @@ struct InferenceStats: Sendable, Codable {
     /// window, not the real generation time, and `tokensPerSecond` based on
     /// it will be implausibly high. UI should annotate, not override.
     var hasSuspiciousStreamTiming: Bool {
-        completionTokens > 100 && evalDuration > 0 && evalDuration < 1.0
+        // Timing measured inside the backend's decode loop can't be
+        // corrupted by client-side read bursts — a genuinely fast small
+        // model shouldn't be flagged.
+        reportedTokensPerSecond == nil
+            && completionTokens > 100 && evalDuration > 0 && evalDuration < 1.0
     }
 
     /// Average latency per generated token in milliseconds (TPOT). Defined as

@@ -78,6 +78,11 @@ actor OpenAICompatibleClient: InferenceBackend {
     private let session: URLSession
     private let apiKey: String?
 
+    /// Whether this backend has been verified as LM Studio (its native
+    /// `/api/v1/models` endpoint answered with the expected shape). Cached
+    /// per client instance; re-verified on each model-list refresh.
+    private var lmStudioNativeVerified: Bool?
+
     // MARK: - Initialization
 
     init(configuration: BackendConfiguration) {
@@ -459,10 +464,33 @@ actor OpenAICompatibleClient: InferenceBackend {
 
     // MARK: - Private Methods
 
+    /// True when the backend is LM Studio, whose native chat API reports
+    /// server-measured decode timing the OpenAI-compat endpoint strips.
+    private func verifyLMStudioNative() async -> Bool {
+        if let cached = lmStudioNativeVerified { return cached }
+        let verified = await fetchLMStudioModels() != nil
+        lmStudioNativeVerified = verified
+        return verified
+    }
+
     private func streamGenerate(
         request: InferenceRequest,
         continuation: AsyncThrowingStream<InferenceChunk, Error>.Continuation
     ) async throws {
+        // Prefer LM Studio's native chat API when the backend is verified LM
+        // Studio: it reports tokens/sec, TTFT (load-excluded), model load
+        // time, and real token counts measured inside the server, replacing
+        // our wall-clock estimates. Falls back to /v1/chat/completions if the
+        // native endpoint refuses the request (older LM Studio, model without
+        // reasoning config when a thinking toggle was forced, etc.). Stop
+        // sequences aren't supported by the native endpoint — no code path
+        // sets them today, but guard anyway so they'd never be dropped.
+        if request.stopSequences?.isEmpty ?? true, await verifyLMStudioNative() {
+            if try await streamGenerateLMStudioNative(request: request, continuation: continuation) {
+                return
+            }
+        }
+
         let url = baseURL.appendingPathComponent("v1/chat/completions")
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
@@ -693,6 +721,84 @@ actor OpenAICompatibleClient: InferenceBackend {
         // Stream closed without a [DONE] sentinel (some servers omit it).
         // Finalize with whatever usage we captured.
         emitFinal()
+    }
+
+    /// Benchmark against LM Studio's native chat API (`POST /api/v1/chat`).
+    /// See LMStudioNativeStream.swift for the protocol notes.
+    ///
+    /// Returns `false` when the endpoint refused the request before producing
+    /// any output — the caller then retries on the OpenAI-compat path. Once
+    /// output has been yielded, failures propagate as thrown errors instead
+    /// (a silent retry would duplicate text).
+    private func streamGenerateLMStudioNative(
+        request: InferenceRequest,
+        continuation: AsyncThrowingStream<InferenceChunk, Error>.Continuation
+    ) async throws -> Bool {
+        let url = baseURL.appendingPathComponent("api/v1/chat")
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Same rationale as the /v1 path: gzip makes URLSession buffer SSE.
+        urlRequest.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        if let apiKey = apiKey, !apiKey.isEmpty {
+            urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        // Only send the reasoning toggle when the user forced it — models
+        // without reasoning config reject the key with a 400 (which lands us
+        // safely on the /v1 fallback, where the toggle maps to
+        // chat_template_kwargs instead).
+        let reasoningField: String?
+        switch request.ollamaThinkMode {
+        case .auto: reasoningField = nil
+        case .on:   reasoningField = "on"
+        case .off:  reasoningField = "off"
+        }
+
+        let body = LMStudioNativeChatRequest(
+            model: request.model,
+            input: request.prompt,
+            stream: true,
+            systemPrompt: request.systemPrompt,
+            maxOutputTokens: request.maxTokens,
+            temperature: request.temperature,
+            topP: request.topP,
+            reasoning: reasoningField
+        )
+        urlRequest.httpBody = try JSONEncoder().encode(body)
+
+        // Stamp before the request so totalDuration is end-to-end wall time,
+        // including any JIT model load (methodology v3).
+        let requestStart = Date()
+
+        guard let (bytes, response) = try? await session.bytes(for: urlRequest),
+              let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            // Connection failure or a 4xx (unknown field on an older LM
+            // Studio, invalid reasoning toggle, ...) — let /v1 handle it,
+            // and surface its error if the server is genuinely down.
+            return false
+        }
+
+        var parser = LMStudioNativeStreamParser()
+        var yieldedAny = false
+        do {
+            for try await line in bytes.lines {
+                for chunk in parser.handle(line: line) {
+                    yieldedAny = true
+                    continuation.yield(chunk)
+                }
+                if parser.sawChatEnd { break }
+            }
+        } catch {
+            if yieldedAny { throw error }
+            return false
+        }
+
+        let stats = parser.finalize(startTime: requestStart)
+        continuation.yield(InferenceChunk(text: "", done: true, stats: stats))
+        continuation.finish()
+        return true
     }
 }
 
