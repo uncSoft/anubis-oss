@@ -608,6 +608,11 @@ final class BenchmarkViewModel: ObservableObject {
     func loadInitialDataIfNeeded() async {
         guard !didInitialLoad else { return }
         didInitialLoad = true
+        #if DEBUG
+        // Before loadModels: the auto-bench hook switches backends itself,
+        // and must not sit behind a slow full refresh.
+        maybeStartAutoBenchmark()
+        #endif
         await loadModels()
         await loadRecentSessions()
     }
@@ -933,6 +938,12 @@ final class BenchmarkViewModel: ObservableObject {
                 ?? finalBuf.firstTokenTime.map {
                     max(0, $0.timeIntervalSince(startTime) - (finalBuf.stats?.loadDuration ?? 0))
                 }
+            // Reconcile the live TTFT card with the final value. During the
+            // run the card shows first-chunk wall clock, which can't know
+            // model load time until the terminal stats arrive — on an Ollama
+            // cold start it displayed 7.4 s while the persisted TTFT was
+            // 0.2 s + a separately-shown 7.2 s load.
+            if let ttft { self.timeToFirstToken = ttft }
             let powerSummary = BenchmarkSample.computePowerSummary(from: self.currentSamplesInternal)
             let backendName = self.metricsService.latestMetrics?.backendProcessName
 
@@ -2567,3 +2578,69 @@ extension BenchmarkViewModel {
         currentMetrics?.backendProcessName
     }
 }
+
+#if DEBUG
+// MARK: - Debug auto-benchmark hook
+//
+// Headless smoke-test entry point, DEBUG builds only. Launch with e.g.
+//
+//   open anubis.app --args --auto-bench-backend "LM Studio" \
+//       --auto-bench-model lfm --auto-bench-max-tokens 200
+//
+// and the Benchmark tab selects the backend/model and starts one run as soon
+// as models load. Exists so an automated session (or future CI smoke test)
+// can exercise the full benchmark path — backend selection, streaming,
+// metrics collection, DB write — without scripted UI clicks. No-op unless
+// the launch argument is present; compiled out of Release entirely.
+extension BenchmarkViewModel {
+    private static var autoBenchStarted = false
+
+    private static func autoBenchArg(_ name: String) -> String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+
+    func maybeStartAutoBenchmark() {
+        NSLog("[AUTOBENCH] hook entered, args: %@", ProcessInfo.processInfo.arguments.joined(separator: " "))
+        guard !Self.autoBenchStarted,
+              let backendWanted = Self.autoBenchArg("--auto-bench-backend") else { return }
+        Self.autoBenchStarted = true
+        Task { @MainActor in
+            if backendWanted.lowercased() == "ollama" {
+                inferenceService.setBackend(.ollama)
+            } else if let config = inferenceService.configManager.openAIConfigs.first(where: {
+                $0.name.lowercased().contains(backendWanted.lowercased())
+            }) {
+                inferenceService.setOpenAIBackend(config)
+            } else {
+                NSLog("[AUTOBENCH] no backend configuration matches %@", backendWanted)
+                return
+            }
+
+            let modelWanted = Self.autoBenchArg("--auto-bench-model")?.lowercased()
+            for _ in 0..<30 {
+                await loadModels()
+                if !availableModels.isEmpty { break }
+                try? await Task.sleep(for: .seconds(2))
+            }
+            if let modelWanted,
+               let match = availableModels.first(where: { $0.id.lowercased().contains(modelWanted) }) {
+                selectedModel = match
+            }
+            guard let model = selectedModel else {
+                NSLog("[AUTOBENCH] no model available after backend switch")
+                return
+            }
+            if let cap = Self.autoBenchArg("--auto-bench-max-tokens").flatMap({ Int($0) }) {
+                maxTokens = cap
+            }
+            if let prompt = Self.autoBenchArg("--auto-bench-prompt") {
+                promptText = prompt
+            }
+            NSLog("[AUTOBENCH] starting: %@ via %@", model.id, backendWanted)
+            startBenchmark()
+        }
+    }
+}
+#endif

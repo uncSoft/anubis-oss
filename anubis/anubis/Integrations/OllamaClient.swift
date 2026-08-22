@@ -64,6 +64,9 @@ actor OllamaClient: InferenceBackend {
         let url = baseURL.appendingPathComponent("api/tags")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        // Metadata call — don't inherit the 300 s streaming timeout (see
+        // OpenAICompatibleClient.listModels for the launch-freeze rationale).
+        request.timeoutInterval = 10
 
         let (data, response) = try await session.data(for: request)
 

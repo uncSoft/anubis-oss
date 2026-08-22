@@ -166,6 +166,12 @@ actor OpenAICompatibleClient: InferenceBackend {
         let url = baseURL.appendingPathComponent("v1/models")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        // Metadata call — cap it. Without this it inherits the session's
+        // 300 s streaming timeout, and because refreshAllModels() queries
+        // backends sequentially, ONE unreachable configured server (e.g. a
+        // remote Mac that's asleep) froze model loading for every backend
+        // for minutes at launch.
+        request.timeoutInterval = 10
 
         if let apiKey = apiKey, !apiKey.isEmpty {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
@@ -755,28 +761,43 @@ actor OpenAICompatibleClient: InferenceBackend {
         case .off:  reasoningField = "off"
         }
 
-        let body = LMStudioNativeChatRequest(
-            model: request.model,
-            input: request.prompt,
-            stream: true,
-            systemPrompt: request.systemPrompt,
-            maxOutputTokens: request.maxTokens,
-            temperature: request.temperature,
-            topP: request.topP,
-            reasoning: reasoningField
-        )
-        urlRequest.httpBody = try JSONEncoder().encode(body)
+        func makeBody(reasoning: String?) throws -> Data {
+            try JSONEncoder().encode(LMStudioNativeChatRequest(
+                model: request.model,
+                input: request.prompt,
+                stream: true,
+                systemPrompt: request.systemPrompt,
+                maxOutputTokens: request.maxTokens,
+                temperature: request.temperature,
+                topP: request.topP,
+                reasoning: reasoning
+            ))
+        }
 
         // Stamp before the request so totalDuration is end-to-end wall time,
         // including any JIT model load (methodology v3).
         let requestStart = Date()
 
-        guard let (bytes, response) = try? await session.bytes(for: urlRequest),
-              let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            // Connection failure or a 4xx (unknown field on an older LM
-            // Studio, invalid reasoning toggle, ...) — let /v1 handle it,
-            // and surface its error if the server is genuinely down.
+        // First attempt carries the thinking toggle. LM Studio rejects the
+        // `reasoning` key with a 400 on models that don't expose reasoning
+        // config — which includes most non-reasoning models with the app's
+        // default toggle — so on a 4xx we retry once without the field
+        // (server default == no reasoning, matching what /v1 would do).
+        let reasoningAttempts: [String?] = reasoningField != nil ? [reasoningField, nil] : [nil]
+        var openedStream: URLSession.AsyncBytes?
+        for reasoning in reasoningAttempts {
+            urlRequest.httpBody = try makeBody(reasoning: reasoning)
+            guard let (candidateBytes, response) = try? await session.bytes(for: urlRequest) else {
+                return false   // connection-level failure — let /v1 surface it
+            }
+            guard let http = response as? HTTPURLResponse else { return false }
+            if http.statusCode == 200 {
+                openedStream = candidateBytes
+                break
+            }
+        }
+        guard let bytes = openedStream else {
+            // Still refused (older LM Studio without /api/v1) — /v1 handles it.
             return false
         }
 
