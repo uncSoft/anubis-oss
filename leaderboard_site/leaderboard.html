@@ -825,8 +825,9 @@
             <select id="filter-format" onchange="applyFilters()">
                 <option value="">All Formats</option>
             </select>
-            <select id="filter-methodology" onchange="applyFilters()" title="Filter by metric methodology version. v3.5+ has corrected per-channel SoC power scaling; earlier submissions undercount CPU/ANE/DRAM contributions.">
+            <select id="filter-methodology" onchange="applyFilters()" title="Filter by metric methodology version. v3 = corrected tok/s over all generated tokens + load-excluded TTFT (v3.9+). v2 = corrected per-channel SoC power scaling (v3.5+). Earlier submissions undercount CPU/ANE/DRAM power and may inflate tok/s on reasoning-heavy runs.">
                 <option value="">All Methodologies</option>
+                <option value="3">v3.9+ corrected tok/s + TTFT</option>
                 <option value="2">v3.5+ corrected power</option>
                 <option value="legacy">Pre-v3.5 (legacy power)</option>
             </select>
@@ -1003,8 +1004,9 @@
                 if (filters.model && e.model_name !== filters.model) return false;
                 if (filters.quant && e.model_quantization !== filters.quant) return false;
                 if (filters.format && e.model_format !== filters.format) return false;
+                if (filters.methodology === '3' && e.methodology_version !== 3) return false;
                 if (filters.methodology === '2' && e.methodology_version !== 2) return false;
-                if (filters.methodology === 'legacy' && e.methodology_version === 2) return false;
+                if (filters.methodology === 'legacy' && (e.methodology_version === 2 || e.methodology_version === 3)) return false;
                 return true;
             });
         }

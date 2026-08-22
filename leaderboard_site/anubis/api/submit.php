@@ -56,14 +56,32 @@ if (!preg_match('/^[a-f0-9]{64}$/', $data['machine_id'])) {
     jsonError(400, 'Invalid machine ID format');
 }
 
+// Plausibility gate. Reject only unambiguous garbage so older clients keep
+// working: zero-output runs and physically impossible speeds (the historical
+// "answer-only tok/s" bug produced 5k-29k tok/s rows that topped the ranking).
+$tps = isset($data['tokens_per_second']) ? floatval($data['tokens_per_second']) : 0.0;
+$completionTokens = isset($data['completion_tokens']) ? intval($data['completion_tokens']) : 0;
+if ($completionTokens < 1) {
+    jsonError(422, 'Rejected: benchmark produced no completion tokens');
+}
+if ($tps <= 0 || $tps >= 2000) {
+    jsonError(422, 'Rejected: implausible tokens_per_second value');
+}
+
 $db = getDB();
 
-// Rate limiting: max submissions per machine per hour
+// Rate limiting: max submissions per machine per hour. A floor of 30 keeps
+// legitimate back-to-back sweeps (multi-rep groups, quantization ladders)
+// working even if config.php carries a stricter historical value.
+$rateLimit = max(defined('RATE_LIMIT_PER_HOUR') ? RATE_LIMIT_PER_HOUR : 30, 30);
 $stmt = $db->prepare(
     'SELECT COUNT(*) FROM leaderboard_submissions WHERE machine_id = ? AND submitted_at > DATE_SUB(NOW(), INTERVAL 1 HOUR)'
 );
 $stmt->execute([$data['machine_id']]);
 $count = (int)$stmt->fetchColumn();
+if ($count >= $rateLimit) {
+    jsonError(429, 'Rate limit exceeded: max ' . $rateLimit . ' submissions per hour');
+}
 
 
 

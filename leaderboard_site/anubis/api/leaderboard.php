@@ -9,8 +9,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     jsonError(405, 'Method not allowed');
 }
 
-// Parse limit
-$limit = isset($_GET['limit']) ? min(max(intval($_GET['limit']), 1), 500) : 100;
+// Parse limit (analysis.html / explorer.html request the full dataset with limit=10000)
+$limit = isset($_GET['limit']) ? min(max(intval($_GET['limit']), 1), 10000) : 100;
+
+// Plausibility filter, on by default. Historical submissions from clients with
+// the "answer-only tok/s" bug carry impossible speeds (5k-29k tok/s from a
+// near-zero denominator) and would otherwise top the ranking, since we ORDER BY
+// tokens_per_second. 2000 tok/s matches the analysis digest's is_valid() cap.
+// Pass raw=1 to bypass (for audits / data archaeology).
+$raw = isset($_GET['raw']) && $_GET['raw'] === '1';
 
 $db = getDB();
 
@@ -37,7 +44,10 @@ $sql = 'SELECT
     group_ci_low_watts_per_token, group_ci_high_watts_per_token,
     submitted_at
 FROM leaderboard_submissions
-WHERE status = :status
+WHERE status = :status'
+. ($raw ? '' : '
+  AND tokens_per_second > 0 AND tokens_per_second < 2000
+  AND completion_tokens >= 1') . '
 ORDER BY tokens_per_second DESC
 LIMIT :limit';
 

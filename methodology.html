@@ -282,24 +282,23 @@
 
   <!-- ============================================================ -->
   <div class="section">
-    <h2 id="tps-output">Output tokens/second <a href="#tps-output" class="anchor">#</a></h2>
-    <div class="subtitle">The headline number. How fast the model emits visible output tokens.</div>
+    <h2 id="tps-output">Tokens/second <a href="#tps-output" class="anchor">#</a></h2>
+    <div class="subtitle">The headline number. Decode throughput over all generated tokens.</div>
 
     <div class="formula">
-<span class="comment">// generation tok/s, excluding any thinking/reasoning phase</span>
-output_tokens_per_second = <span class="var">outputTokens</span> <span class="op">/</span> <span class="var">outputEvalDuration</span>
-
-<span class="var">outputTokens</span>       = max(0, <span class="var">completionTokens</span> - <span class="var">reasoningTokens</span>)
-<span class="var">outputEvalDuration</span>  = max(0, <span class="var">evalDuration</span>    - <span class="var">reasoningDuration</span>)
+<span class="comment">// decode throughput, ALL generated tokens (reasoning included)   [methodology v3]</span>
+tokens_per_second = <span class="var">completionTokens</span> <span class="op">/</span> <span class="var">evalDuration</span>
     </div>
 
-    <p>For reasoning-capable models (DeepSeek-R1, Qwen3-thinking, etc.), thinking tokens and the time spent producing them are subtracted from the denominator and numerator. The displayed tok/s is the rate of <em>visible</em> output, which is what users actually wait for.</p>
+    <p>All generated tokens count, including a reasoning model&rsquo;s thinking tokens &mdash; they are decoded by the same hardware at the same speed as visible ones. This matches how everyone else measures generation speed: Ollama&rsquo;s <code class="inline">eval rate</code> (<code class="inline">eval_count / eval_duration</code>), llama.cpp&rsquo;s <code class="inline">predicted_per_second</code>, and llmperf / genai-perf output throughput. The thinking-phase rate is still reported separately (see <a href="#reasoning">reasoning split</a>).</p>
 
-    <p>For non-reasoning models, <code class="inline">reasoningTokens</code> is 0 and <code class="inline">reasoningDuration</code> is 0, so the formula reduces to the conventional <code class="inline">completionTokens / evalDuration</code>.</p>
+    <p><strong>History (methodology &le; v2):</strong> earlier versions excluded thinking from both numerator and denominator &mdash; <code class="inline">(completionTokens &minus; reasoningTokens) / (evalDuration &minus; reasoningDuration)</code>. When a run was reasoning-dominated, that divided a handful of visible tokens by a near-zero difference of two estimated quantities, producing submissions claiming 5,000&ndash;29,000 tok/s. Those rows are now filtered from the leaderboard API and rejected at submission.</p>
 
-    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/InferenceChunk.swift#L114">InferenceChunk.swift:114</a></div>
+    <p>When the backend measures throughput inside its own decode loop (oMLX usage extensions, llama.cpp&rsquo;s <code class="inline">timings</code> object), that figure is used verbatim in preference to client-side wall-clock derivation, which a bursty SSE reader can distort.</p>
 
-    <div class="caveat"><strong>Caveat -</strong> backends report token counts and durations differently. Ollama&rsquo;s <code class="inline">eval_count</code> / <code class="inline">eval_duration</code> from <code class="inline">/api/chat</code> is the source of truth when available. OpenAI-compatible endpoints don&rsquo;t always return token counts, in which case Anubis falls back to counting streamed chunks and measuring wall time client-side, which slightly underestimates true tok/s due to network round-trip overhead.</div>
+    <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/InferenceChunk.swift">InferenceChunk.swift</a> (<code class="inline">tokensPerSecond</code>)</div>
+
+    <div class="caveat"><strong>Caveat -</strong> backends report token counts and durations differently. Ollama&rsquo;s <code class="inline">eval_count</code> / <code class="inline">eval_duration</code> and llama.cpp&rsquo;s <code class="inline">timings</code> are the source of truth when available. OpenAI-compatible endpoints don&rsquo;t always return token counts, in which case Anubis falls back to counting streamed chunks and measuring wall time client-side, which slightly underestimates true tok/s due to network round-trip overhead.</div>
   </div>
 
   <!-- ============================================================ -->
@@ -328,9 +327,11 @@ TTFT = <span class="var">first_chunk_arrival_time</span> <span class="op">-</spa
      <span class="comment">// measured client-side, in the Anubis app process</span>
     </div>
 
-    <p>TTFT is end-to-end from the user&rsquo;s perspective: it includes everything - tokenisation, KV cache setup, prefill, and any network round-trip to the local backend on its loopback port. A high TTFT on a long prompt is mostly prefill; on a short prompt it&rsquo;s mostly model load + cache setup.</p>
+    <p>TTFT is end-to-end from the user&rsquo;s perspective: it includes tokenisation, KV cache setup, prefill, and any network round-trip to the local backend on its loopback port. A high TTFT on a long prompt is mostly prefill.</p>
 
-    <p>For reasoning models, TTFT is the time to the <em>first visible</em> output chunk - not the first thinking token. If a model thinks for 30 seconds before producing visible output, that 30 seconds is in the TTFT.</p>
+    <p><strong>Model load time is excluded when the backend reports it</strong> (methodology v3). Ollama cold-loads models and reports <code class="inline">load_duration</code>; subtracting it makes Ollama TTFTs comparable with backends that keep the model resident (before this, Ollama&rsquo;s leaderboard median TTFT was ~4.9&nbsp;s against ~0.5&nbsp;s of actual prefill, nearly all of it load time). Load time is still recorded separately on every session. Backends that JIT-load without reporting it (LM Studio via the /v1 API) still fold that load into TTFT.</p>
+
+    <p>For reasoning models, TTFT is the time to the first <em>generated</em> token &mdash; thinking counts as generation. A model that thinks for 30 seconds before its first visible token still has a sub-second TTFT if thinking started immediately.</p>
 
     <div class="source">Source: <a href="https://github.com/uncSoft/anubis-oss/blob/main/anubis/anubis/Models/BenchmarkSession.swift#L43">BenchmarkSession.swift:43</a> (field), captured in <code class="inline">BenchmarkViewModel</code> at the moment the first <code class="inline">InferenceChunk</code> with visible content arrives.</div>
   </div>
@@ -344,7 +345,7 @@ TTFT = <span class="var">first_chunk_arrival_time</span> <span class="op">-</spa
 reasoning_tokens_per_second = <span class="var">reasoningTokens</span> <span class="op">/</span> <span class="var">reasoningDuration</span>
     </div>
 
-    <p>Thinking tokens are accounted separately so a model that thinks for 30 seconds then emits 100 visible tokens isn&rsquo;t penalised in the output tok/s figure. Three rates are tracked: <strong>prefill</strong> (input ingestion), <strong>reasoning</strong> (thinking phase, if any), and <strong>output</strong> (visible generation).</p>
+    <p>Thinking tokens are counted in the headline tokens/second (they&rsquo;re decoded at the same hardware speed), but the split is still tracked so you can see how much of a run was spent thinking. Three rates are reported: <strong>prefill</strong> (input ingestion), <strong>reasoning</strong> (thinking phase, if any), and the overall <strong>generation</strong> rate.</p>
 
     <p>Detection depends on the backend exposing a thinking signal. For Ollama, the <code class="inline">thinking</code> field on the chunk and the <code class="inline">think</code> request parameter are used. For OpenAI-compatible endpoints, only models that surface thinking via a structured field (e.g. <code class="inline">reasoning_content</code>) are split.</p>
 
@@ -483,6 +484,15 @@ utilization = (<span class="var">&Delta;user</span> <span class="op">+</span> <s
   <div class="section">
     <h2 id="changelog">Changelog <a href="#changelog" class="anchor">#</a></h2>
     <div class="subtitle">Material changes to how metrics are computed are listed here. If you&rsquo;ve cited an Anubis number in a video, blog post, or paper, this is where to check whether the definition has drifted.</div>
+
+    <div class="changelog-entry">
+      <div><span class="changelog-date">2026-08-22</span> <span class="changelog-title">Throughput, latency and TTFT definitions &mdash; methodology v3</span></div>
+      <p style="margin-top: 8px;"><strong>Tokens/second counts all generated tokens.</strong> Previous versions reported visible-output throughput: <code class="inline">(completionTokens &minus; reasoningTokens) / (evalDuration &minus; reasoningDuration)</code>. On reasoning-dominated runs both differences approach zero and the ratio explodes &mdash; the public leaderboard accumulated rows claiming 5,000&ndash;29,000 tok/s from exactly this, and because the board ranks by tok/s they sat at the top. The metric is now <code class="inline">completionTokens / evalDuration</code>, the same definition as Ollama&rsquo;s eval rate, llama.cpp&rsquo;s <code class="inline">predicted_per_second</code>, and llmperf/genai-perf. The thinking-phase rate remains available separately.</p>
+      <p style="margin-top: 8px;"><strong>Avg token latency is now exactly <code class="inline">1000 / tok_per_s</code></strong> &mdash; previously it was derived from the visible-output quantities and could disagree with the displayed throughput, particularly when a backend reported its own decode rate.</p>
+      <p style="margin-top: 8px;"><strong>TTFT excludes server-reported model load time</strong> and is anchored at request dispatch (it was previously stamped a scheduling-gap late, and on some paths after response headers &mdash; which on a JIT-loading server meant <code class="inline">total_duration</code> could come out <em>smaller</em> than TTFT). <code class="inline">total_duration</code> is now always end-to-end wall time.</p>
+      <p style="margin-top: 8px;"><strong>llama.cpp <code class="inline">timings</code> are parsed.</strong> llama-server attaches decode-loop timing (<code class="inline">prompt_ms</code>, <code class="inline">predicted_ms</code>, <code class="inline">predicted_per_second</code>, real token counts) to its final stream chunk; these are now used verbatim instead of client-side wall-clock estimates.</p>
+      <p style="margin-top: 8px;"><strong>Data hygiene:</strong> the submission API now rejects runs with zero completion tokens or implausible throughput (&ge;2,000 tok/s), the app performs the same check before uploading, and the leaderboard API filters historical garbage rows out of rankings by default (<code class="inline">raw=1</code> bypasses the filter for audits). New submissions carry <code class="inline">methodology_version: 3</code>.</p>
+    </div>
 
     <div class="changelog-entry">
       <div><span class="changelog-date">2026-05-22</span> <span class="changelog-title">CPU / ANE / DRAM power scale fix &mdash; methodology v2</span></div>
