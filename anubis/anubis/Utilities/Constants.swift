@@ -89,8 +89,21 @@ enum Constants {
 
     // MARK: - User Defaults Keys
 
+    /// Seconds without a single streamed chunk before an inference run is
+    /// declared stalled and aborted (issue #31). 0 disables the watchdog.
+    /// Note this is idle time between chunks, NOT total run time — a slow
+    /// model that keeps streaming never trips it.
+    static var inferenceStallTimeout: TimeInterval {
+        guard UserDefaults.standard.object(forKey: UserDefaultsKeys.inferenceStallTimeoutSeconds) != nil else {
+            return 120
+        }
+        return UserDefaults.standard.double(forKey: UserDefaultsKeys.inferenceStallTimeoutSeconds)
+    }
+
     enum UserDefaultsKeys {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
+        // Stall watchdog window in seconds; 0 = disabled. See Constants.inferenceStallTimeout.
+        static let inferenceStallTimeoutSeconds = "anubis.inferenceStallTimeoutSeconds"
         static let selectedBackend = "selectedBackend"
         static let ollamaBaseURL = "ollamaBaseURL"
         static let metricsPollingInterval = "metricsPollingInterval"

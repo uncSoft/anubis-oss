@@ -594,6 +594,8 @@ struct SettingsView: View {
     @State private var editingConfig: BackendConfiguration?
     @State private var configToDelete: BackendConfiguration?
     @State private var refreshTrigger = false  // Force view refresh
+    @AppStorage(Constants.UserDefaultsKeys.inferenceStallTimeoutSeconds)
+    private var stallTimeoutSeconds: Double = 120
 
     // Observe configManager directly for proper updates
     private var configurations: [BackendConfiguration] {
@@ -659,6 +661,21 @@ struct SettingsView: View {
                         await appState.inferenceService.refreshAllModels()
                     }
                 }
+            }
+
+            Section {
+                Picker("Stall timeout", selection: $stallTimeoutSeconds) {
+                    Text("60 seconds").tag(60.0)
+                    Text("2 minutes").tag(120.0)
+                    Text("5 minutes").tag(300.0)
+                    Text("10 minutes").tag(600.0)
+                    Text("30 minutes").tag(1800.0)
+                    Text("Never time out").tag(0.0)
+                }
+            } header: {
+                Text("Benchmarking")
+            } footer: {
+                Text("Abort a run when no output arrives for this long. Counts idle time between tokens, not total run time — a slow model that keeps streaming is never cut off.")
             }
 
             LeaderboardSettingsSection()

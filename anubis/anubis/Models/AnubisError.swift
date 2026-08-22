@@ -32,7 +32,8 @@ enum AnubisError: LocalizedError {
         case .modelLoadFailed(let modelId, let reason):
             return "Failed to load model '\(modelId)': \(reason)"
         case .inferenceTimeout(let after):
-            return "Inference timed out after \(Int(after)) seconds"
+            return "No output received for \(Int(after)) seconds — the backend appears stalled. "
+                + "You can raise or disable this watchdog in Settings."
         case .metricsUnavailable(let reason):
             return "Hardware metrics unavailable: \(reason)"
         case .networkError(let underlying):
