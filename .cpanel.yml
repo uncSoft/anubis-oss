@@ -1,0 +1,59 @@
+---
+# cPanel Git Version Control deploy descriptor.
+#
+# How this works: cPanel clones the GitHub repo to a directory under
+# the cPanel account (configured via "Git Version Control" → "Create").
+# When you click "Update from Remote" in cPanel UI (or trigger via
+# webhook), cPanel pulls the repo and then runs the tasks list below.
+# Each task is a shell command executed from the repo root.
+#
+# Deploy order matters when both PHP and DB schema change in the same
+# release: ALWAYS run the SQL migration in phpMyAdmin BEFORE clicking
+# "Update from Remote" here. Otherwise the new PHP runs against an
+# unmigrated table and every submission errors out.
+#
+# The script intentionally does NOT touch the database. Migrations are
+# staged to $HOME/anubis-oss-migrations/ (outside the web root) so you
+# can read them via SSH or File Manager but they never execute
+# automatically — a destructive DDL change should never be one git push
+# away from prod.
+
+deployment:
+  tasks:
+    - export DEPLOY=$HOME/public_html
+
+    # --- API: PHP backend ----------------------------------------------
+    # Two-step copy (.new → mv) so a PHP request can't hit a half-written
+    # file during the swap. mv is atomic on the same filesystem.
+    - /bin/cp leaderboard_site/anubis/api/submit.php       $DEPLOY/anubis/api/submit.php.new
+    - /bin/cp leaderboard_site/anubis/api/leaderboard.php  $DEPLOY/anubis/api/leaderboard.php.new
+    - /bin/cp leaderboard_site/anubis/api/config.php       $DEPLOY/anubis/api/config.php.new
+    - /bin/cp leaderboard_site/anubis/api/htaccess         $DEPLOY/anubis/api/.htaccess.new
+
+    - /bin/mv $DEPLOY/anubis/api/submit.php.new       $DEPLOY/anubis/api/submit.php
+    - /bin/mv $DEPLOY/anubis/api/leaderboard.php.new  $DEPLOY/anubis/api/leaderboard.php
+    - /bin/mv $DEPLOY/anubis/api/config.php.new       $DEPLOY/anubis/api/config.php
+    - /bin/mv $DEPLOY/anubis/api/.htaccess.new        $DEPLOY/anubis/api/.htaccess
+
+    # --- Public HTML pages ---------------------------------------------
+    - /bin/cp leaderboard_site/anubis-oss.html  $DEPLOY/anubis-oss.html
+    - /bin/cp leaderboard_site/leaderboard.html $DEPLOY/leaderboard.html
+    - /bin/cp leaderboard_site/explorer.html    $DEPLOY/explorer.html
+    # Thin wrapper that live-embeds the GitHub README via emgithub —
+    # it always shows current main, so it never needs a content update.
+    - /bin/cp leaderboard_site/anubis-oss-readme.html $DEPLOY/anubis-oss-readme.html
+
+    # --- SQL migrations (staged, NOT executed) -------------------------
+    # Copies any new migration .sql files into a non-web-accessible
+    # directory so they're easy to grab via SSH/phpMyAdmin, but the
+    # actual mysql/mariadb invocation stays manual.
+    - /bin/mkdir -p $HOME/anubis-oss-migrations
+    - /bin/cp leaderboard_site/scripts/*.sql $HOME/anubis-oss-migrations/ 2>/dev/null || true
+
+    # --- Permissions ---------------------------------------------------
+    # cPanel + suexec want PHP files to be 0644 (readable by web, not
+    # writable by group/other). Defensive — git preserves perms but
+    # mistakes happen.
+    - /bin/chmod 644 $DEPLOY/anubis/api/*.php
+    - /bin/chmod 644 $DEPLOY/anubis/api/.htaccess
+    - /bin/chmod 644 $DEPLOY/*.html
