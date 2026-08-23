@@ -39,6 +39,24 @@ ___
 
 ## What's New
 
+### Accurate, Server-Verified Metrics — Methodology v3 *(New in 3.9)*
+
+The whole measurement pipeline got an accuracy audit against how Ollama, llama.cpp, and the standard benchmark harnesses (llmperf, genai-perf) define their numbers — cross-checked against all 1,500+ public leaderboard submissions:
+
+- **Tokens/sec counts all generated tokens** (thinking included), matching Ollama's eval rate and llama.cpp's `predicted_per_second`. The old visible-output-only formula could explode on reasoning-heavy runs — the leaderboard's impossible 5,000–29,000 tok/s rows came from exactly this, and they're now filtered server-side too.
+- **TTFT excludes model load time** and is anchored at request dispatch. Cold starts show the load separately ("Prefill: 848 tok/s · cold +7.2s") instead of silently inflating TTFT by seconds.
+- **Server-measured timing wherever a backend offers it**: oMLX usage extensions, llama.cpp's `timings` block, and — new — **LM Studio's native chat API**, which reports decoded tok/s, TTFT, load time, and exact token counts for the leaderboard's most common backend. A green seal on the Tokens/sec card marks server-verified numbers.
+- **Avg token latency is exactly `1000 ÷ tok/s`** — the two can never disagree again.
+
+### Model Prep, Trends & Quality-of-Life *(New in 3.9)*
+
+- **Model prep picker** — *As-is / Warm-up / Cold start*. Warm-up runs one unmeasured generation first so rep 1 measures a resident model; Cold start ejects the model first so the run captures true load time (Ollama / oMLX). Cold-vs-warm was the largest uncontrolled variable in TTFT comparisons.
+- **Per-model trend** — "↑5% vs last" against your previous run of the same model on the same backend, so the dashboard doubles as a regression detector.
+- **Stall watchdog replaces the hard 2-minute Arena timeout** (issue #31) — it only fires when no output arrives for the configured window (Settings, up to Never), so slow-but-streaming models are never cut off. Whole-response timeout raised from 10 minutes to 2 hours.
+- **Thinking share** on the dashboard ("Think 93%") plus a Thinking cell in Session Details for reasoning runs.
+- One dead configured backend no longer freezes model loading for every backend; a one-click "Switch to X" appears when your selected backend is down but another is healthy.
+- Fixed the Ollama Model Browser (ollama.com markup change) and label truncation in Session Details.
+
 ### Flow Builder — Drag-and-Drop Benchmark Sequencer *(New in 3.7)*
 
 Build, save, and share repeatable benchmark recipes — a Shortcuts-style editor where you sequence steps like *Set Backend → Set Model → Repeat × 5 → Run Benchmark → Unload* and play them back hands-off. Every individual run still lands in normal Run History, and the whole sequence gets a single share-ready report.
