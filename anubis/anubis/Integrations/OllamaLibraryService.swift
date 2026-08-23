@@ -118,12 +118,73 @@ actor OllamaLibraryService {
 
     // MARK: - HTML Parsing
 
-    /// Pull each `<li x-test-model>…</li>` block out of the page and
-    /// extract the fields by their `x-test-*` attribute markers.
-    /// Regex-based on purpose: the page is small, the markers are
-    /// stable, and pulling in a full HTML parser dependency for one
-    /// scraper would be overkill.
+    /// Regex-based on purpose: the page is small and pulling in a full HTML
+    /// parser dependency for one scraper would be overkill.
+    ///
+    /// ollama.com dropped its `x-test-*` attribute markers in mid-2026, which
+    /// silently emptied the browser (every block regex returned zero matches).
+    /// The current markup is parsed first; the legacy marker-based parse stays
+    /// as a fallback in case they ever bring the test hooks back.
     static func parse(html: String) -> [OllamaLibraryEntry] {
+        let modern = parseModernMarkup(html)
+        if !modern.isEmpty { return modern }
+        return parseLegacyMarkup(html)
+    }
+
+    /// Current ollama.com markup (Aug 2026): each model is an
+    /// `<a href="/library/{name}" class="group …">` card. Field anchors:
+    /// description keeps its `max-w-lg` class, capability chips are the
+    /// indigo spans, size chips the blue spans, and pulls/updated sit next
+    /// to their labelled sibling spans.
+    static func parseModernMarkup(_ html: String) -> [OllamaLibraryEntry] {
+        guard let cardRegex = try? NSRegularExpression(
+            pattern: #"<a href="/library/([^"]+)"[^>]*class="group[\s\S]*?</a>"#,
+            options: []
+        ) else { return [] }
+
+        let range = NSRange(html.startIndex..., in: html)
+        var results: [OllamaLibraryEntry] = []
+
+        cardRegex.enumerateMatches(in: html, options: [], range: range) { match, _, _ in
+            guard let match = match,
+                  match.numberOfRanges >= 2,
+                  let nameRange = Range(match.range(at: 1), in: html),
+                  let blockRange = Range(match.range(at: 0), in: html)
+            else { return }
+            let name = String(html[nameRange])
+            let inner = String(html[blockRange])
+            guard !name.isEmpty else { return }
+
+            let description = decodeHTMLEntities(
+                firstMatch(inner, #"<p class="max-w-lg[^"]*">([\s\S]*?)</p>"#)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression) ?? ""
+            )
+            let capabilities = allMatches(inner, #"<span[^>]*text-indigo-600[^>]*>([^<]+)</span>"#)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let sizes = allMatches(inner, #"<span[^>]*text-blue-600[^>]*>([^<]+)</span>"#)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let pullCount = firstMatch(inner, #"<span[^>]*>\s*([0-9][\d.,]*[KMB]?)\s*</span>\s*<span[^>]*>&nbsp;Pulls"#)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let updated = firstMatch(inner, #"Updated&nbsp;</span>\s*<span[^>]*>([^<]+)</span>"#)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            results.append(OllamaLibraryEntry(
+                name: name,
+                description: description,
+                capabilities: capabilities,
+                sizes: sizes,
+                pullCount: pullCount,
+                updated: updated
+            ))
+        }
+
+        return results
+    }
+
+    /// Pre-2026 markup: `<li x-test-model>…</li>` blocks with `x-test-*`
+    /// attribute markers on every field.
+    static func parseLegacyMarkup(_ html: String) -> [OllamaLibraryEntry] {
         guard let liRegex = try? NSRegularExpression(
             pattern: "<li[^>]*x-test-model[^>]*>([\\s\\S]*?)</li>",
             options: []

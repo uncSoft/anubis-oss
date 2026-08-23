@@ -264,6 +264,75 @@ struct anubisTests {
         #expect(s.completionTokens == 40)
     }
 
+    // MARK: - Ollama library page parsing
+
+    /// Verbatim (trimmed) fragment of ollama.com/library as served Aug 2026 —
+    /// the markup that silently broke the legacy x-test parser.
+    private static let ollamaLibraryModernFragment = #"""
+    <li  class="flex items-baseline border-b border-neutral-200 py-6">
+      <a href="/library/deepseek-r1" class="group w-full space-y-5">
+        <div  title="deepseek-r1" class="flex flex-col">
+          <h2 class="truncate text-xl font-medium underline-offset-2 md:text-2xl">
+            <div class="flex space-x-2 items-center">
+              <span class="group-hover:underline truncate">deepseek-r1</span>
+            </div>
+          </h2>
+          <p class="max-w-lg break-words text-neutral-800 text-md">DeepSeek-R1 is a family of open reasoning models with performance approaching that of leading models, such as O3 and Gemini 2.5 Pro.</p>
+        </div>
+        <div class="flex flex-col space-y-2">
+          <div class="flex flex-wrap space-x-2">
+              <span  class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 sm:text-[13px]">tools</span>
+              <span  class="inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 sm:text-[13px]">thinking</span>
+              <span  class="inline-flex items-center rounded-md bg-[#ddf4ff] px-2 py-0.5 text-xs font-medium text-blue-600 sm:text-[13px]">1.5b</span>
+              <span  class="inline-flex items-center rounded-md bg-[#ddf4ff] px-2 py-0.5 text-xs font-medium text-blue-600 sm:text-[13px]">7b</span>
+          </div>
+          <p class="my-4 flex space-x-5 text-[13px] font-medium text-neutral-500">
+              <span class="flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg"><path d="M3"></path></svg>
+                <span >91.7M</span>
+                <span class="hidden sm:flex">&nbsp;Pulls</span>
+              </span>
+              <span class="flex items-center">
+                <svg xmlns="http://www.w3.org/2000/svg"><path d="M9"></path></svg>
+                <span class="hidden sm:flex">Updated&nbsp;</span>
+                <span >1 year ago</span>
+              </span>
+          </p>
+        </div>
+      </a>
+    </li>
+    """#
+
+    @Test func ollamaLibraryParserReadsModernMarkup() {
+        let entries = OllamaLibraryService.parse(html: Self.ollamaLibraryModernFragment)
+        #expect(entries.count == 1)
+        let e = try! #require(entries.first)
+        #expect(e.name == "deepseek-r1")
+        #expect(e.description.hasPrefix("DeepSeek-R1 is a family of open reasoning models"))
+        #expect(e.capabilities == ["tools", "thinking"])
+        #expect(e.sizes == ["1.5b", "7b"])
+        #expect(e.pullCount == "91.7M")
+        #expect(e.updated == "1 year ago")
+    }
+
+    @Test func ollamaLibraryParserStillReadsLegacyMarkup() {
+        let legacy = #"""
+        <li x-test-model>
+          <a href="/library/llama3.2"><span x-test-model-title title="llama3.2"></span></a>
+          <p class="max-w-lg break-words">Meta's compact model.</p>
+          <span x-test-capability>tools</span>
+          <span x-test-size>1b</span>
+          <span x-test-size>3b</span>
+          <span x-test-pull-count>10M</span>
+          <span x-test-updated>3 months ago</span>
+        </li>
+        """#
+        let entries = OllamaLibraryService.parse(html: legacy)
+        #expect(entries.count == 1)
+        #expect(entries.first?.name == "llama3.2")
+        #expect(entries.first?.sizes == ["1b", "3b"])
+    }
+
     /// Backend gives one completion count including reasoning; the local
     /// reasoning/output piece counts scale it into a token split.
     @Test func finalizeScalesReasoningSplitToBackendCount() throws {
