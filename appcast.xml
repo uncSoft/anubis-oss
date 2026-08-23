@@ -4,6 +4,52 @@
 	<channel>
 		<title>anubis</title>
   <item>
+      <title>Version 3.9</title>
+      <pubDate>Sat, 22 Aug 2026 21:10:00 -0400</pubDate>
+      <sparkle:version>3.9</sparkle:version>
+      <sparkle:shortVersionString>3.9</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[
+          <h2>Version 3.9 &mdash; accurate, server-verified metrics</h2>
+          <p>A top-to-bottom accuracy audit of the measurement pipeline, cross-checked against how Ollama, llama.cpp, and the standard harnesses (llmperf, genai-perf) define their numbers &mdash; and against all 1,500+ public leaderboard submissions. New submissions carry <b>methodology v3</b>; the full definitions live on the <a href="https://uncsoft.github.io/anubis-oss/methodology.html">methodology page</a>.</p>
+
+          <h3>Metrics &mdash; methodology v3</h3>
+          <ul>
+              <li><b>Tokens/sec counts all generated tokens</b> (thinking included) &mdash; the same definition as Ollama&rsquo;s eval rate and llama.cpp&rsquo;s <code>predicted_per_second</code>. The old visible-output-only formula could explode on reasoning-heavy runs; those impossible 5,000+ tok/s rows are now rejected at submission and filtered from leaderboard rankings.</li>
+              <li><b>TTFT excludes model load time</b> and is anchored at request dispatch &mdash; a cold start shows its load separately (&ldquo;Prefill: 848 tok/s &middot; cold +7.2s&rdquo;) instead of silently inflating TTFT.</li>
+              <li><b>Avg token latency is exactly 1000 &divide; tok/s</b> &mdash; the two can never disagree again, and <code>total_duration</code> is true end-to-end wall time.</li>
+          </ul>
+
+          <h3>Server-measured timing</h3>
+          <ul>
+              <li><b>LM Studio native API</b> &mdash; benchmarks now read decode tok/s, TTFT, model load time, and exact token counts measured inside LM Studio itself, replacing wall-clock estimates for the leaderboard&rsquo;s most common backend (automatic fallback on older versions).</li>
+              <li><b>llama.cpp <code>timings</code></b> parsed and preferred over wall-clock derivation.</li>
+              <li>A green <b>server-verified seal</b> on the Tokens/sec card marks numbers from the backend&rsquo;s own decode loop.</li>
+          </ul>
+
+          <h3>New benchmarking controls</h3>
+          <ul>
+              <li><b>Model prep</b> &mdash; As-is / Warm-up / Cold start. Warm-up measures a resident model; Cold start ejects first to capture true load time (Ollama / oMLX).</li>
+              <li><b>Per-model trend</b> &mdash; &ldquo;&uarr;5% vs last&rdquo; against your previous run of the same model, so the dashboard doubles as a regression detector.</li>
+              <li><b>Stall watchdog</b> replaces the hard 2-minute Arena timeout (issue #31): it only fires when no output arrives for the configured window (Settings, up to Never); the whole-response cap goes from 10 minutes to 2 hours.</li>
+          </ul>
+
+          <h3>Fixes</h3>
+          <ul>
+              <li><b>Ollama Model Browser works again</b> &mdash; ollama.com changed its markup; the parser now reads the current format.</li>
+              <li>One dead configured backend no longer freezes model loading for every backend; one-click &ldquo;Switch to X&rdquo; when your selected backend is down but another is healthy.</li>
+              <li>Thinking share (&ldquo;Think 93%&rdquo;) + Thinking cell for reasoning runs; Session Details labels no longer truncate; live TTFT card reconciles with the persisted value; Community Leaderboard &amp; Analysis links in Settings.</li>
+          </ul>
+      ]]></description>
+      <enclosure
+          url="https://github.com/uncSoft/anubis-oss/releases/download/v3.9.0/anubis-oss.zip"
+          sparkle:version="3.9"
+          sparkle:shortVersionString="3.9"
+          length="15082643"
+          type="application/octet-stream"
+          sparkle:edSignature="zdG3AbdufaCpyP/eOY9wIpGsPu4dcJGxfznQ7hz4uKs8ZKIEGwmJiC0MW4IlWV2R8NTnrxFHqA6FWA0FXShnBA==" />
+  </item>
+  <item>
       <title>Version 3.8.1</title>
       <pubDate>Thu, 04 Jun 2026 11:36:23 -0400</pubDate>
       <sparkle:version>3.8.1</sparkle:version>
