@@ -313,6 +313,86 @@ final class BenchmarkViewModel: ObservableObject {
         selectedBackend == .ollama || isBuiltInOMLXBackend || isVerifiedOMLX
     }
 
+    /// Model state before the first rep. Cold-vs-warm is the largest
+    /// uncontrolled variable in TTFT comparisons: a JIT load adds seconds
+    /// that have nothing to do with the model's actual latency.
+    enum RunPreparation: String, CaseIterable {
+        /// Run against whatever state the backend is in (historical behavior).
+        case none
+        /// One short unmeasured generation first, so rep 1 measures a loaded
+        /// model with primed caches.
+        case warmUp
+        /// Eject the model first so the run captures a true cold start
+        /// (load_duration populated). Needs eject support (Ollama / oMLX).
+        case coldStart
+    }
+
+    @Published var runPreparation: RunPreparation = RunPreparation(
+        rawValue: UserDefaults.standard.string(forKey: Constants.UserDefaultsKeys.benchmarkRunPreparation) ?? ""
+    ) ?? .none {
+        didSet {
+            UserDefaults.standard.set(runPreparation.rawValue, forKey: Constants.UserDefaultsKeys.benchmarkRunPreparation)
+        }
+    }
+
+    /// Execute the selected preparation before rep 1. Failures are
+    /// deliberately non-fatal — a benchmark you asked for should still run
+    /// even if the warm-up or eject hiccuped.
+    private func performRunPreparation(model: ModelInfo) async {
+        switch runPreparation {
+        case .none:
+            return
+        case .coldStart:
+            guard canEjectSelectedModel else { return }
+            await ejectSelectedModel()
+            // Give the backend a beat to actually release the weights.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        case .warmUp:
+            let request = InferenceRequest(
+                model: model.id,
+                prompt: "Reply with the single word: ready.",
+                maxTokens: 16,
+                temperature: 0
+            )
+            let stream = await inferenceService.generate(request: request)
+            do {
+                for try await _ in stream {
+                    if Task.isCancelled { break }
+                }
+            } catch {
+                // Non-fatal: the measured run will surface any real problem.
+            }
+            inferenceService.clearGenerating()
+        }
+    }
+
+    /// "↑5% vs last" — tok/s delta against the previous completed run of the
+    /// SAME model on the SAME backend, so the dashboard doubles as a
+    /// regression detector. nil when there's no comparable prior run.
+    @Published private(set) var tokensPerSecondTrendText: String?
+
+    private func computeTokensPerSecondTrend(for session: BenchmarkSession) async {
+        tokensPerSecondTrendText = nil
+        guard let tps = session.tokensPerSecond, tps > 0, let sid = session.id else { return }
+        let modelName = session.modelName
+        let backend = session.backend
+        let previous: Double? = try? await databaseManager.queue.read { db in
+            try Double.fetchOne(db, sql: """
+                SELECT tokens_per_second FROM benchmark_session
+                WHERE model_name = ? AND backend = ? AND status = 'completed'
+                  AND tokens_per_second > 0 AND id < ?
+                ORDER BY id DESC LIMIT 1
+                """, arguments: [modelName, backend, sid])
+        }
+        guard let previous, previous > 0 else { return }
+        let delta = (tps - previous) / previous * 100
+        if abs(delta) < 1 {
+            tokensPerSecondTrendText = "≈ last run"
+        } else {
+            tokensPerSecondTrendText = String(format: "%@%.0f%% vs last", delta >= 0 ? "↑" : "↓", abs(delta))
+        }
+    }
+
     /// Whether the selected model can be ejected (unloaded) from here. Both
     /// Ollama (keep_alive: 0) and oMLX (admin unload) support it.
     var canEjectSelectedModel: Bool {
@@ -680,6 +760,7 @@ final class BenchmarkViewModel: ObservableObject {
         currentTokensPerSecond = 0
         peakTokensPerSecond = 0
         timeToFirstToken = nil
+        tokensPerSecondTrendText = nil
         prefillTokensPerSecond = nil
         currentPeakMemory = 0
         modelMemoryTotal = 0
@@ -754,6 +835,7 @@ final class BenchmarkViewModel: ObservableObject {
         inferenceService.setBackend(selectedBackend)
 
         benchmarkTask = Task {
+            await performRunPreparation(model: model)
             if repetitions > 1 {
                 await runGroup(model: model)
             } else {
@@ -984,6 +1066,7 @@ final class BenchmarkViewModel: ObservableObject {
 
             currentSession = session
             currentSessionLeaderboardSubmitted = false
+            await computeTokensPerSecondTrend(for: session)
             self.debugState.phase = .complete
             self.debugState.completedAt = Date()
             if let finalStats = finalBuf.stats {

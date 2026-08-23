@@ -18,6 +18,7 @@ enum Constants {
         static let website = URL(string: "https://devpadapp.com/anubis-oss.html")!
         static let leaderboardAPI = URL(string: "https://devpadapp.com/anubis/api/")!
         static let leaderboardPage = URL(string: "https://devpadapp.com/leaderboard.html")!
+        static let analysisPage = URL(string: "https://uncsoft.github.io/anubis-oss/analysis.html")!
         static let methodology = URL(string: "https://uncsoft.github.io/anubis-oss/methodology.html")!
 
         /// Safely parse a URL string with a fallback
@@ -104,6 +105,8 @@ enum Constants {
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
         // Stall watchdog window in seconds; 0 = disabled. See Constants.inferenceStallTimeout.
         static let inferenceStallTimeoutSeconds = "anubis.inferenceStallTimeoutSeconds"
+        // Model preparation before rep 1: none | warmUp | coldStart.
+        static let benchmarkRunPreparation = "anubis.benchmarkRunPreparation"
         static let selectedBackend = "selectedBackend"
         static let ollamaBaseURL = "ollamaBaseURL"
         static let metricsPollingInterval = "metricsPollingInterval"

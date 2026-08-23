@@ -167,7 +167,7 @@ struct SidebarView: View {
                         // Sand animation controls
                         Section("Sands of Time") {
                             HStack {
-                                Toggle("Sands of Time", isOn: $showSandAnimation)
+                                Toggle("Show animation", isOn: $showSandAnimation)
                                     .toggleStyle(.switch)
                                     .controlSize(.small)
 
@@ -427,7 +427,58 @@ struct BackendStatusView: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(currentBackendName) backend: \(currentHealth?.isRunning == true ? "Connected" : "Disconnected")")
+
+            // The selected backend is down but another one is healthy — offer
+            // a one-click switch instead of stranding the user on a dead
+            // connection with "No models available" and no hint.
+            if currentHealth?.isRunning != true, let alt = healthyBackendAlternative {
+                Button {
+                    switch alt.target {
+                    case .ollamaBackend:
+                        inferenceService.setBackend(.ollama)
+                    case .openAIBackend(let config):
+                        inferenceService.setOpenAIBackend(config)
+                    }
+                } label: {
+                    Label(
+                        alt.modelCount > 0
+                            ? "Switch to \(alt.name) (\(alt.modelCount) models)"
+                            : "Switch to \(alt.name)",
+                        systemImage: "arrow.uturn.right.circle"
+                    )
+                    .font(.caption)
+                }
+                .buttonStyle(.link)
+                .padding(.top, 2)
+            }
         }
+    }
+
+    private enum AlternativeBackendTarget {
+        case ollamaBackend
+        case openAIBackend(BackendConfiguration)
+    }
+
+    /// First healthy backend other than the (offline) selected one, with its
+    /// cached model count. Ollama first, then OpenAI-compat configs in order.
+    private var healthyBackendAlternative: (name: String, modelCount: Int, target: AlternativeBackendTarget)? {
+        let current = inferenceService.currentBackend
+        let currentConfigId = inferenceService.currentOpenAIConfig?.id
+
+        if current != .ollama,
+           inferenceService.backendHealth[.ollama]?.isRunning == true {
+            let count = inferenceService.allModels.filter { $0.backend == .ollama }.count
+            return ("Ollama", count, .ollamaBackend)
+        }
+        for config in inferenceService.configManager.openAIConfigs
+        where config.id != currentConfigId
+            && inferenceService.openAIBackendHealth[config.id]?.isRunning == true {
+            let count = inferenceService.allModels.filter {
+                $0.backend == .openai && $0.openAIConfigId == config.id
+            }.count
+            return (config.name, count, .openAIBackend(config))
+        }
+        return nil
     }
 
     private var currentBackendIcon: String {
@@ -707,6 +758,18 @@ struct SettingsView: View {
                     NSWorkspace.shared.open(Constants.URLs.methodology)
                 } label: {
                     Label("How Metrics Are Computed", systemImage: "function")
+                }
+
+                Button {
+                    NSWorkspace.shared.open(Constants.URLs.leaderboardPage)
+                } label: {
+                    Label("Community Leaderboard", systemImage: "trophy")
+                }
+
+                Button {
+                    NSWorkspace.shared.open(Constants.URLs.analysisPage)
+                } label: {
+                    Label("Benchmark Analysis", systemImage: "chart.bar.xaxis")
                 }
 
                 Button {

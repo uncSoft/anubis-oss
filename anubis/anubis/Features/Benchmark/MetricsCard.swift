@@ -86,6 +86,10 @@ struct CompactMetricsCard: View {
     var available: Bool = true
     var subtitle: String? = nil
     var help: String? = nil
+    /// Show a small green seal: the value was measured inside the backend's
+    /// own decode loop (oMLX, llama.cpp timings, LM Studio native API), not
+    /// derived from client-side wall clock.
+    var serverVerified: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -96,6 +100,12 @@ struct CompactMetricsCard: View {
                 Text(title)
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
+                if serverVerified {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 8))
+                        .foregroundStyle(.green)
+                        .help("Server-verified: reported by the backend's own decode loop, not derived from stream arrival times.")
+                }
                 Spacer()
                 if let help = help {
                     HelpButton(text: help)

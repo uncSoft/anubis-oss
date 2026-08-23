@@ -321,34 +321,57 @@ final class InferenceService: ObservableObject {
             return
         }
 
-        var models: [ModelInfo] = []
-
-        // Fetch from Ollama
-        do {
-            let ollamaModels = try await ollamaClient.listModels()
-            models.append(contentsOf: ollamaModels)
-            backendHealth[.ollama] = .healthy()
-        } catch {
-            backendHealth[.ollama] = .unhealthy(error: error.localizedDescription)
+        // Query every backend CONCURRENTLY. This used to be sequential, so a
+        // single slow or unreachable configured server (a sleeping remote Mac,
+        // a stale .local hostname) delayed every other backend's model list by
+        // its full timeout. Now the wait is max(one backend), not the sum.
+        enum FetchResult {
+            case ollama(Result<[ModelInfo], Error>)
+            case openAI(UUID, Result<[ModelInfo], Error>)
+            case apple(BackendHealth, [ModelInfo])
         }
 
-        // Fetch from OpenAI-compatible backends
-        for (id, client) in openAIClients {
-            do {
-                let openaiModels = try await client.listModels()
-                models.append(contentsOf: openaiModels)
-                openAIBackendHealth[id] = .healthy()
-            } catch {
-                openAIBackendHealth[id] = .unhealthy(error: error.localizedDescription)
+        let ollama = ollamaClient
+        let openAI = openAIClients
+        let apple = appleIntelligenceClient
+
+        let results = await withTaskGroup(of: FetchResult.self) { group in
+            group.addTask {
+                do { return .ollama(.success(try await ollama.listModels())) }
+                catch { return .ollama(.failure(error)) }
             }
+            for (id, client) in openAI {
+                group.addTask {
+                    do { return .openAI(id, .success(try await client.listModels())) }
+                    catch { return .openAI(id, .failure(error)) }
+                }
+            }
+            group.addTask {
+                let health = await apple.checkHealth()
+                let models = health.isRunning ? ((try? await apple.listModels()) ?? []) : []
+                return .apple(health, models)
+            }
+            var collected: [FetchResult] = []
+            for await r in group { collected.append(r) }
+            return collected
         }
 
-        // Fetch from Apple Intelligence (returns empty if unavailable)
-        let appleHealth = await appleIntelligenceClient.checkHealth()
-        backendHealth[.appleIntelligence] = appleHealth
-        if appleHealth.isRunning {
-            if let appleModels = try? await appleIntelligenceClient.listModels() {
-                models.append(contentsOf: appleModels)
+        var models: [ModelInfo] = []
+        for result in results {
+            switch result {
+            case .ollama(.success(let m)):
+                models.append(contentsOf: m)
+                backendHealth[.ollama] = .healthy()
+            case .ollama(.failure(let e)):
+                backendHealth[.ollama] = .unhealthy(error: e.localizedDescription)
+            case .openAI(let id, .success(let m)):
+                models.append(contentsOf: m)
+                openAIBackendHealth[id] = .healthy()
+            case .openAI(let id, .failure(let e)):
+                openAIBackendHealth[id] = .unhealthy(error: e.localizedDescription)
+            case .apple(let health, let m):
+                backendHealth[.appleIntelligence] = health
+                models.append(contentsOf: m)
             }
         }
 

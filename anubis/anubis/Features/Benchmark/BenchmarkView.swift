@@ -454,6 +454,27 @@ struct BenchmarkView: View {
                             .foregroundStyle(.tertiary)
                     }
 
+                    // Model prep — controls the largest uncontrolled variable
+                    // in TTFT comparisons: whether the model was resident.
+                    HStack {
+                        Text("Model prep")
+                            .font(.caption)
+                            .frame(width: 80, alignment: .leading)
+                        Picker("", selection: $viewModel.runPreparation) {
+                            Text("As-is").tag(BenchmarkViewModel.RunPreparation.none)
+                            Text("Warm-up").tag(BenchmarkViewModel.RunPreparation.warmUp)
+                            Text("Cold start").tag(BenchmarkViewModel.RunPreparation.coldStart)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 220)
+                        HelpButton(text: "As-is: run against whatever state the backend is in. Warm-up: one short unmeasured generation first, so the run measures a loaded model with primed caches. Cold start: eject the model first so the run captures a true cold start with load time (needs Ollama or oMLX).")
+                    }
+                    if viewModel.runPreparation == .coldStart && !viewModel.canEjectSelectedModel {
+                        Text("Cold start needs a backend that can eject models (Ollama, oMLX) — this run will proceed as-is.")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+
                     // Seed strategy — only meaningful when Repetitions > 1.
                     // Random (default) lets the CI capture sampler noise;
                     // Fixed isolates hardware-only variance.
@@ -823,6 +844,39 @@ struct BenchmarkView: View {
 
     // MARK: - Metrics Cards Section
 
+    /// "Peak: 119 tok/s · Think 93%" — thinking share appears only for
+    /// reasoning runs, so non-reasoning benchmarks look exactly as before.
+    private var tokensPerSecondSubtitle: String? {
+        var parts: [String] = []
+        if viewModel.peakTokensPerSecond > 0 {
+            parts.append("Peak: \(viewModel.formattedPeakTokensPerSecond)")
+        }
+        if let session = viewModel.currentSession,
+           let reasoning = session.reasoningTokens, reasoning > 0,
+           let completion = session.completionTokens, completion > 0 {
+            let pct = Int((Double(reasoning) / Double(completion) * 100).rounded())
+            parts.append("Think \(pct)%")
+        }
+        if let trend = viewModel.tokensPerSecondTrendText {
+            parts.append(trend)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// "Prefill: 86.5 tok/s · cold +7.2s" — the load suffix appears only when
+    /// the backend reported a meaningful model load for this run, making cold
+    /// starts self-explanatory next to the load-excluded TTFT.
+    private var ttftSubtitle: String? {
+        var parts: [String] = []
+        if let prefill = viewModel.prefillTokensPerSecond {
+            parts.append("Prefill: \(Formatters.tokensPerSecond(prefill))")
+        }
+        if let load = viewModel.currentSession?.loadDuration, load > 0.5 {
+            parts.append("cold +\(Formatters.duration(load))")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     private var metricsCardsSection: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: Spacing.xs) {
             // Row 1: Performance
@@ -831,10 +885,11 @@ struct BenchmarkView: View {
                 value: viewModel.formattedTokensPerSecond,
                 icon: "bolt.fill",
                 color: .chartTokens,
-                subtitle: viewModel.peakTokensPerSecond > 0 ? "Peak: \(viewModel.formattedPeakTokensPerSecond)" : nil,
+                subtitle: tokensPerSecondSubtitle,
                 help: viewModel.currentSession?.hasSuspiciousTiming == true
                     ? "⚠️ This backend did not stream tokens incrementally — generation duration came back implausibly short for the token count, so tok/s reflects burst-decode time rather than real generation time. Try a backend that streams (Ollama, LM Studio with streaming enabled)."
-                    : "Average: total tokens ÷ generation time. Peak: highest instantaneous rate between sample intervals."
+                    : "Average: total tokens ÷ generation time (thinking included). Peak: highest instantaneous rate between sample intervals. Think %: share of generated tokens spent in the reasoning phase.",
+                serverVerified: viewModel.currentSession?.serverMetricsJSON != nil
             )
 
             CompactMetricsCard(
@@ -859,8 +914,8 @@ struct BenchmarkView: View {
                 value: viewModel.formattedTTFT,
                 icon: "clock.arrow.circlepath",
                 color: .chartTokens,
-                subtitle: viewModel.prefillTokensPerSecond.map { "Prefill: \(Formatters.tokensPerSecond($0))" },
-                help: "Time from request to first generated token (thinking tokens count as generation). Excludes model load time when the backend reports it (Ollama). Subtitle shows prefill speed: input tokens ÷ prompt processing time (server-reported where available, otherwise ÷ TTFT)."
+                subtitle: ttftSubtitle,
+                help: "Time from request to first generated token (thinking tokens count as generation). Excludes model load time when the backend reports it — a cold start shows the load separately in the subtitle. Prefill speed: input tokens ÷ prompt processing time (server-reported where available, otherwise ÷ TTFT)."
             )
 
             // Row 2: Power & System
@@ -1238,7 +1293,9 @@ struct BenchmarkView: View {
         func intVal(_ key: String) -> Int? { (m[key] as? NSNumber)?.intValue }
         let cached = ((m["prompt_tokens_details"] as? [String: Any])?["cached_tokens"] as? NSNumber)?.intValue
 
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 6), spacing: Spacing.xs) {
+        // 4 columns, not 6 — the narrow columns truncated half the labels
+        // ("Prompt Toke…") at default window widths.
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 4), spacing: Spacing.xs) {
             serverCell("Prefill Speed", dbl("prompt_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
             serverCell("Generation Speed", dbl("generation_tokens_per_second").map { String(format: "%.2f tok/s", $0) })
             serverCell("Time to First Token", dbl("time_to_first_token").map { String(format: "%.2fs", $0) })
@@ -1259,8 +1316,9 @@ struct BenchmarkView: View {
 
     private var anubisStatsGrid: some View {
         VStack(alignment: .leading, spacing: Spacing.sm) {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 6), spacing: Spacing.xs) {
-                // 6-wide flow — two compact rows instead of three.
+            // 4 columns, not 6 — the narrow columns truncated half the labels
+            // ("Avg Token La…", "Completion T…") at default window widths.
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: Spacing.sm), count: 4), spacing: Spacing.xs) {
                 DetailStatCell(
                     title: "Avg Token Latency",
                     value: viewModel.currentSession?.averageTokenLatencyMs.map { Formatters.milliseconds($0) } ?? "—",
@@ -1347,16 +1405,39 @@ struct BenchmarkView: View {
                     icon: "network",
                     color: .anubisMuted
                 )
+
+                // Reasoning split — only rendered for thinking runs.
+                if let reasoning = viewModel.currentSession?.reasoningTokens, reasoning > 0 {
+                    DetailStatCell(
+                        title: "Thinking",
+                        value: thinkingCellValue(reasoningTokens: reasoning),
+                        icon: "brain",
+                        color: .purple
+                    )
+                }
             }
         }
+    }
+
+    /// "400 tk · 3.7s" (duration only when the split was measurable).
+    private func thinkingCellValue(reasoningTokens: Int) -> String {
+        if let dur = viewModel.currentSession?.reasoningDuration, dur > 0.05 {
+            return "\(reasoningTokens) tk · \(Formatters.duration(dur))"
+        }
+        return "\(reasoningTokens) tk"
     }
 
     /// Chip info + backend summary line shown beneath either stats grid.
     private var detailedStatsSummaryLine: some View {
         HStack(spacing: Spacing.sm) {
+            // Truncate with an ellipsis rather than wrapping — a long model id
+            // used to wrap mid-word and push the row to three lines.
             Text(viewModel.selectedModel?.name ?? viewModel.currentSession?.modelName ?? "—")
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .layoutPriority(-1)
 
             if let quant = viewModel.selectedModel?.quantization ?? viewModel.currentSession?.modelQuantization {
                 Text("•").font(.caption2).foregroundStyle(.quaternary)
@@ -1399,6 +1480,7 @@ struct BenchmarkView: View {
             Text(viewModel.isRunning ? "Running" : (viewModel.currentSession?.status.rawValue.capitalized ?? "—"))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .fixedSize()   // never hyphenate ("Com-pleted") when squeezed
         }
         .padding(.top, Spacing.xxs)
     }

@@ -1,0 +1,43 @@
+name: CI
+
+# Build + unit tests on every push and PR. The unit suite covers the metric
+# formulas and stream parsing that feed the public leaderboard — exactly the
+# code that regressed historically. Benchmark smoke runs against a live
+# backend stay local (scripts/smoke-bench.sh) since runners have no LLM server.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Build
+        run: |
+          cd anubis
+          xcodebuild build \
+            -scheme anubis-oss \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
+            | xcbeautify --renderer github-actions || exit ${PIPESTATUS[0]}
+
+      - name: Unit tests
+        run: |
+          cd anubis
+          xcodebuild test \
+            -scheme anubis-oss \
+            -configuration Debug \
+            -only-testing:anubisTests \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
+            | xcbeautify --renderer github-actions || exit ${PIPESTATUS[0]}
