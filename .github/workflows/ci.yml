@@ -21,23 +21,51 @@ jobs:
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
 
+      # set -o pipefail is load-bearing. Without it a pipeline exits with the
+      # status of its LAST command (xcbeautify, which returns 0 even for a
+      # failed build), so `|| exit ${PIPESTATUS[0]}` never fires and the step
+      # goes green over a failure. That is exactly what happened between
+      # 2026-08-22 and 2026-09-04: eleven consecutive "successful" runs in
+      # which the unit suite never executed a single test.
       - name: Build
         run: |
+          set -o pipefail
           cd anubis
           xcodebuild build \
             -scheme anubis-oss \
             -configuration Debug \
             -destination 'platform=macOS' \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
-            | xcbeautify --renderer github-actions || exit ${PIPESTATUS[0]}
+            CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO \
+            | xcbeautify --renderer github-actions
 
+      # CODE_SIGN_IDENTITY must be "-" (ad-hoc), not "". -only-testing skips
+      # RUNNING anubisUITests but xcodebuild still BUILDS every target in the
+      # scheme's test action, and a UI Testing Bundle cannot be signed with an
+      # empty identity: "An empty code signing identity is not valid when
+      # signing a binary for the 'UI Testing Bundle' product type."
       - name: Unit tests
         run: |
+          set -o pipefail
           cd anubis
           xcodebuild test \
             -scheme anubis-oss \
             -configuration Debug \
             -only-testing:anubisTests \
             -destination 'platform=macOS' \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
-            | xcbeautify --renderer github-actions || exit ${PIPESTATUS[0]}
+            -resultBundlePath ../TestResults.xcresult \
+            CODE_SIGN_IDENTITY="-" CODE_SIGNING_REQUIRED=NO \
+            | xcbeautify --renderer github-actions
+
+      # A green step with zero tests is the failure mode this workflow already
+      # shipped once. Assert the suite actually ran rather than trusting it.
+      - name: Assert the suite ran
+        run: |
+          set -o pipefail
+          total=$(xcrun xcresulttool get test-results summary \
+                    --path TestResults.xcresult \
+                  | python3 -c 'import json,sys; print(json.load(sys.stdin).get("totalTestCount", 0))')
+          echo "tests executed: $total"
+          if [ "${total:-0}" -lt 1 ]; then
+            echo "::error::No tests executed - the suite was skipped or failed to build"
+            exit 1
+          fi
