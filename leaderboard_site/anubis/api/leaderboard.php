@@ -91,8 +91,137 @@ foreach ($entries as &$entry) {
 }
 unset($entry);
 
-header('Content-Type: application/json');
-echo json_encode([
-    'count'   => count($entries),
-    'entries' => $entries,
-]);
+// ── Output ───────────────────────────────────────────────────────────
+// Default stays JSON so nothing that already reads this endpoint changes.
+//
+// ?format=csv emits the SAME 44-column projection the data explorer builds
+// in the browser: human column names, seconds converted to ms, bytes to GB,
+// and the three derived columns. That projection used to exist only inside
+// explorer.html, so anything else wanting an analyst-ready table had to
+// re-derive it and drift. This is now the one definition.
+//
+// It is also a lot smaller than the JSON: ~0.85 MB against ~3.0 MB for the
+// same rows, because the nesting and the repeated key names are gone.
+$format = isset($_GET['format']) ? strtolower($_GET['format']) : 'json';
+
+if ($format !== 'csv') {
+    header('Content-Type: application/json');
+    echo json_encode([
+        'count'   => count($entries),
+        'entries' => $entries,
+    ]);
+    exit;
+}
+
+/** Derived: prompt tokens over prompt eval seconds. Null when undefined. */
+function prefill_tps(array $e) {
+    if ($e['prompt_tokens'] === null) return null;
+    if (empty($e['prompt_eval_duration']) || $e['prompt_eval_duration'] <= 0) return null;
+    return $e['prompt_tokens'] / $e['prompt_eval_duration'];
+}
+
+/** Derived: reasoning tokens over reasoning seconds. */
+function reasoning_tps(array $e) {
+    if ($e['reasoning_tokens'] === null) return null;
+    if (empty($e['reasoning_duration']) || $e['reasoning_duration'] <= 0) return null;
+    return $e['reasoning_tokens'] / $e['reasoning_duration'];
+}
+
+/**
+ * Derived: half-width of a 95% bootstrap CI, the "+/- value" people scan.
+ *
+ * Rounded to 3dp to match explorer.html's ciHalfWidth() exactly. Without the
+ * round the CSV and the explorer disagree in the far decimals for every
+ * grouped row, which is the sort of drift this endpoint exists to end.
+ */
+function ci_half($low, $high) {
+    if ($low === null || $high === null) return null;
+    return round(($high - $low) / 2, 3);
+}
+
+/** Seconds to milliseconds, preserving null. */
+function to_ms($v) { return $v === null ? null : $v * 1000; }
+
+/** Bytes to GB, preserving null. */
+function to_gb($v) { return $v === null ? null : round($v / 1073741824, 2); }
+
+$columns = [
+    'Name', 'Model', 'Quantization', 'Format', 'Chip', 'Mac',
+    'Memory (GB)', 'GPU Cores', 'CPU Cores', 'Bandwidth (GB/s)',
+    'Output tok/s', 'Prefill tok/s', 'Reasoning tok/s',
+    'Reasoning Tokens', 'Reasoning Duration (s)',
+    'TTFT (ms)', 'Avg Latency (ms)', 'Eval Duration (s)', 'Total Duration (s)',
+    'Load Time (s)', 'Prompt Tokens', 'Prompt Eval (s)', 'Completion Tokens',
+    'Total Tokens', 'Context Length',
+    'Avg GPU Power (W)', 'Peak GPU Power (W)', 'Avg System Power (W)',
+    'Peak System Power (W)', 'Watts/Token',
+    'Avg GPU Freq (MHz)', 'Peak GPU Freq (MHz)', 'Peak Memory (GB)',
+    'Backend', 'App Version', 'Methodology',
+    'Group Reps', 'Group Rep #', 'Group Mean tok/s', 'Group ±CI tok/s',
+    'Group Mean TTFT (ms)', 'Group Mean J/Tok', 'Seed Strategy', 'Submitted',
+];
+
+$stamp = gmdate('Y-m-d');
+header('Content-Type: text/csv; charset=utf-8');
+header('Content-Disposition: attachment; filename="anubis-leaderboard-' . count($entries) . '-runs-' . $stamp . '.csv"');
+
+$out = fopen('php://output', 'w');
+
+// Excel needs a BOM to read UTF-8 model names; pandas and friends would
+// rather not have one, so it is opt-in with &bom=1 instead of default.
+if (isset($_GET['bom']) && $_GET['bom'] === '1') {
+    fwrite($out, "\xEF\xBB\xBF");
+}
+
+fputcsv($out, $columns);
+
+foreach ($entries as $e) {
+    fputcsv($out, [
+        $e['display_name'] !== null && $e['display_name'] !== '' ? $e['display_name'] : 'Anonymous',
+        $e['model_name'],
+        $e['model_quantization'],
+        $e['model_format'],
+        $e['chip_name'],
+        $e['chip_mac_model'],
+        $e['chip_memory_gb'],
+        $e['chip_gpu_cores'],
+        $e['chip_core_count'],
+        $e['chip_bandwidth_gbs'],
+        $e['tokens_per_second'],
+        prefill_tps($e),
+        reasoning_tps($e),
+        $e['reasoning_tokens'],
+        $e['reasoning_duration'],
+        to_ms($e['time_to_first_token']),
+        $e['avg_token_latency_ms'],
+        $e['eval_duration'],
+        $e['total_duration'],
+        $e['load_duration'],
+        $e['prompt_tokens'],
+        $e['prompt_eval_duration'],
+        $e['completion_tokens'],
+        $e['total_tokens'],
+        $e['context_length'],
+        $e['avg_gpu_power_watts'],
+        $e['peak_gpu_power_watts'],
+        $e['avg_system_power_watts'],
+        $e['peak_system_power_watts'],
+        $e['avg_watts_per_token'],
+        $e['avg_gpu_frequency_mhz'],
+        $e['peak_gpu_frequency_mhz'],
+        to_gb($e['peak_memory_bytes']),
+        $e['backend'],
+        $e['app_version'],
+        $e['methodology_version'],
+        $e['group_sample_count'],
+        $e['group_repetition_index'],
+        $e['group_mean_tokens_per_second'],
+        ci_half($e['group_ci_low_tokens_per_second'], $e['group_ci_high_tokens_per_second']),
+        to_ms($e['group_mean_time_to_first_token']),
+        $e['group_mean_watts_per_token'],
+        $e['group_seed_strategy'],
+        $e['submitted_at'],
+    ]);
+}
+
+fclose($out);
