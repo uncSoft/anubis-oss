@@ -242,6 +242,10 @@
             // include thinking tokens. "Prefill tok/s" and "Reasoning tok/s" are
             // computed from raw counts and durations.
             const cleaned = entries.map(e => ({
+                // Kept in the projection so it matches the CSV the API emits
+                // (?format=csv). Not in the default column list below, so the
+                // view you land on is unchanged; it is there when you want it.
+                "Run ID":           num(e.id),
                 "Name":             e.display_name || "Anonymous",
                 "Model":            e.model_name || "",
                 "Quantization":     e.model_quantization || "",

@@ -146,6 +146,10 @@ function to_ms($v) { return $v === null ? null : $v * 1000; }
 function to_gb($v) { return $v === null ? null : round($v / 1073741824, 2); }
 
 $columns = [
+    // Run ID first. Without it the CSV has no key: 236 of 632 (model, name)
+    // pairs in the current data have more than one row, so rows could not be
+    // told apart, deduplicated, joined back to the JSON, or cited.
+    'Run ID',
     'Name', 'Model', 'Quantization', 'Format', 'Chip', 'Mac',
     'Memory (GB)', 'GPU Cores', 'CPU Cores', 'Bandwidth (GB/s)',
     'Output tok/s', 'Prefill tok/s', 'Reasoning tok/s',
@@ -177,6 +181,7 @@ fputcsv($out, $columns);
 
 foreach ($entries as $e) {
     fputcsv($out, [
+        $e['id'],
         $e['display_name'] !== null && $e['display_name'] !== '' ? $e['display_name'] : 'Anonymous',
         $e['model_name'],
         $e['model_quantization'],
