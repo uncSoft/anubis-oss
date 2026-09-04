@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Anubis OSS &mdash; Local LLM Benchmarking for Apple Silicon</title>
+    <title>Anubis OSS: Local LLM Benchmarking for Apple Silicon</title>
     <meta name="description" content="Open-source macOS app that benchmarks local LLMs on Apple Silicon and correlates every run with real GPU, CPU, ANE and DRAM telemetry. Free, GPL-3.0, no account.">
     <link rel="canonical" href="https://devpadapp.com/anubis-oss.html">
-    <meta property="og:title" content="Anubis OSS — Local LLM Benchmarking for Apple Silicon">
+    <meta property="og:title" content="Anubis OSS: Local LLM Benchmarking for Apple Silicon">
     <meta property="og:description" content="Benchmark local LLMs on your Mac and see the watts. Tokens/sec, TTFT, prefill, J/token and hardware telemetry in one app. Open source.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://devpadapp.com/anubis-oss.html">
@@ -250,6 +250,69 @@
         .data-actions a:hover { color: var(--accent); text-decoration: none; }
         .data-actions svg { width: 13px; height: 13px; fill: currentColor; opacity: 0.8; }
 
+
+        /* ── More from uncSoft ────────────────────────────────────── */
+        .unc {
+            border: 1px solid var(--rule);
+            border-radius: 6px;
+            padding: 22px 24px 24px;
+            margin: 8px 0 30px;
+        }
+        .unc-head {
+            display: flex; align-items: baseline; justify-content: space-between;
+            gap: 8px 20px; flex-wrap: wrap; margin-bottom: 4px;
+        }
+        .unc-head h3 { font-size: 1.05rem; font-weight: 600; }
+        .unc-head .by { font-size: 0.76rem; color: var(--ink-5); }
+        .unc-sub { font-size: 0.83rem; color: var(--ink-4); margin-bottom: 20px; max-width: 66ch; }
+
+        .unc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
+            gap: 1px;
+            background: var(--rule-3);
+            border: 1px solid var(--rule-3);
+        }
+        .unc-item {
+            display: block; background: var(--bg); padding: 14px 15px 15px;
+            color: inherit; min-width: 0;
+            transition: background 0.18s ease;
+        }
+        .unc-item:hover { background: rgba(124,192,240,0.05); text-decoration: none; }
+        .unc-item.here { background: rgba(124,192,240,0.04); cursor: default; }
+
+        .unc-name {
+            display: flex; align-items: baseline; gap: 8px;
+            font-size: 0.92rem; font-weight: 600; color: var(--ink);
+            transition: color 0.18s ease;
+        }
+        .unc-item:hover .unc-name { color: var(--accent); }
+        .unc-item.here:hover .unc-name { color: var(--ink); }
+
+        .unc-tag {
+            font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--ink-5); white-space: nowrap;
+        }
+        .unc-tag.free { color: var(--mem); }
+        .unc-tag.here { color: var(--accent); }
+
+        .unc-desc { display: block; font-size: 0.79rem; color: var(--ink-3); margin-top: 5px; line-height: 1.5; }
+        .unc-meta { display: block; font-size: 0.71rem; color: var(--ink-5); margin-top: 7px; font-family: var(--mono); }
+
+        .unc-foot {
+            display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+            margin-top: 18px; font-size: 0.79rem;
+        }
+        .unc-foot a { color: var(--ink-3); }
+        .unc-foot a:hover { color: var(--accent); text-decoration: none; }
+        .unc-foot .bundle { color: var(--ink-2); }
+        .unc-foot .bundle strong { color: var(--accent); font-weight: 600; }
+
+        @media (max-width: 760px) {
+            .unc { padding: 18px 16px 20px; }
+            .unc-grid { grid-template-columns: 1fr; }
+        }
+
         /* ── Footer ───────────────────────────────────────────────── */
         .footer { padding: 36px 0 40px; border-top: 1px solid var(--rule); }
         .footer .note { font-size: 0.79rem; color: var(--ink-3); line-height: 1.7; max-width: 72ch; margin-bottom: 24px; }
@@ -295,7 +358,7 @@
 <body>
     <a class="promo-banner" href="https://devpadapp.com/leaderboard.html">
         <span class="promo-banner-badge">Live</span>
-        <span><strong>Community leaderboard</strong> &mdash; <span id="banner-detail">real benchmark results from Apple Silicon Macs, submitted from inside the app</span></span>
+        <span><strong>Community leaderboard</strong>: <span id="banner-detail">real benchmark results from Apple Silicon Macs, submitted from inside the app</span></span>
         <span class="arrow">&rarr;</span>
     </a>
 
@@ -318,7 +381,7 @@
             <h2>Benchmark local LLMs. <span class="accent">See the watts.</span></h2>
             <p class="lede">
                 Anubis runs a model on your Mac, measures it properly, and correlates every
-                token with what the silicon actually did &mdash; GPU, CPU, Neural Engine and
+                token with what the silicon actually did: GPU, CPU, Neural Engine and
                 DRAM power sampled live through IOReport while the model generates.
             </p>
             <p class="sub">
@@ -385,17 +448,17 @@
                 <div class="card">
                     <span class="kicker">TOKENS/SEC</span>
                     <h4>Counts every generated token</h4>
-                    <p>Thinking tokens included, matching Ollama's eval rate and llama.cpp's <code class="inline-code">predicted_per_second</code>. The old visible-output-only formula could explode on reasoning-heavy runs — that's where the leaderboard's impossible 5,000–29,000 tok/s rows came from. They're filtered server-side now too.</p>
+                    <p>Thinking tokens included, matching Ollama's eval rate and llama.cpp's <code class="inline-code">predicted_per_second</code>. The old visible-output-only formula could explode on reasoning-heavy runs, which is where the leaderboard's impossible 5,000&ndash;29,000 tok/s rows came from. They're filtered server-side now too.</p>
                 </div>
                 <div class="card">
                     <span class="kicker">TTFT</span>
                     <h4>Excludes model load time</h4>
-                    <p>Anchored at request dispatch. A cold start reports the load separately — <code class="inline-code">Prefill: 848 tok/s · cold +7.2s</code> — instead of silently inflating time-to-first-token by seconds.</p>
+                    <p>Anchored at request dispatch. A cold start reports the load separately (<code class="inline-code">Prefill: 848 tok/s · cold +7.2s</code>) instead of silently inflating time-to-first-token by seconds.</p>
                 </div>
                 <div class="card">
                     <span class="kicker">SERVER-VERIFIED</span>
                     <h4>Timing from the backend where it exists</h4>
-                    <p>oMLX usage extensions, llama.cpp's <code class="inline-code">timings</code> block, and LM Studio's native chat API — decoded tok/s, TTFT, load time and exact token counts. A green seal on the Tokens/sec card marks a server-verified number.</p>
+                    <p>oMLX usage extensions, llama.cpp's <code class="inline-code">timings</code> block, and LM Studio's native chat API, giving decoded tok/s, TTFT, load time and exact token counts. A green seal on the Tokens/sec card marks a server-verified number.</p>
                 </div>
                 <div class="card">
                     <span class="kicker">CONSISTENCY</span>
@@ -414,12 +477,12 @@
             <div class="grid g3">
                 <div class="card">
                     <h4>Benchmark dashboard</h4>
-                    <p>Streaming output with live tok/s, TTFT, prefill speed, joules per token and a per-model trend against your last run of the same config — so the dashboard doubles as a regression detector.</p>
+                    <p>Streaming output with live tok/s, TTFT, prefill speed, joules per token and a per-model trend against your last run of the same config, so the dashboard doubles as a regression detector.</p>
                 </div>
                 <div class="card">
                     <span class="kicker new">3.7</span>
                     <h4>Flow Builder</h4>
-                    <p>A Shortcuts-style drag-and-drop sequencer. <em>Set Model → Repeat ×5 → Run → Unload</em>, played back hands-off. Six templates ship, including Cold vs Warm and Q4 vs Q8 sweeps. Save as <code class="inline-code">.anubisflow</code> to share.</p>
+                    <p>A Shortcuts-style drag-and-drop sequencer. <em>Set Model, Repeat ×5, Run, Unload</em>, played back hands-off. Six templates ship, including Cold vs Warm and Q4 vs Q8 sweeps. Save as <code class="inline-code">.anubisflow</code> to share.</p>
                 </div>
                 <div class="card">
                     <span class="kicker new">3.5</span>
@@ -428,7 +491,7 @@
                 </div>
                 <div class="card">
                     <h4>Power telemetry</h4>
-                    <p>GPU, CPU, ANE and DRAM watts straight from IOReport's energy model, plus GPU frequency from P-state residency. Per-channel unit scaling was corrected in 3.5 — earlier builds undercounted system power.</p>
+                    <p>GPU, CPU, ANE and DRAM watts straight from IOReport's energy model, plus GPU frequency from P-state residency. Per-channel unit scaling was corrected in 3.5; earlier builds undercounted system power.</p>
                 </div>
                 <div class="card">
                     <h4>Arena</h4>
@@ -444,7 +507,7 @@
                 </div>
                 <div class="card">
                     <h4>Process monitoring</h4>
-                    <p>Finds the process actually serving your model by port, identifies the backend, and measures <code class="inline-code">phys_footprint</code> — the same figure Activity Monitor shows, including Metal buffers.</p>
+                    <p>Finds the process actually serving your model by port, identifies the backend, and measures <code class="inline-code">phys_footprint</code>, the same figure Activity Monitor shows, including Metal buffers.</p>
                 </div>
                 <div class="card">
                     <h4>Reports &amp; export</h4>
@@ -470,7 +533,7 @@
                 </div>
                 <div class="card">
                     <h4>Your data stays yours</h4>
-                    <p>Everything is local by default — SQLite on your disk, no account, no analytics. Publishing a run to the leaderboard is an explicit, per-run action.</p>
+                    <p>Everything is local by default: SQLite on your disk, no account, no analytics. Publishing a run to the leaderboard is an explicit, per-run action.</p>
                 </div>
                 <div class="card">
                     <h4>And the dataset is open</h4>
@@ -485,27 +548,27 @@
             <div class="shots">
                 <figure>
                     <img loading="lazy" src="https://github.com/user-attachments/assets/e8eabae3-3bba-4171-ab3f-f42bd73d4d19" alt="Anubis benchmark dashboard showing streaming output and live metrics">
-                    <figcaption><strong>Benchmark dashboard</strong> — streaming output with live throughput, TTFT and power</figcaption>
+                    <figcaption><strong>Benchmark dashboard</strong> &middot; streaming output with live throughput, TTFT and power</figcaption>
                 </figure>
                 <figure>
                     <img loading="lazy" src="https://github.com/user-attachments/assets/c364bd43-4300-4565-8e6b-7fcae9e8dcd8" alt="Anubis Arena mode running two models side by side">
-                    <figcaption><strong>Arena</strong> — two models, one prompt, both power traces</figcaption>
+                    <figcaption><strong>Arena</strong> &middot; two models, one prompt, both power traces</figcaption>
                 </figure>
                 <figure>
                     <img loading="lazy" src="https://github.com/user-attachments/assets/7cf7d6f2-bcb5-4f96-b04b-19d96df29e87" alt="GPU core-level activity detail">
-                    <figcaption><strong>System monitor</strong> — GPU core detail, thermal and memory pressure</figcaption>
+                    <figcaption><strong>System monitor</strong> &middot; GPU core detail, thermal and memory pressure</figcaption>
                 </figure>
                 <figure>
                     <img loading="lazy" src="https://github.com/user-attachments/assets/795157b5-efe8-4895-b499-beef25de9683" alt="Anubis Vault listing installed models">
-                    <figcaption><strong>Vault</strong> — inspect, unload and pull models</figcaption>
+                    <figcaption><strong>Vault</strong> &middot; inspect, unload and pull models</figcaption>
                 </figure>
                 <figure>
                     <img loading="lazy" src="https://github.com/user-attachments/assets/9bb601e8-7b4f-48ec-ba79-09fb2a065ba1" alt="Anubis report card ready for sharing">
-                    <figcaption><strong>Reports</strong> — share-ready cards at 2× retina, plus CSV</figcaption>
+                    <figcaption><strong>Reports</strong> &middot; share-ready cards at 2× retina, plus CSV</figcaption>
                 </figure>
                 <figure>
                     <img loading="lazy" src="https://github.com/user-attachments/assets/51da7bcb-9d23-4e3c-9a5d-b65fa2ad77bc" alt="Anubis settings showing backend connection presets">
-                    <figcaption><strong>Settings</strong> — add any OpenAI-compatible server, with presets</figcaption>
+                    <figcaption><strong>Settings</strong> &middot; add any OpenAI-compatible server, with presets</figcaption>
                 </figure>
             </div>
         </section>
@@ -522,8 +585,8 @@
                         <tr><th>Backend</th><th>Type</th><th>Port</th><th>Setup</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td><strong>Ollama</strong></td><td>Native</td><td class="port">11434</td><td>Install from <a href="https://ollama.com">ollama.com</a> — auto-detected on launch</td></tr>
-                        <tr><td><strong>Apple Intelligence</strong></td><td>On-device Foundation Models</td><td class="port">—</td><td>macOS 26+ with Apple Intelligence on; appears automatically</td></tr>
+                        <tr><td><strong>Ollama</strong></td><td>Native</td><td class="port">11434</td><td>Install from <a href="https://ollama.com">ollama.com</a>, auto-detected on launch</td></tr>
+                        <tr><td><strong>Apple Intelligence</strong></td><td>On-device Foundation Models</td><td class="port">n/a</td><td>macOS 26+ with Apple Intelligence on; appears automatically</td></tr>
                         <tr><td><strong>LM Studio</strong></td><td>OpenAI-compatible</td><td class="port">1234</td><td>Enable the local server in LM Studio settings</td></tr>
                         <tr><td><strong>mlx-lm</strong></td><td>OpenAI-compatible</td><td class="port">8080</td><td><code>pip install mlx-lm &amp;&amp; mlx_lm.server</code></td></tr>
                         <tr><td><strong>vLLM</strong></td><td>OpenAI-compatible</td><td class="port">8000</td><td>Add in Settings</td></tr>
@@ -534,7 +597,7 @@
                 </table>
             </div>
             <p class="cta-note">
-                Only Ollama exposes the full set of datapoints — some backends don't report prompt
+                Only Ollama exposes the full set of datapoints. Some backends don't report prompt
                 evaluation time, so a few columns stay empty for them. The dataset is robust either way.
             </p>
         </section>
@@ -543,7 +606,7 @@
             <h3>Hardware metrics</h3>
             <p class="section-sub">
                 Nine channels sampled in real time via IOReport and system APIs. If IOReport access
-                is unavailable — in a VM, for instance — Anubis degrades gracefully to
+                is unavailable (in a VM, for instance) Anubis degrades gracefully to
                 inference-derived metrics rather than failing.
             </p>
             <div class="table-wrap">
@@ -598,12 +661,12 @@
                 <div class="step">
                     <div>
                         <h4>Publish it, if you like</h4>
-                        <p>One button in the toolbar adds your run to the public leaderboard. Entirely optional, and off by default — nothing is uploaded unless you ask.</p>
+                        <p>One button in the toolbar adds your run to the public leaderboard. Entirely optional, and off by default. Nothing is uploaded unless you ask.</p>
                     </div>
                 </div>
             </div>
             <p class="cta-note">
-                Anubis updates itself via Sparkle — open the app and accept the prompt, or
+                Anubis updates itself via Sparkle: open the app and accept the prompt, or
                 <strong>Settings → Check for Updates</strong>. Through Homebrew instead:
                 <code class="inline-code">brew upgrade --cask anubis-oss --greedy</code>
                 (<code class="inline-code">--greedy</code> is required because the cask is marked
@@ -640,7 +703,7 @@
         <section class="section">
             <h3>The results are public and so is the data</h3>
             <p class="section-sub">
-                Every published run is queryable in the browser and exportable in full — <span id="dataset-line">1,740 runs across 59 fields</span> of
+                Every published run is queryable in the browser and exportable in full: <span id="dataset-line">1,740 runs across 59 fields</span> of
                 real Apple Silicon inference telemetry. No sign-up, no API key, no wall in front of the numbers.
             </p>
             <div class="data-actions">
@@ -665,12 +728,63 @@
     </div>
 
     <div class="container">
+        <!-- More from uncSoft -->
+        <section class="unc">
+            <div class="unc-head">
+                <h3>More from uncSoft</h3>
+                <span class="by">All native, all local-first, none of them phone home.</span>
+            </div>
+            <p class="unc-sub">
+                Small, sandboxed macOS tools built by one person. Anubis is the free and
+                open-source one; the others fund it.
+            </p>
+
+            <div class="unc-grid">
+                <a class="unc-item" href="https://devpadapp.com">
+                    <span class="unc-name">devPad <span class="unc-tag">macOS</span></span>
+                    <span class="unc-desc">A slide-out dev toolkit: docs, code editor, API client, data tools and local AI chat, one gesture away.</span>
+                    <span class="unc-meta">zero telemetry &middot; sandboxed</span>
+                </a>
+                <a class="unc-item" href="https://cyberWriter.app">
+                    <span class="unc-name">cyberWriter <span class="unc-tag">macOS</span></span>
+                    <span class="unc-desc">Native Markdown editor with live PDF preview, LaTeX, Mermaid diagrams, vault support and an AI workspace.</span>
+                    <span class="unc-meta">no external dependencies</span>
+                </a>
+                <a class="unc-item" href="https://wranglify.app">
+                    <span class="unc-name">Wranglify <span class="unc-tag">mac &middot; win</span></span>
+                    <span class="unc-desc">The data workbench for files that break everything else. Open the 500 MB export, repair the encoding, mask the PII, get real SQL out.</span>
+                    <span class="unc-meta">offline &middot; 10 MB</span>
+                </a>
+                <a class="unc-item" href="https://unfckr.app">
+                    <span class="unc-name">Unfckr <span class="unc-tag free">free &middot; web</span></span>
+                    <span class="unc-desc">Wranglify in a browser tab. Flatten nested JSON, scrub PII from CSVs, clean messy data. Your file never leaves the tab.</span>
+                    <span class="unc-meta">no signup &middot; works offline</span>
+                </a>
+                <span class="unc-item here">
+                    <span class="unc-name">Anubis <span class="unc-tag here">you are here</span></span>
+                    <span class="unc-desc">Benchmark local LLMs on Apple Silicon and correlate every token with real GPU, CPU, ANE and DRAM power.</span>
+                    <span class="unc-meta">GPL-3.0 &middot; open source</span>
+                </span>
+                <a class="unc-item" href="https://apps.apple.com/us/app-bundle/the-architects-toolkit/id1874965091?mt=12">
+                    <span class="unc-name">The Architect's Toolkit <span class="unc-tag">bundle</span></span>
+                    <span class="unc-desc">devPad, cyberWriter and Anubis together on the Mac App Store, at less than the three separately.</span>
+                    <span class="unc-meta">mac app store</span>
+                </a>
+            </div>
+
+            <div class="unc-foot">
+                <a href="https://devpadapp.com">devpadapp.com</a>
+                <a href="https://github.com/uncSoft">github.com/uncSoft</a>
+                <a href="https://ko-fi.com/jtatuncsoft/tip">Buy me a coffee</a>
+            </div>
+        </section>
+
         <div class="footer">
             <p class="note">
                 <strong>Anubis is open source</strong> under GPL-3.0, built in the spirit of furthering
                 local, private LLM use on Apple Silicon. A limited version is also on the Mac App Store
-                as part of the Architect's Toolkit bundle — buying it is one way to support continued
-                development of the open source project, and so is a star on the repo.
+                as part of the Architect's Toolkit bundle, and buying it is one way to support continued
+                development of the open source project. So is a star on the repo.
             </p>
             <div class="support-row">
                 <a class="support-btn" href="https://github.com/uncSoft/anubis-oss">
@@ -691,7 +805,7 @@
                 </a>
             </div>
             <div class="footer-bottom">
-                <div class="footer-credit">Developed by JT @ uncSoft &mdash; GPL-3.0</div>
+                <div class="footer-credit">Developed by JT @ uncSoft &middot; GPL-3.0</div>
                 <div class="footer-links">
                     <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
                     <a href="https://devpadapp.com/leaderboard.html">Leaderboard</a>

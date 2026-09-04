@@ -6,7 +6,7 @@
     <title>Anubis OSS - Leaderboard</title>
     <style>
         /* ═══════════════════════════════════════════════════════════════
-           Anubis Leaderboard — high data-ink stylesheet.
+           Anubis Leaderboard: high data-ink stylesheet.
 
            Rules, not boxes. Nothing is filled, bordered on four sides, or
            glowing unless the fill *is* the datum. One accent colour, spent
@@ -26,7 +26,7 @@
             --ink-4:     #7a838f;   /* labels, dates           */
             --ink-5:     #545d68;   /* absent values, disabled */
 
-            /* Rules are blue-slate, never grey — so a frame never reads as
+            /* Rules are blue-slate, never grey, so a frame never reads as
                a line of faint text, and text never reads as a rule. */
             --rule:      #243a50;   /* hairline  1.66:1 vs bg  */
             --rule-2:    #31506e;   /* emphasised 2.32:1       */
@@ -683,7 +683,7 @@
             font-variant-numeric: tabular-nums;
         }
 
-        /* Rank is encoded in the numeral itself — no medals, no tint. */
+        /* Rank is encoded in the numeral itself: no medals, no tint. */
         .card-rank.rank-1 { color: var(--gold); }
         .card-rank.rank-2 { color: var(--silver); }
         .card-rank.rank-3 { color: var(--bronze); }
@@ -887,7 +887,7 @@
         .display-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
         .date { color: var(--ink-4); font-size: 0.76rem; }
 
-        /* Former badges — now just text. */
+        /* Former badges, now just text. */
         .chip-badge { color: var(--ink-2); }
         .quant-badge, .format-badge { font-family: var(--mono); font-size: 0.76rem; color: var(--ink-3); }
         .format-badge.gguf { color: var(--mem); }
@@ -1033,6 +1033,69 @@
 
         .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+
+        /* ── More from uncSoft ────────────────────────────────────── */
+        .unc {
+            border: 1px solid var(--rule);
+            border-radius: 6px;
+            padding: 22px 24px 24px;
+            margin: 8px 0 30px;
+        }
+        .unc-head {
+            display: flex; align-items: baseline; justify-content: space-between;
+            gap: 8px 20px; flex-wrap: wrap; margin-bottom: 4px;
+        }
+        .unc-head h3 { font-size: 1.05rem; font-weight: 600; }
+        .unc-head .by { font-size: 0.76rem; color: var(--ink-5); }
+        .unc-sub { font-size: 0.83rem; color: var(--ink-4); margin-bottom: 20px; max-width: 66ch; }
+
+        .unc-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr));
+            gap: 1px;
+            background: var(--rule-3);
+            border: 1px solid var(--rule-3);
+        }
+        .unc-item {
+            display: block; background: var(--bg); padding: 14px 15px 15px;
+            color: inherit; min-width: 0;
+            transition: background 0.18s ease;
+        }
+        .unc-item:hover { background: rgba(124,192,240,0.05); text-decoration: none; }
+        .unc-item.here { background: rgba(124,192,240,0.04); cursor: default; }
+
+        .unc-name {
+            display: flex; align-items: baseline; gap: 8px;
+            font-size: 0.92rem; font-weight: 600; color: var(--ink);
+            transition: color 0.18s ease;
+        }
+        .unc-item:hover .unc-name { color: var(--accent); }
+        .unc-item.here:hover .unc-name { color: var(--ink); }
+
+        .unc-tag {
+            font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--ink-5); white-space: nowrap;
+        }
+        .unc-tag.free { color: var(--mem); }
+        .unc-tag.here { color: var(--accent); }
+
+        .unc-desc { display: block; font-size: 0.79rem; color: var(--ink-3); margin-top: 5px; line-height: 1.5; }
+        .unc-meta { display: block; font-size: 0.71rem; color: var(--ink-5); margin-top: 7px; font-family: var(--mono); }
+
+        .unc-foot {
+            display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
+            margin-top: 18px; font-size: 0.79rem;
+        }
+        .unc-foot a { color: var(--ink-3); }
+        .unc-foot a:hover { color: var(--accent); text-decoration: none; }
+        .unc-foot .bundle { color: var(--ink-2); }
+        .unc-foot .bundle strong { color: var(--accent); font-weight: 600; }
+
+        @media (max-width: 760px) {
+            .unc { padding: 18px 16px 20px; }
+            .unc-grid { grid-template-columns: 1fr; }
+        }
+
         /* ── Footer ────────────────────────────────────────────────── */
         .footer-area {
             max-width: 1360px;
@@ -1148,7 +1211,7 @@
 <body>
     <a class="promo-banner" href="https://uncsoft.github.io/anubis-oss/analysis.html">
         <span class="promo-banner-badge">New</span>
-        <span class="promo-banner-text"><strong>Benchmark Analysis Report</strong> &mdash; <span id="promo-banner-detail">Deep dive into 1,700+ community runs across 15 Apple Silicon chips with interactive charts</span></span>
+        <span class="promo-banner-text"><strong>Benchmark Analysis Report</strong>: <span id="promo-banner-detail">Deep dive into 1,700+ community runs across 15 Apple Silicon chips with interactive charts</span></span>
         <span class="promo-banner-arrow">&rarr;</span>
     </a>
 
@@ -1157,7 +1220,7 @@
         <div class="masthead">
             <div class="masthead-id">
                 <h1><span class="accent">Anubis</span> Leaderboard</h1>
-                <p class="tagline">Real-world LLM performance on Apple Silicon &mdash; tok/s, power, TTFT. Run a benchmark in Anubis and upload your results.</p>
+                <p class="tagline">Real-world LLM performance on Apple Silicon: tok/s, power, TTFT. Run a benchmark in Anubis and upload your results.</p>
             </div>
             <nav class="masthead-nav">
                 <a href="https://devpadapp.com/anubis-oss.html">Anubis OSS</a>
@@ -1211,7 +1274,7 @@
             </div>
             <div class="stat-tile">
                 <div class="stat-tile-label">Most-Tested Chip</div>
-                <div class="stat-tile-value" id="stat-chip" style="font-size:1rem">&mdash;</div>
+                <div class="stat-tile-value" id="stat-chip" style="font-size:1rem">&nbsp;</div>
                 <div class="stat-tile-sub" id="stat-chip-sub">&nbsp;</div>
             </div>
             <div class="stat-tile">
@@ -1329,8 +1392,8 @@
 
         <p class="oss-note" style="margin-top:22px">
             <strong>Note on coverage:</strong> only runs submitted from an Ollama backend carry the full gamut of
-            datapoints &mdash; LM Studio, MLX and others do not expose every performance metric, such as prompt
-            evaluation time. The dataset is robust even without Ollama as the runtime. Enjoy! &mdash;JT
+            datapoints. LM Studio, MLX and others do not expose every performance metric, such as prompt
+            evaluation time. The dataset is robust even without Ollama as the runtime. Enjoy! &ndash;JT
         </p>
     </div>
 
@@ -1349,6 +1412,60 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <div class="container">
+        <!-- More from uncSoft -->
+        <section class="unc">
+            <div class="unc-head">
+                <h3>More from uncSoft</h3>
+                <span class="by">All native, all local-first, none of them phone home.</span>
+            </div>
+            <p class="unc-sub">
+                Small, sandboxed macOS tools built by one person. Anubis is the free and
+                open-source one; the others fund it.
+            </p>
+
+            <div class="unc-grid">
+                <a class="unc-item" href="https://devpadapp.com">
+                    <span class="unc-name">devPad <span class="unc-tag">macOS</span></span>
+                    <span class="unc-desc">A slide-out dev toolkit: docs, code editor, API client, data tools and local AI chat, one gesture away.</span>
+                    <span class="unc-meta">zero telemetry &middot; sandboxed</span>
+                </a>
+                <a class="unc-item" href="https://cyberWriter.app">
+                    <span class="unc-name">cyberWriter <span class="unc-tag">macOS</span></span>
+                    <span class="unc-desc">Native Markdown editor with live PDF preview, LaTeX, Mermaid diagrams, vault support and an AI workspace.</span>
+                    <span class="unc-meta">no external dependencies</span>
+                </a>
+                <a class="unc-item" href="https://wranglify.app">
+                    <span class="unc-name">Wranglify <span class="unc-tag">mac &middot; win</span></span>
+                    <span class="unc-desc">The data workbench for files that break everything else. Open the 500 MB export, repair the encoding, mask the PII, get real SQL out.</span>
+                    <span class="unc-meta">offline &middot; 10 MB</span>
+                </a>
+                <a class="unc-item" href="https://unfckr.app">
+                    <span class="unc-name">Unfckr <span class="unc-tag free">free &middot; web</span></span>
+                    <span class="unc-desc">Wranglify in a browser tab. Flatten nested JSON, scrub PII from CSVs, clean messy data. Your file never leaves the tab.</span>
+                    <span class="unc-meta">no signup &middot; works offline</span>
+                </a>
+                <span class="unc-item here">
+                    <span class="unc-name">Anubis <span class="unc-tag here">you are here</span></span>
+                    <span class="unc-desc">Benchmark local LLMs on Apple Silicon and correlate every token with real GPU, CPU, ANE and DRAM power.</span>
+                    <span class="unc-meta">GPL-3.0 &middot; open source</span>
+                </span>
+                <a class="unc-item" href="https://apps.apple.com/us/app-bundle/the-architects-toolkit/id1874965091?mt=12">
+                    <span class="unc-name">The Architect's Toolkit <span class="unc-tag">bundle</span></span>
+                    <span class="unc-desc">devPad, cyberWriter and Anubis together on the Mac App Store, at less than the three separately.</span>
+                    <span class="unc-meta">mac app store</span>
+                </a>
+            </div>
+
+            <div class="unc-foot">
+                <a href="https://devpadapp.com">devpadapp.com</a>
+                <a href="https://github.com/uncSoft">github.com/uncSoft</a>
+                <a href="https://ko-fi.com/jtatuncsoft/tip">Buy me a coffee</a>
+            </div>
+        </section>
+
+    </div>
 
     <!-- Footer area -->
     <div class="footer-area">
@@ -1389,7 +1506,7 @@
 
         <!-- Bottom credits -->
         <div class="footer-bottom">
-            <div class="footer-credit">Developed by JT @ uncSoft &mdash; GPL-3.0</div>
+            <div class="footer-credit">Developed by JT @ uncSoft &middot; GPL-3.0</div>
             <div class="footer-links">
                 <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
                 <a href="https://devpadapp.com/anubis-oss.html">Anubis OSS</a>
@@ -1652,7 +1769,7 @@
         }
 
         // ══════════════════════════════════════════════════════════════
-        // Filter + sort + rank — one memoised pass over the full dataset
+        // Filter + sort + rank: one memoised pass over the full dataset
         // ══════════════════════════════════════════════════════════════
         function computeView() {
             var key = [filters.chip, filters.quant, filters.format, filters.methodology,
@@ -1672,7 +1789,7 @@
             });
 
             // Rank is always "position by out tok/s within the current
-            // filtered set" — independent of which column you sorted by
+            // filtered set", independent of which column you sorted by
             // and of which page you are on.
             var byTps = filtered.slice().sort(function (a, b) {
                 return (b.tokens_per_second || 0) - (a.tokens_per_second || 0);
@@ -1909,7 +2026,7 @@
                 (total ? (from + 1).toLocaleString() + '–' + (from + shown).toLocaleString() : '0') +
                 '</strong> of <strong>' + total.toLocaleString() + '</strong> matching runs' +
                 '<span class="rank-scope">Ranked and sorted by ' + esc(sortDescription()) +
-                ' across all ' + total.toLocaleString() + ' — paging never changes the order or the rank.</span></div>';
+                ' across all ' + total.toLocaleString() + '. Paging never changes the order or the rank.</span></div>';
 
             var controls = '<div class="pager-controls">';
             controls += '<button class="page-btn" type="button" data-page="1"' + (page === 1 ? ' disabled' : '') + ' aria-label="First page">&laquo;</button>';
@@ -1977,7 +2094,7 @@
         }
 
         // ══════════════════════════════════════════════════════════════
-        // Detail modal — built on demand for one entry, so the 40-cell
+        // Detail modal: built on demand for one entry, so the 40-cell
         // detail grid is never multiplied by the number of visible rows.
         // ══════════════════════════════════════════════════════════════
         function openDetail(id) {
@@ -2022,7 +2139,7 @@
             h += cell('Completion Tokens', fmtInt(e.completion_tokens));
             h += cell('Prompt tok/s', e._prefill_tps != null ? fmtNum(e._prefill_tps, 2) : null);
 
-            // Reasoning section — only meaningful for thinking-model runs
+            // Reasoning section: only meaningful for thinking-model runs
             // (DeepSeek-R1, Qwen3-thinking, gpt-oss). Hidden when null/0.
             if (e.reasoning_tokens != null && e.reasoning_tokens > 0) {
                 var rTps = reasoningTps(e);
@@ -2044,7 +2161,7 @@
             h += cell('Watts/Token', e.avg_watts_per_token != null ? fmtNum(e.avg_watts_per_token, 3) + ' W/tok' : null, 'power');
             h += cell('Peak Memory', fmtBytes(e.peak_memory_bytes), 'mem');
 
-            // Group context — only when this submission is part of an N-rep
+            // Group context: only when this submission is part of an N-rep
             // group (Anubis v3.5+). Aggregates describe the parent group;
             // the headline values above are just this one rep.
             if (e.run_group_id != null) {
@@ -2103,7 +2220,7 @@
         }
 
         // ══════════════════════════════════════════════════════════════
-        // Export — always the full filtered + sorted set, never the page
+        // Export: always the full filtered + sorted set, never the page
         // ══════════════════════════════════════════════════════════════
         function exportColumns() {
             var seen = {};
@@ -2185,7 +2302,7 @@
         }
 
         // ══════════════════════════════════════════════════════════════
-        // Shareable state — filters, sort and page live in the URL hash
+        // Shareable state: filters, sort and page live in the URL hash
         // ══════════════════════════════════════════════════════════════
         var lastWrittenHash = null;
 
@@ -2250,7 +2367,7 @@
             try {
                 var saved = localStorage.getItem('anubis_lb_view');
                 if (saved === 'table' || saved === 'cards') view = saved;
-            } catch (err) { /* private mode — keep the default */ }
+            } catch (err) { /* private mode: keep the default */ }
             setViewButtons();
         }
 
@@ -2340,7 +2457,7 @@
             // just hands the user the file they are about to need.
             $('open-wranglify').addEventListener('click', function () {
                 var n = exportCSV();
-                toast('CSV with ' + n.toLocaleString() + ' rows downloaded — drop it into the Wranglify tab');
+                toast('CSV with ' + n.toLocaleString() + ' rows downloaded. Drop it into the Wranglify tab');
             });
 
             $('modal-close').addEventListener('click', closeDetail);
@@ -2439,7 +2556,7 @@
             return e.reasoning_tokens / e.reasoning_duration;
         }
 
-        // CI half-width — the "± value" people scan after a number.
+        // CI half-width: the "± value" people scan after a number.
         function ciHalfWidth(low, high) {
             if (low == null || high == null) return null;
             return (high - low) / 2;
@@ -2474,12 +2591,12 @@
         }
 
         function quantBadge(q) {
-            if (!q) return '<span class="quant-badge dim">\u2014</span>';
+            if (!q) return '<span class="quant-badge dim">-</span>';
             return '<span class="quant-badge">' + esc(q) + '</span>';
         }
 
         function formatBadge(f) {
-            if (!f) return '<span class="format-badge unknown">\u2014</span>';
+            if (!f) return '<span class="format-badge unknown">-</span>';
             var l = String(f).toLowerCase();
             var cls = l === 'gguf' ? 'gguf' : l === 'mlx' ? 'mlx' : 'unknown';
             return '<span class="format-badge ' + cls + '">' + esc(f) + '</span>';
@@ -2489,7 +2606,7 @@
         // and gives the chip name back its width.
         function chipLabel(e) {
             var name = String(e.chip_name || '').replace(/^Apple\s+/i, '');
-            if (!name) return '\u2014';
+            if (!name) return '-';
             return name + (e.chip_memory_gb ? ' ' + e.chip_memory_gb + 'GB' : '');
         }
 
