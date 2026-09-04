@@ -301,11 +301,11 @@ Output rules — these are strict:
 
 1. Output exactly 5 cards in this exact HTML format, nothing else:
 
-   <div class="finding"><strong>Headline.</strong> Body sentence(s).</div>
-   <div class="finding green"><strong>Headline.</strong> Body sentence(s).</div>
-   <div class="finding orange"><strong>Headline.</strong> Body sentence(s).</div>
-   <div class="finding purple"><strong>Headline.</strong> Body sentence(s).</div>
-   <div class="finding pink"><strong>Headline.</strong> Body sentence(s).</div>
+   <div class="finding" data-pivot="KEY"><strong>Headline.</strong> Body sentence(s).</div>
+   <div class="finding green" data-pivot="KEY"><strong>Headline.</strong> Body sentence(s).</div>
+   <div class="finding orange" data-pivot="KEY"><strong>Headline.</strong> Body sentence(s).</div>
+   <div class="finding purple" data-pivot="KEY"><strong>Headline.</strong> Body sentence(s).</div>
+   <div class="finding pink" data-pivot="KEY"><strong>Headline.</strong> Body sentence(s).</div>
 
 2. The five color classes (in order: accent (no class), green, orange, purple, pink)
    must be used exactly once each. Headlines end with a period inside the strong tag.
@@ -323,6 +323,29 @@ Output rules — these are strict:
    prefer that over restating the obvious.
 
 6. No emojis. No markdown. No leading or trailing prose. No <script>, no <style>.
+
+7. NO EM DASHES. Not the character and not &mdash;. Use a colon where the dash
+   introduces a restatement, a comma or semicolon where it joins clauses,
+   parentheses for a true aside, or split the sentence. En dashes in numeric
+   ranges (1-20, 5,000-29,000) are fine.
+
+8. Every card MUST carry data-pivot="KEY", where KEY is one of exactly these
+   and nothing else. It names the data explorer view a reader would open to
+   check the claim, and analysis.html turns it into a link:
+
+     chip_throughput  median tok/s, W/tok and TTFT grouped by chip
+     format_compare   tok/s and W/tok by chip, split GGUF vs MLX
+     efficiency       mean W/tok by chip, sorted most efficient first
+     memory_tier      mean tok/s grouped by unified memory size
+     prefill          individual runs sorted by prefill tok/s
+     top_runs         individual runs sorted by output tok/s
+     group_ci         N-rep groups with their mean and 95% CI
+     none             the claim is not checkable in any of the above
+
+   Pick the view that shows the claim's OWN evidence. A card about one specific
+   model topping the chart is top_runs, not memory_tier, even if it mentions a
+   memory size in passing. When nothing fits, use none rather than the closest
+   guess; a link to the wrong pivot is worse than no link.
    Just the 5 div elements separated by single newlines.
 
 7. Use HTML entities for special characters (&mdash; for em-dash, &amp; for &, etc.).
@@ -425,6 +448,40 @@ def main() -> int:
         print(
             f"WARNING: model returned {finding_divs} 'finding' divs (expected 5). "
             "Output may be malformed.",
+            file=sys.stderr,
+        )
+
+    # data-pivot drives the "See this in the explorer" deep links in
+    # analysis.html. An unknown key silently produces no link, so surface it
+    # here rather than letting it fail quietly on the page.
+    VALID_PIVOTS = {
+        "chip_throughput", "format_compare", "efficiency", "memory_tier",
+        "prefill", "top_runs", "group_ci", "none",
+    }
+    pivots = re.findall(r'data-pivot="([^"]*)"', new_findings)
+    if len(pivots) != finding_divs:
+        print(
+            f"WARNING: {finding_divs} finding divs but {len(pivots)} data-pivot "
+            "attributes. Cards without one fall back to keyword matching, which "
+            "only covers format_compare, prefill and group_ci.",
+            file=sys.stderr,
+        )
+    bad = sorted(set(pivots) - VALID_PIVOTS)
+    if bad:
+        print(
+            f"WARNING: unknown data-pivot value(s): {', '.join(bad)}. "
+            f"Valid keys are {', '.join(sorted(VALID_PIVOTS))}. "
+            "Unknown keys produce no link.",
+            file=sys.stderr,
+        )
+
+    # The em dash ban is a standing style preference, so enforce it rather
+    # than trusting the prompt.
+    if "\u2014" in new_findings or "&mdash;" in new_findings:
+        n = new_findings.count("\u2014") + new_findings.count("&mdash;")
+        print(
+            f"WARNING: model returned {n} em dash(es). Replace each with a colon, "
+            "comma, semicolon, parentheses or a sentence break before committing.",
             file=sys.stderr,
         )
 

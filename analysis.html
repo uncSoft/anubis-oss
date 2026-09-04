@@ -136,6 +136,53 @@
   .finding.pink { border-left-color: var(--pink); }
   .finding.pink strong { color: var(--pink); }
 
+  /* Deep link from a finding to the explorer pivot that shows its data.
+     Lives outside the AI-FINDINGS markers so a refresh cannot wipe it. */
+  .finding-link {
+    /* block + fit-content so it always starts its own line, without the
+       dotted underline stretching the full width of the card */
+    display: block;
+    width: fit-content;
+    margin-top: 8px;
+    font-size: 0.82em;
+    color: var(--muted, #8b949e);
+    text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+    padding-bottom: 1px;
+  }
+
+  .finding-link:hover { color: var(--accent); }
+  .finding.green  .finding-link:hover { color: var(--green); }
+  .finding.orange .finding-link:hover { color: var(--orange); }
+  .finding.purple .finding-link:hover { color: var(--purple); }
+  .finding.pink   .finding-link:hover { color: var(--pink); }
+
+  .pivot-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    margin-top: 14px;
+  }
+
+  .pivot-chip {
+    font-size: 0.82em;
+    color: var(--muted, #8b949e);
+    text-decoration: none;
+    border: 1px solid rgba(139, 148, 158, 0.28);
+    border-radius: 999px;
+    padding: 4px 12px;
+    white-space: nowrap;
+  }
+
+  .pivot-chip:hover { color: var(--accent); border-color: var(--accent); }
+
+  .pivot-note {
+    font-size: 0.82em;
+    color: var(--muted, #8b949e);
+    margin-top: 12px;
+    line-height: 1.6;
+  }
+
   table {
     width: 100%;
     border-collapse: collapse;
@@ -320,14 +367,26 @@
     <div class="subtitle">The most interesting takeaways from the community benchmarks</div>
 
     <!-- AI-FINDINGS-START -->
-    <div class="finding"><strong>The 36GB memory tier punches far above its weight.</strong> Machines with 36GB unified memory average 228.4 tok/s &mdash; nearly double the 128.4 tok/s seen at 96GB and more than three times the 77.2 tok/s at 64GB. The M3 Max 36GB in particular dominates the top-15 run list, suggesting this configuration hits a sweet spot where model fits fully in fast on-die memory without the overhead of larger unified pools.</div>
-<div class="finding green"><strong>A 550B-class MoE tops the throughput chart &mdash; almost certainly API-routed.</strong> nvidia/nemotron-3-ultra-550b-a55b logs 231.4 tok/s (247.1 tok/s through its 262-token reasoning phase) on an M5 Max 128GB via the &ldquo;Command Code&rdquo; backend. But 550B of weights won&rsquo;t fit in 128GB of unified memory even heavily quantized, so this is most likely a cloud model proxied through a local endpoint &mdash; an interesting datapoint about the model, not a measurement of the Mac.</div>
-<div class="finding orange"><strong>M5 Pro efficiency claims need revision.</strong> With 97 runs now logged, the M5 Pro median sits at 67.1 tok/s with an average of 0.63 W/tok &mdash; far above the single-run figure of 0.16 W/tok cited last month. At 0.63 W/tok it trails the M5 (0.22 W/tok) and the A18 Pro (0.22 W/tok) on efficiency, though its 690ms median TTFT remains competitive.</div>
-<div class="finding purple"><strong>Prefill speeds at the top are now measured in tens of thousands of tokens per second.</strong> The M5 Max reaches 49,857 tok/s prefill on gpt-oss-120b MXFP4, and the M5 Pro hits 36,219 tok/s on liquid/lfm2-24b. Even a cloud-routed gemini-flash-lite scores 38,010 tok/s prefill on the M5 Max, suggesting the bottleneck for prompt-heavy workloads has shifted firmly away from ingestion to generation throughput.</div>
-<div class="finding pink"><strong>GGUF outruns MLX by a wide margin in average throughput.</strong> Across 464 runs each, GGUF averages 95.5 tok/s versus MLX&rsquo;s 73.7 tok/s &mdash; a 30% gap that contradicts the common assumption that native MLX is always the faster path on Apple Silicon. Backend choice and quantization format together appear to matter as much as the chip generation itself.</div>
+    <div class="finding" data-pivot="memory_tier"><strong>The 36GB memory tier punches far above its weight.</strong> Machines with 36GB unified memory average 228.4 tok/s, nearly double the 128.4 tok/s seen at 96GB and more than three times the 77.2 tok/s at 64GB. The M3 Max 36GB in particular dominates the top-15 run list, suggesting this configuration hits a sweet spot where model fits fully in fast on-die memory without the overhead of larger unified pools.</div>
+<div class="finding green" data-pivot="top_runs"><strong>A 550B-class MoE tops the throughput chart, almost certainly API-routed.</strong> nvidia/nemotron-3-ultra-550b-a55b logs 231.4 tok/s (247.1 tok/s through its 262-token reasoning phase) on an M5 Max 128GB via the &ldquo;Command Code&rdquo; backend. But 550B of weights won&rsquo;t fit in 128GB of unified memory even heavily quantized, so this is most likely a cloud model proxied through a local endpoint: an interesting datapoint about the model, not a measurement of the Mac.</div>
+<div class="finding orange" data-pivot="efficiency"><strong>M5 Pro efficiency claims need revision.</strong> With 97 runs now logged, the M5 Pro median sits at 67.1 tok/s with an average of 0.63 W/tok, far above the single-run figure of 0.16 W/tok cited last month. At 0.63 W/tok it trails the M5 (0.22 W/tok) and the A18 Pro (0.22 W/tok) on efficiency, though its 690ms median TTFT remains competitive.</div>
+<div class="finding purple" data-pivot="prefill"><strong>Prefill speeds at the top are now measured in tens of thousands of tokens per second.</strong> The M5 Max reaches 49,857 tok/s prefill on gpt-oss-120b MXFP4, and the M5 Pro hits 36,219 tok/s on liquid/lfm2-24b. Even a cloud-routed gemini-flash-lite scores 38,010 tok/s prefill on the M5 Max, suggesting the bottleneck for prompt-heavy workloads has shifted firmly away from ingestion to generation throughput.</div>
+<div class="finding pink" data-pivot="format_compare"><strong>GGUF outruns MLX by a wide margin in average throughput.</strong> Across 464 runs each, GGUF averages 95.5 tok/s versus MLX&rsquo;s 73.7 tok/s, a 30% gap that contradicts the common assumption that native MLX is always the faster path on Apple Silicon. Backend choice and quantization format together appear to matter as much as the chip generation itself.</div>
 
     <div class="meta-stamp">Findings last updated: 2026-08-22 &middot; Data above is live; narrative is human-curated and refreshed on a monthly cadence.</div>
     <!-- AI-FINDINGS-END -->
+
+    <!-- Deliberately OUTSIDE the markers: refresh-findings.py rewrites
+         everything between them, so anything durable has to live here. -->
+    <div class="pivot-row" id="pivot-row"></div>
+    <div class="pivot-note">
+      Every finding above is a claim about this dataset, so each one links to the
+      pivot that produced it. These open the
+      <a href="https://devpadapp.com/explorer.html">data explorer</a> with the
+      grouping, aggregation and filter already applied, over all
+      <span id="pivot-row-count">1,700+</span> runs. Change anything and the
+      address bar updates, so your own view is a link too.
+    </div>
   </div>
 
   <!-- N-rep groups note (NEW for v3.5+) -->
@@ -451,6 +510,141 @@
 </div>
 
 <script>
+// ══════════════════════════════════════════════════════════════════════
+// Deep links from a finding to the explorer pivot behind it.
+//
+// The findings themselves are regenerated by scripts/refresh-findings.py
+// between the AI-FINDINGS markers, so nothing here may live inside them.
+// A finding opts in by carrying data-pivot="<key>"; for findings written
+// before that attribute existed, a deliberately conservative keyword pass
+// fills in. When neither is confident, no link is added, because a link
+// to the wrong pivot is worse than none.
+// ══════════════════════════════════════════════════════════════════════
+const EXPLORER = "https://devpadapp.com/explorer.html";
+
+const PIVOTS = {
+  chip_throughput: {
+    label: "throughput by chip",
+    cfg: { plugin: "Datagrid", theme: "Pro Dark", group_by: ["Chip"],
+      columns: ["Output tok/s", "Watts/Token", "TTFT (ms)"],
+      aggregates: { "Output tok/s": "median", "Watts/Token": "median", "TTFT (ms)": "median" },
+      sort: [["Output tok/s", "desc"]], settings: true } },
+  format_compare: {
+    label: "GGUF vs MLX by chip",
+    cfg: { plugin: "Datagrid", theme: "Pro Dark", group_by: ["Chip"], split_by: ["Format"],
+      columns: ["Output tok/s", "Watts/Token"],
+      aggregates: { "Output tok/s": "mean", "Watts/Token": "mean" },
+      sort: [["Output tok/s", "desc"]], settings: true } },
+  efficiency: {
+    label: "efficiency by chip",
+    cfg: { plugin: "Datagrid", theme: "Pro Dark", group_by: ["Chip"],
+      columns: ["Watts/Token", "Output tok/s", "Avg GPU Power (W)"],
+      aggregates: { "Watts/Token": "mean", "Output tok/s": "median", "Avg GPU Power (W)": "mean" },
+      sort: [["Watts/Token", "asc"]], settings: true } },
+  memory_tier: {
+    label: "throughput by memory tier",
+    cfg: { plugin: "Datagrid", theme: "Pro Dark", group_by: ["Memory (GB)"],
+      columns: ["Output tok/s", "Watts/Token", "Peak Memory (GB)"],
+      aggregates: { "Output tok/s": "mean", "Watts/Token": "mean", "Peak Memory (GB)": "mean" },
+      sort: [["Output tok/s", "desc"]], settings: true } },
+  prefill: {
+    label: "fastest prefill",
+    cfg: { plugin: "Datagrid", theme: "Pro Dark",
+      columns: ["Model", "Chip", "Quantization", "Prefill tok/s", "Prompt Tokens", "Output tok/s"],
+      sort: [["Prefill tok/s", "desc"]], settings: true } },
+  top_runs: {
+    label: "fastest runs",
+    cfg: { plugin: "Datagrid", theme: "Pro Dark",
+      columns: ["Model", "Chip", "Quantization", "Format", "Output tok/s", "Backend", "Methodology"],
+      sort: [["Output tok/s", "desc"]], settings: true } },
+  group_ci: {
+    label: "repeated runs and their spread",
+    cfg: { plugin: "Datagrid", theme: "Pro Dark",
+      columns: ["Model", "Chip", "Group Mean tok/s", "Group ±CI tok/s", "Group Reps", "Output tok/s"],
+      filter: [["Group Reps", ">", 1]],
+      sort: [["Group Reps", "desc"]], settings: true } },
+  backend_compare: {
+    label: "throughput by backend",
+    cfg: { plugin: "Datagrid", theme: "Pro Dark", group_by: ["Backend"],
+      columns: ["Output tok/s", "Prefill tok/s", "Watts/Token"],
+      aggregates: { "Output tok/s": "mean", "Prefill tok/s": "mean", "Watts/Token": "mean" },
+      sort: [["Output tok/s", "desc"]], settings: true } },
+};
+
+// Chips shown under the findings. Curated, ordered, and stable across
+// refreshes. backend_compare is left out on purpose: the backend field is
+// free text and currently splits into 47 near-duplicate spellings, so as a
+// "check this claim" view it misleads more than it shows.
+const PIVOT_ROW = ["chip_throughput", "format_compare", "efficiency",
+                   "memory_tier", "prefill", "group_ci", "top_runs"];
+
+// Fallback only, for findings written before data-pivot existed. Kept
+// deliberately narrow: a finding that merely mentions "128GB" is not a
+// finding about memory tiers, and mislabelling it is worse than leaving it
+// unlinked. Anything ambiguous must declare data-pivot instead.
+const PIVOT_RULES = [
+  { key: "format_compare", all: [/\bgguf\b/i, /\bmlx\b/i] },
+  { key: "prefill",        all: [/\bprefill\b/i, /tok\/s/i] },
+  { key: "group_ci",       all: [/\b(n-rep|repeated runs?|reps)\b/i, /\b(ci|confidence interval|bootstrap)\b/i] },
+];
+
+function pivotUrl(key) {
+  const p = PIVOTS[key];
+  if (!p) return null;
+  const json = JSON.stringify(p.cfg);
+  const bytes = new TextEncoder().encode(json);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const b64 = btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return EXPLORER + "#v=" + b64;
+}
+
+function pivotForFinding(el) {
+  const declared = el.getAttribute("data-pivot");
+  if (declared && PIVOTS[declared]) return declared;
+  const text = el.textContent || "";
+  for (const rule of PIVOT_RULES) {
+    if (rule.all.every(re => re.test(text))) return rule.key;
+  }
+  return null;
+}
+
+function wirePivotLinks(totalRuns) {
+  const row = document.getElementById("pivot-row");
+  if (row) {
+    row.innerHTML = PIVOT_ROW.map(k => {
+      const url = pivotUrl(k);
+      return url ? `<a class="pivot-chip" href="${url}">${PIVOTS[k].label}</a>` : "";
+    }).join("");
+  }
+  const count = document.getElementById("pivot-row-count");
+  if (count && totalRuns) count.textContent = totalRuns.toLocaleString();
+
+  // Only the generated findings, not the hand-written explainer cards
+  // further down the page.
+  const start = document.evaluate(
+    "//comment()[contains(., 'AI-FINDINGS-START')]",
+    document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+  if (!start) return;
+  let node = start.nextSibling;
+  while (node) {
+    if (node.nodeType === 8 && String(node.nodeValue).includes("AI-FINDINGS-END")) break;
+    if (node.nodeType === 1 && node.classList && node.classList.contains("finding")
+        && !node.querySelector(".finding-link")) {
+      const key = pivotForFinding(node);
+      const url = key && pivotUrl(key);
+      if (url) {
+        const a = document.createElement("a");
+        a.className = "finding-link";
+        a.href = url;
+        a.textContent = "See this in the explorer: " + PIVOTS[key].label + " →";
+        node.appendChild(a);
+      }
+    }
+    node = node.nextSibling;
+  }
+}
+
 'use strict';
 
 const API_URL = 'https://devpadapp.com/anubis/api/leaderboard.php?limit=10000';
@@ -540,6 +734,9 @@ const renderStats = (entries) => {
 
   document.getElementById('footer-summary').textContent =
     `Live data from ${entries.length.toLocaleString()} community-submitted Anubis benchmarks across ${stats[1].value} contributors`;
+
+  // Attach the explorer deep links once the real run count is known.
+  wirePivotLinks(entries.length);
 };
 
 const renderChipChart = (entries) => {
