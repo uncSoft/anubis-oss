@@ -13,13 +13,23 @@ on:
 
 jobs:
   test:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
+      # Xcode_16.4 was pinned here but no longer exists on any current runner
+      # image, so this silently fell through to whatever default was installed
+      # and then failed to compile: the Swift Charts call sites in ArenaView
+      # and StepInspectorView need a recent SDK's ChartContentBuilder
+      # availability. Take the newest Xcode present instead of naming one, and
+      # print it so a future SDK regression is legible in the log.
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_16.4.app || sudo xcode-select -s /Applications/Xcode.app
+        run: |
+          set -o pipefail
+          newest=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          sudo xcode-select -s "${newest:-/Applications/Xcode.app}"
+          xcodebuild -version
 
       # set -o pipefail is load-bearing. Without it a pipeline exits with the
       # status of its LAST command (xcbeautify, which returns 0 even for a
