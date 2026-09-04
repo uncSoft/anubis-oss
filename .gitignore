@@ -53,7 +53,9 @@ CLAUDE.md
 anubis/anubis/README.md
 anubis_icon_final.png
 hf-post.md
-anubis-oss.html
+# Anchored: only the repo-root copy is excluded. The deployed page
+# leaderboard_site/anubis-oss.html IS tracked and ships via .cpanel.yml.
+/anubis-oss.html
 anubis - Release Steps for Auto-Update.md
 
 # Secrets (HMAC keys, API tokens — never commit)

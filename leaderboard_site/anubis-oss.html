@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anubis OSS &mdash; Local LLM Benchmarking for Apple Silicon</title>
+    <meta name="description" content="Open-source macOS app that benchmarks local LLMs on Apple Silicon and correlates every run with real GPU, CPU, ANE and DRAM telemetry. Free, GPL-3.0, no account.">
+    <link rel="canonical" href="https://devpadapp.com/anubis-oss.html">
+    <meta property="og:title" content="Anubis OSS — Local LLM Benchmarking for Apple Silicon">
+    <meta property="og:description" content="Benchmark local LLMs on your Mac and see the watts. Tokens/sec, TTFT, prefill, J/token and hardware telemetry in one app. Open source.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://devpadapp.com/anubis-oss.html">
+    <meta property="og:image" content="https://devpadapp.com/anubis/anubis_icon.png">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" href="https://devpadapp.com/anubis/anubis_icon.png">
+    <style>
+        /* ═══════════════════════════════════════════════════════════════
+           Shares the leaderboard's system: rules not boxes, one hue per
+           meaning, text carries the page.
+           ═══════════════════════════════════════════════════════════════ */
+        :root {
+            --bg:        #0b0d10;
+            --panel:     #101519;
+
+            --ink:       #f2f3f5;
+            --ink-2:     #c3c9d1;
+            --ink-3:     #9aa3ae;
+            --ink-4:     #7a838f;
+            --ink-5:     #545d68;
+
+            --rule:      #243a50;
+            --rule-2:    #31506e;
+            --rule-3:    #1a2836;
+
+            --accent:    #7cc0f0;   /* throughput, links     */
+            --power:     #e0a851;   /* watts                 */
+            --mem:       #6fbf9b;   /* memory, GGUF, "free"  */
+            --freq:      #ac8ade;   /* frequency, MLX        */
+            --mono: 'SF Mono', 'Menlo', 'Consolas', ui-monospace, monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+            background: var(--bg);
+            color: var(--ink);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+            line-height: 1.5;
+        }
+
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+        .container { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+        /* ── Announcement ─────────────────────────────────────────── */
+        .promo-banner {
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 10px;
+            padding: 11px 24px;
+            border-bottom: 1px solid var(--rule);
+            color: var(--ink-2);
+            font-size: 0.8rem;
+            text-align: center;
+        }
+        .promo-banner:hover { text-decoration: none; color: var(--ink); }
+        .promo-banner-badge {
+            font-size: 0.6rem; font-weight: 600; letter-spacing: 0.14em;
+            text-transform: uppercase; color: var(--accent); flex-shrink: 0;
+        }
+        .promo-banner strong { color: var(--ink); font-weight: 600; }
+        .promo-banner .arrow { color: var(--ink-5); flex-shrink: 0; }
+        .promo-banner:hover .arrow { color: var(--accent); }
+
+        /* ── Masthead ─────────────────────────────────────────────── */
+        .masthead {
+            display: flex; align-items: baseline; justify-content: space-between;
+            gap: 10px 32px; flex-wrap: wrap; padding: 22px 0 18px;
+        }
+        .masthead h1 { font-size: 1.3rem; font-weight: 600; letter-spacing: -0.01em; }
+        .masthead h1 .accent { color: var(--accent); font-weight: 400; }
+        .masthead h1 .ver {
+            font-family: var(--mono); font-size: 0.72rem; font-weight: 400;
+            color: var(--ink-4); margin-left: 8px; vertical-align: 2px;
+        }
+        .masthead-nav { display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline; }
+        .masthead-nav a { font-size: 0.78rem; color: var(--ink-3); white-space: nowrap; }
+        .masthead-nav a:hover { color: var(--accent); text-decoration: none; }
+
+        /* ── Hero ─────────────────────────────────────────────────── */
+        .hero { padding: 34px 0 30px; border-top: 1px solid var(--rule); }
+        .hero-icon { width: 68px; height: 68px; border-radius: 15px; margin-bottom: 20px; }
+        .hero h2 {
+            font-size: 2.15rem; font-weight: 600; line-height: 1.18;
+            letter-spacing: -0.02em; max-width: 17ch; margin-bottom: 14px;
+        }
+        .hero h2 .accent { color: var(--accent); }
+        .hero .lede { font-size: 1.02rem; color: var(--ink-2); max-width: 60ch; margin-bottom: 8px; }
+        .hero .sub { font-size: 0.88rem; color: var(--ink-4); max-width: 62ch; }
+
+        .install {
+            display: flex; align-items: stretch; gap: 0; margin: 24px 0 14px;
+            border: 1px solid var(--rule); border-radius: 6px; max-width: 520px;
+            overflow: hidden;
+        }
+        .install code {
+            flex: 1; font-family: var(--mono); font-size: 0.83rem; color: var(--ink);
+            padding: 11px 14px; overflow-x: auto; white-space: nowrap;
+        }
+        .install code .prompt { color: var(--ink-5); user-select: none; }
+        .install button {
+            border: none; border-left: 1px solid var(--rule); background: none;
+            color: var(--ink-4); font-family: inherit; font-size: 0.76rem;
+            padding: 0 15px; cursor: pointer; white-space: nowrap; transition: color 0.15s;
+        }
+        .install button:hover { color: var(--accent); }
+
+        .cta-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+        .btn {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 9px 16px; border: 1px solid var(--rule); border-radius: 5px;
+            color: var(--ink-2); font-size: 0.83rem; font-weight: 500;
+            transition: border-color 0.2s, color 0.2s, transform 0.18s;
+        }
+        .btn:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; transform: translateY(-1px); }
+        .btn.primary { border-color: var(--rule-2); color: var(--ink); }
+        .btn svg { width: 14px; height: 14px; fill: currentColor; }
+        .cta-note { font-size: 0.76rem; color: var(--ink-5); margin-top: 12px; }
+
+        /* ── Live figures ─────────────────────────────────────────── */
+        .stats {
+            display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 28px; padding: 22px 0 24px;
+            border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+        }
+        .stat { min-width: 0; }
+        .stat-value {
+            font-family: var(--mono); font-size: 1.55rem; color: var(--ink);
+            line-height: 1.2; font-variant-numeric: tabular-nums;
+        }
+        .stat-value.live { color: var(--accent); }
+        .stat-label {
+            font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.12em;
+            color: var(--ink-4); margin-top: 3px;
+        }
+        .stat-sub { font-size: 0.72rem; color: var(--ink-5); margin-top: 1px; }
+
+        /* ── Sections ─────────────────────────────────────────────── */
+        .section { padding: 40px 0; border-bottom: 1px solid var(--rule); }
+        .section:last-of-type { border-bottom: none; }
+        .section h3 {
+            font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 8px;
+        }
+        .section h3 .accent { color: var(--accent); }
+        .section-sub { font-size: 0.88rem; color: var(--ink-3); max-width: 68ch; margin-bottom: 26px; }
+        .eyebrow {
+            font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.14em;
+            color: var(--ink-4); margin-bottom: 9px;
+        }
+        .eyebrow .new { color: var(--mem); }
+
+        /* ── Cards ────────────────────────────────────────────────── */
+        .grid { display: grid; gap: 10px; }
+        .grid.g3 { grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+        .grid.g2 { grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); }
+
+        .card {
+            border: 1px solid transparent; border-radius: 5px; padding: 15px 16px 16px;
+            transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s cubic-bezier(0.2,0,0.2,1);
+        }
+        .card { border-color: var(--rule); }
+        .card:hover { background: rgba(124,192,240,0.045); border-color: rgba(124,192,240,0.32); transform: translateY(-2px); }
+        .card h4 { font-size: 0.93rem; font-weight: 600; margin-bottom: 6px; }
+        .card p { font-size: 0.82rem; color: var(--ink-3); }
+        .card .kicker {
+            display: block; font-family: var(--mono); font-size: 0.66rem;
+            color: var(--ink-5); margin-bottom: 7px; letter-spacing: 0.04em;
+        }
+        .card .kicker.new { color: var(--mem); }
+        .card ul { margin: 8px 0 0 0; padding-left: 16px; }
+        .card li { font-size: 0.8rem; color: var(--ink-3); margin-bottom: 3px; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .card, .btn { transition: background 0.18s ease, border-color 0.18s ease; }
+            .card:hover, .btn:hover { transform: none; }
+        }
+
+        /* ── Tables ───────────────────────────────────────────────── */
+        .table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+        thead th {
+            text-align: left; font-weight: 500; font-size: 0.63rem;
+            text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-4);
+            padding: 10px 16px; border-bottom: 1px solid var(--rule); white-space: nowrap;
+        }
+        tbody td { padding: 10px 16px; color: var(--ink-3); border-bottom: 1px solid var(--rule-3); }
+        tbody tr:last-child td { border-bottom: none; }
+        tbody tr:hover td { background: rgba(124,192,240,0.04); }
+        tbody td strong { color: var(--ink); font-weight: 600; }
+        tbody td code, .inline-code {
+            font-family: var(--mono); font-size: 0.92em; color: var(--ink-2);
+        }
+        td.port { font-family: var(--mono); color: var(--ink-4); white-space: nowrap; }
+        td.src { font-family: var(--mono); font-size: 0.76rem; color: var(--freq); white-space: nowrap; }
+
+        /* ── Screenshots ──────────────────────────────────────────── */
+        .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(400px, 100%), 1fr)); gap: 18px; }
+        figure { border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--panel); }
+        figure img { display: block; width: 100%; height: auto; }
+        figcaption {
+            font-size: 0.76rem; color: var(--ink-4); padding: 9px 13px;
+            border-top: 1px solid var(--rule);
+        }
+        figcaption strong { color: var(--ink-2); font-weight: 600; }
+
+        /* ── Steps ────────────────────────────────────────────────── */
+        .steps { counter-reset: step; display: grid; gap: 18px; }
+        .step { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 14px; align-items: start; }
+        .step::before {
+            counter-increment: step; content: counter(step);
+            font-family: var(--mono); font-size: 0.78rem; color: var(--ink-5);
+            border: 1px solid var(--rule); border-radius: 50%;
+            width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
+        }
+        .step h4 { font-size: 0.9rem; font-weight: 600; margin-bottom: 5px; }
+        .step p { font-size: 0.83rem; color: var(--ink-3); margin-bottom: 8px; }
+        pre {
+            font-family: var(--mono); font-size: 0.8rem; color: var(--ink-2);
+            background: var(--panel); border: 1px solid var(--rule); border-radius: 5px;
+            padding: 11px 14px; overflow-x: auto; line-height: 1.65;
+        }
+        pre .c { color: var(--ink-5); }
+        pre .prompt { color: var(--ink-5); user-select: none; }
+
+        /* ── Requirements ─────────────────────────────────────────── */
+        .reqs { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(230px, 100%), 1fr)); gap: 18px 28px; }
+        .req .k {
+            font-size: 0.63rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-4);
+        }
+        .req .v { font-size: 0.92rem; color: var(--ink); margin-top: 3px; }
+        .req .n { font-size: 0.76rem; color: var(--ink-5); margin-top: 1px; }
+
+        /* ── Dataset strip ────────────────────────────────────────── */
+        .data-actions { display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline; margin-top: 20px; }
+        .data-actions a { font-size: 0.83rem; color: var(--ink-3); display: inline-flex; align-items: center; gap: 6px; }
+        .data-actions a:hover { color: var(--accent); text-decoration: none; }
+        .data-actions svg { width: 13px; height: 13px; fill: currentColor; opacity: 0.8; }
+
+        /* ── Footer ───────────────────────────────────────────────── */
+        .footer { padding: 36px 0 40px; border-top: 1px solid var(--rule); }
+        .footer .note { font-size: 0.79rem; color: var(--ink-3); line-height: 1.7; max-width: 72ch; margin-bottom: 24px; }
+        .footer .note strong { color: var(--ink-2); }
+        .support-row { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 26px; }
+        .support-btn { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-3); font-size: 0.79rem; }
+        .support-btn:hover { color: var(--accent); text-decoration: none; }
+        .support-btn svg { width: 14px; height: 14px; fill: currentColor; opacity: 0.8; }
+        .footer-bottom {
+            padding-top: 18px; border-top: 1px solid var(--rule);
+            display: flex; justify-content: space-between; align-items: baseline;
+            flex-wrap: wrap; gap: 12px 20px;
+        }
+        .footer-credit { font-size: 0.75rem; color: var(--ink-5); }
+        .footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
+        .footer-links a { font-size: 0.75rem; color: var(--ink-5); }
+        .footer-links a:hover { color: var(--accent); }
+
+        .toast {
+            position: fixed; bottom: 26px; left: 50%;
+            transform: translateX(-50%) translateY(8px);
+            background: var(--panel); border: 1px solid var(--rule-2); color: var(--ink-2);
+            padding: 9px 16px; font-size: 0.79rem; opacity: 0;
+            pointer-events: none; transition: opacity 0.2s, transform 0.2s; z-index: 300;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        /* ── Responsive ───────────────────────────────────────────── */
+        @media (max-width: 760px) {
+            .container { padding: 0 18px; }
+            .masthead { align-items: flex-start; padding: 18px 0 14px; }
+            .masthead-nav { gap: 14px; }
+            .hero { padding: 26px 0 24px; }
+            .hero h2 { font-size: 1.7rem; max-width: none; }
+            .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 24px; }
+            .stat-value { font-size: 1.3rem; }
+            .section { padding: 32px 0; }
+            .shots { grid-template-columns: 1fr; }
+            .footer-bottom { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <a class="promo-banner" href="https://devpadapp.com/leaderboard.html">
+        <span class="promo-banner-badge">Live</span>
+        <span><strong>Community leaderboard</strong> &mdash; <span id="banner-detail">real benchmark results from Apple Silicon Macs, submitted from inside the app</span></span>
+        <span class="arrow">&rarr;</span>
+    </a>
+
+    <div class="container">
+        <div class="masthead">
+            <h1><span class="accent">Anubis</span> OSS <span class="ver" id="ver">v3.9</span></h1>
+            <nav class="masthead-nav">
+                <a href="#features">Features</a>
+                <a href="#backends">Backends</a>
+                <a href="#install">Install</a>
+                <a href="https://devpadapp.com/leaderboard.html">Leaderboard</a>
+                <a href="https://uncsoft.github.io/anubis-oss/analysis.html">Analysis</a>
+                <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+                <a href="https://devpadapp.com/anubis-oss-readme.html">Docs</a>
+            </nav>
+        </div>
+
+        <section class="hero">
+            <img class="hero-icon" src="https://github.com/user-attachments/assets/4369ce8d-8f3a-4502-9c49-6f3a82372e00" alt="Anubis icon">
+            <h2>Benchmark local LLMs. <span class="accent">See the watts.</span></h2>
+            <p class="lede">
+                Anubis runs a model on your Mac, measures it properly, and correlates every
+                token with what the silicon actually did &mdash; GPU, CPU, Neural Engine and
+                DRAM power sampled live through IOReport while the model generates.
+            </p>
+            <p class="sub">
+                Free and open source under GPL-3.0. No account, no telemetry, nothing leaves
+                your machine unless you choose to publish a run to the community leaderboard.
+            </p>
+
+            <div class="install">
+                <code><span class="prompt">$ </span><span id="install-cmd">brew install --cask uncsoft/anubis/anubis-oss</span></code>
+                <button type="button" id="copy-install">Copy</button>
+            </div>
+
+            <div class="cta-row">
+                <a class="btn primary" href="https://github.com/uncSoft/anubis-oss/releases/latest">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1v8.6l3-3 1.1 1.1L7.5 12 2.9 7.7 4 6.6l3 3V1h1Zm-6 12h12v2H2v-2Z"/></svg>
+                    Download for macOS
+                </a>
+                <a class="btn" href="https://github.com/uncSoft/anubis-oss">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                    Source on GitHub
+                </a>
+                <a class="btn" href="https://devpadapp.com/leaderboard.html">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 1h6v9H1V1Zm7 0h7v5H8V1ZM8 7h7v8H8V7ZM1 11h6v4H1v-4Z"/></svg>
+                    See the results
+                </a>
+            </div>
+            <p class="cta-note">
+                macOS 15 Sequoia or later &middot; Apple Silicon only &middot; signed, notarized, and self-updating via Sparkle
+            </p>
+        </section>
+
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value live" id="stat-runs">1,740</div>
+                <div class="stat-label">Benchmark runs</div>
+                <div class="stat-sub">published by the community</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value live" id="stat-models">491</div>
+                <div class="stat-label">Distinct models</div>
+                <div class="stat-sub" id="stat-models-sub">across 15 Apple Silicon chips</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="stat-stars">202</div>
+                <div class="stat-label">GitHub stars</div>
+                <div class="stat-sub">GPL-3.0, no paywall</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value">9</div>
+                <div class="stat-label">Telemetry channels</div>
+                <div class="stat-sub">sampled live during inference</div>
+            </div>
+        </div>
+
+        <section class="section">
+            <div class="eyebrow"><span class="new">New in 3.9</span> &middot; Methodology v3</div>
+            <h3>The numbers were audited against the tools they claim to match</h3>
+            <p class="section-sub">
+                The whole measurement pipeline was checked against how Ollama, llama.cpp and the
+                standard harnesses (llmperf, genai-perf) define their metrics, then cross-checked
+                against every public leaderboard submission.
+            </p>
+            <div class="grid g2">
+                <div class="card">
+                    <span class="kicker">TOKENS/SEC</span>
+                    <h4>Counts every generated token</h4>
+                    <p>Thinking tokens included, matching Ollama's eval rate and llama.cpp's <code class="inline-code">predicted_per_second</code>. The old visible-output-only formula could explode on reasoning-heavy runs — that's where the leaderboard's impossible 5,000–29,000 tok/s rows came from. They're filtered server-side now too.</p>
+                </div>
+                <div class="card">
+                    <span class="kicker">TTFT</span>
+                    <h4>Excludes model load time</h4>
+                    <p>Anchored at request dispatch. A cold start reports the load separately — <code class="inline-code">Prefill: 848 tok/s · cold +7.2s</code> — instead of silently inflating time-to-first-token by seconds.</p>
+                </div>
+                <div class="card">
+                    <span class="kicker">SERVER-VERIFIED</span>
+                    <h4>Timing from the backend where it exists</h4>
+                    <p>oMLX usage extensions, llama.cpp's <code class="inline-code">timings</code> block, and LM Studio's native chat API — decoded tok/s, TTFT, load time and exact token counts. A green seal on the Tokens/sec card marks a server-verified number.</p>
+                </div>
+                <div class="card">
+                    <span class="kicker">CONSISTENCY</span>
+                    <h4>Latency can't disagree with throughput</h4>
+                    <p>Average token latency is exactly <code class="inline-code">1000 ÷ tok/s</code>. Alongside it: a model prep picker (as-is / warm-up / cold start), because cold-vs-warm was the largest uncontrolled variable in TTFT comparisons.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section" id="features">
+            <h3>What's in it</h3>
+            <p class="section-sub">
+                Everything needed to benchmark, compare and understand local inference on a Mac.
+                Every run is stored locally, exportable, and published only if you ask.
+            </p>
+            <div class="grid g3">
+                <div class="card">
+                    <h4>Benchmark dashboard</h4>
+                    <p>Streaming output with live tok/s, TTFT, prefill speed, joules per token and a per-model trend against your last run of the same config — so the dashboard doubles as a regression detector.</p>
+                </div>
+                <div class="card">
+                    <span class="kicker new">3.7</span>
+                    <h4>Flow Builder</h4>
+                    <p>A Shortcuts-style drag-and-drop sequencer. <em>Set Model → Repeat ×5 → Run → Unload</em>, played back hands-off. Six templates ship, including Cold vs Warm and Q4 vs Q8 sweeps. Save as <code class="inline-code">.anubisflow</code> to share.</p>
+                </div>
+                <div class="card">
+                    <span class="kicker new">3.5</span>
+                    <h4>N-rep groups with confidence intervals</h4>
+                    <p>Run the same config 1–20 times and get mean ± 95% bootstrap CI (1,000 resamples) for tok/s, TTFT, J/tok, power and peak memory. Pick random or fixed seeds to separate hardware variance from sampler variance.</p>
+                </div>
+                <div class="card">
+                    <h4>Power telemetry</h4>
+                    <p>GPU, CPU, ANE and DRAM watts straight from IOReport's energy model, plus GPU frequency from P-state residency. Per-channel unit scaling was corrected in 3.5 — earlier builds undercounted system power.</p>
+                </div>
+                <div class="card">
+                    <h4>Arena</h4>
+                    <p>Run two models side by side on the same prompt and watch both streams and both power traces resolve in real time.</p>
+                </div>
+                <div class="card">
+                    <h4>System monitor &amp; floating HUD</h4>
+                    <p>GPU core-level activity, thermal pressure and memory pressure, with a detachable always-on-top HUD so you can watch the machine while you work in another app.</p>
+                </div>
+                <div class="card">
+                    <h4>Vault &amp; Ollama browser</h4>
+                    <p>Inspect installed models, unload them to reclaim memory, and search, browse and pull new ones from ollama.com without leaving the app.</p>
+                </div>
+                <div class="card">
+                    <h4>Process monitoring</h4>
+                    <p>Finds the process actually serving your model by port, identifies the backend, and measures <code class="inline-code">phys_footprint</code> — the same figure Activity Monitor shows, including Metal buffers.</p>
+                </div>
+                <div class="card">
+                    <h4>Reports &amp; export</h4>
+                    <p>Share-ready 1920×1080 or square report cards at 2× retina, per-model CSV, and full run history with filtering, multi-select and bulk delete.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h3>Why it exists</h3>
+            <p class="section-sub">
+                The local LLM ecosystem on macOS is fragmented. Chat wrappers focus on conversation,
+                monitors are CLI-only, and almost nothing connects inference to the hardware underneath it.
+            </p>
+            <div class="grid g2">
+                <div class="card">
+                    <h4>Throughput without power is half a number</h4>
+                    <p>120 tok/s at 8 W and 130 tok/s at 34 W are not the same result. Anubis reports joules per token so you can compare quantizations and backends on efficiency, not just speed.</p>
+                </div>
+                <div class="card">
+                    <h4>One run proves nothing</h4>
+                    <p>Thermal state, scheduler decisions, sampler seed and background load all bleed into a single measurement. N-rep groups report the spread, so you can tell a real 5% gap from noise.</p>
+                </div>
+                <div class="card">
+                    <h4>Your data stays yours</h4>
+                    <p>Everything is local by default — SQLite on your disk, no account, no analytics. Publishing a run to the leaderboard is an explicit, per-run action.</p>
+                </div>
+                <div class="card">
+                    <h4>And the dataset is open</h4>
+                    <p>Every published run is queryable in the browser, exportable as CSV or JSON, and free to reuse. No sign-up wall in front of the numbers.</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h3>Screenshots</h3>
+            <p class="section-sub">macOS 15+, native SwiftUI, light and dark.</p>
+            <div class="shots">
+                <figure>
+                    <img loading="lazy" src="https://github.com/user-attachments/assets/e8eabae3-3bba-4171-ab3f-f42bd73d4d19" alt="Anubis benchmark dashboard showing streaming output and live metrics">
+                    <figcaption><strong>Benchmark dashboard</strong> — streaming output with live throughput, TTFT and power</figcaption>
+                </figure>
+                <figure>
+                    <img loading="lazy" src="https://github.com/user-attachments/assets/c364bd43-4300-4565-8e6b-7fcae9e8dcd8" alt="Anubis Arena mode running two models side by side">
+                    <figcaption><strong>Arena</strong> — two models, one prompt, both power traces</figcaption>
+                </figure>
+                <figure>
+                    <img loading="lazy" src="https://github.com/user-attachments/assets/7cf7d6f2-bcb5-4f96-b04b-19d96df29e87" alt="GPU core-level activity detail">
+                    <figcaption><strong>System monitor</strong> — GPU core detail, thermal and memory pressure</figcaption>
+                </figure>
+                <figure>
+                    <img loading="lazy" src="https://github.com/user-attachments/assets/795157b5-efe8-4895-b499-beef25de9683" alt="Anubis Vault listing installed models">
+                    <figcaption><strong>Vault</strong> — inspect, unload and pull models</figcaption>
+                </figure>
+                <figure>
+                    <img loading="lazy" src="https://github.com/user-attachments/assets/9bb601e8-7b4f-48ec-ba79-09fb2a065ba1" alt="Anubis report card ready for sharing">
+                    <figcaption><strong>Reports</strong> — share-ready cards at 2× retina, plus CSV</figcaption>
+                </figure>
+                <figure>
+                    <img loading="lazy" src="https://github.com/user-attachments/assets/51da7bcb-9d23-4e3c-9a5d-b65fa2ad77bc" alt="Anubis settings showing backend connection presets">
+                    <figcaption><strong>Settings</strong> — add any OpenAI-compatible server, with presets</figcaption>
+                </figure>
+            </div>
+        </section>
+
+        <section class="section" id="backends">
+            <h3>Supported backends</h3>
+            <p class="section-sub">
+                Anything that speaks the OpenAI chat API works. Ollama is auto-detected on launch;
+                the rest are two fields in Settings.
+            </p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Backend</th><th>Type</th><th>Port</th><th>Setup</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>Ollama</strong></td><td>Native</td><td class="port">11434</td><td>Install from <a href="https://ollama.com">ollama.com</a> — auto-detected on launch</td></tr>
+                        <tr><td><strong>Apple Intelligence</strong></td><td>On-device Foundation Models</td><td class="port">—</td><td>macOS 26+ with Apple Intelligence on; appears automatically</td></tr>
+                        <tr><td><strong>LM Studio</strong></td><td>OpenAI-compatible</td><td class="port">1234</td><td>Enable the local server in LM Studio settings</td></tr>
+                        <tr><td><strong>mlx-lm</strong></td><td>OpenAI-compatible</td><td class="port">8080</td><td><code>pip install mlx-lm &amp;&amp; mlx_lm.server</code></td></tr>
+                        <tr><td><strong>vLLM</strong></td><td>OpenAI-compatible</td><td class="port">8000</td><td>Add in Settings</td></tr>
+                        <tr><td><strong>LocalAI</strong></td><td>OpenAI-compatible</td><td class="port">8080</td><td>Add in Settings</td></tr>
+                        <tr><td><strong>Docker Model Runner</strong></td><td>OpenAI-compatible</td><td class="port">your choice</td><td>Add in Settings</td></tr>
+                        <tr><td><strong>llama.cpp</strong></td><td>OpenAI-compatible</td><td class="port">8080</td><td>Server-reported timings are read when available</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <p class="cta-note">
+                Only Ollama exposes the full set of datapoints — some backends don't report prompt
+                evaluation time, so a few columns stay empty for them. The dataset is robust either way.
+            </p>
+        </section>
+
+        <section class="section">
+            <h3>Hardware metrics</h3>
+            <p class="section-sub">
+                Nine channels sampled in real time via IOReport and system APIs. If IOReport access
+                is unavailable — in a VM, for instance — Anubis degrades gracefully to
+                inference-derived metrics rather than failing.
+            </p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Metric</th><th>Source</th><th>What it is</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><strong>GPU utilization</strong></td><td class="src">IOReport</td><td>GPU active residency percentage</td></tr>
+                        <tr><td><strong>CPU utilization</strong></td><td class="src">host_processor_info</td><td>Usage across all cores</td></tr>
+                        <tr><td><strong>GPU power</strong></td><td class="src">IOReport Energy</td><td>GPU consumption in watts</td></tr>
+                        <tr><td><strong>CPU power</strong></td><td class="src">IOReport Energy</td><td>P-cores + E-cores in watts</td></tr>
+                        <tr><td><strong>ANE power</strong></td><td class="src">IOReport Energy</td><td>Neural Engine consumption</td></tr>
+                        <tr><td><strong>DRAM power</strong></td><td class="src">IOReport Energy</td><td>Memory subsystem consumption</td></tr>
+                        <tr><td><strong>GPU frequency</strong></td><td class="src">IOReport GPU Stats</td><td>Weighted average from P-state residency</td></tr>
+                        <tr><td><strong>Process memory</strong></td><td class="src">proc_pid_rusage</td><td><code>phys_footprint</code>, including Metal/GPU allocations</td></tr>
+                        <tr><td><strong>Thermal state</strong></td><td class="src">ProcessInfo</td><td>System thermal pressure level</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="section" id="install">
+            <h3>Get started</h3>
+            <p class="section-sub">Four steps, about five minutes if you already have a backend.</p>
+            <div class="steps">
+                <div class="step">
+                    <div>
+                        <h4>Install a backend</h4>
+                        <p>Ollama is the easiest and reports the most complete metrics.</p>
+<pre><span class="c"># install and start Ollama</span>
+<span class="prompt">$ </span>brew install ollama
+<span class="prompt">$ </span>ollama serve
+
+<span class="c"># pull something to benchmark</span>
+<span class="prompt">$ </span>ollama pull qwen3:8b</pre>
+                    </div>
+                </div>
+                <div class="step">
+                    <div>
+                        <h4>Install Anubis</h4>
+                        <p>Homebrew installs the signed, notarized build from the latest GitHub release. Or download the zip and drag it to <code class="inline-code">/Applications</code>.</p>
+<pre><span class="prompt">$ </span>brew install --cask uncsoft/anubis/anubis-oss</pre>
+                    </div>
+                </div>
+                <div class="step">
+                    <div>
+                        <h4>Run your first benchmark</h4>
+                        <p>Anubis auto-detects Ollama on launch. Pick a model, choose a preset prompt or write your own, set repetitions if you want confidence intervals, and hit Run.</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div>
+                        <h4>Publish it, if you like</h4>
+                        <p>One button in the toolbar adds your run to the public leaderboard. Entirely optional, and off by default — nothing is uploaded unless you ask.</p>
+                    </div>
+                </div>
+            </div>
+            <p class="cta-note">
+                Anubis updates itself via Sparkle — open the app and accept the prompt, or
+                <strong>Settings → Check for Updates</strong>. Through Homebrew instead:
+                <code class="inline-code">brew upgrade --cask anubis-oss --greedy</code>
+                (<code class="inline-code">--greedy</code> is required because the cask is marked
+                <code class="inline-code">auto_updates</code>).
+            </p>
+        </section>
+
+        <section class="section">
+            <h3>Requirements</h3>
+            <div class="reqs">
+                <div class="req">
+                    <div class="k">Operating system</div>
+                    <div class="v">macOS 15 Sequoia+</div>
+                    <div class="n">macOS 26+ for the Apple Intelligence backend</div>
+                </div>
+                <div class="req">
+                    <div class="k">Silicon</div>
+                    <div class="v">Apple Silicon only</div>
+                    <div class="n">M1 through M5 and later; Intel is not supported</div>
+                </div>
+                <div class="req">
+                    <div class="k">Memory</div>
+                    <div class="v">8 GB minimum</div>
+                    <div class="n">16 GB or more for larger models</div>
+                </div>
+                <div class="req">
+                    <div class="k">Backend</div>
+                    <div class="v">At least one</div>
+                    <div class="n">Ollama recommended; any OpenAI-compatible server works</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h3>The results are public and so is the data</h3>
+            <p class="section-sub">
+                Every published run is queryable in the browser and exportable in full — <span id="dataset-line">1,740 runs across 59 fields</span> of
+                real Apple Silicon inference telemetry. No sign-up, no API key, no wall in front of the numbers.
+            </p>
+            <div class="data-actions">
+                <a href="https://devpadapp.com/leaderboard.html">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 1h6v9H1V1Zm7 0h7v5H8V1ZM8 7h7v8H8V7ZM1 11h6v4H1v-4Z"/></svg>
+                    Leaderboard
+                </a>
+                <a href="https://uncsoft.github.io/anubis-oss/analysis.html">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 13h14v2H1v-2Zm2-5h2v4H3V8Zm4-5h2v9H7V3Zm4 2h2v7h-2V5Z"/></svg>
+                    Analysis report
+                </a>
+                <a href="https://devpadapp.com/explorer.html">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h12v2H2V2Zm0 4h12v2H2V6Zm0 4h7v2H2v-2Z"/></svg>
+                    Data explorer
+                </a>
+                <a href="https://wranglify.app">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v2H4v8h8V9h2v5H2V2Zm7 0h5v5h-2V5.4L8.7 8.7 7.3 7.3 10.6 4H9V2Z"/></svg>
+                    Wrangle it locally
+                </a>
+            </div>
+        </section>
+    </div>
+
+    <div class="container">
+        <div class="footer">
+            <p class="note">
+                <strong>Anubis is open source</strong> under GPL-3.0, built in the spirit of furthering
+                local, private LLM use on Apple Silicon. A limited version is also on the Mac App Store
+                as part of the Architect's Toolkit bundle — buying it is one way to support continued
+                development of the open source project, and so is a star on the repo.
+            </p>
+            <div class="support-row">
+                <a class="support-btn" href="https://github.com/uncSoft/anubis-oss">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                    Star on GitHub
+                </a>
+                <a class="support-btn" href="https://apps.apple.com/us/app-bundle/the-architects-toolkit/id1874965091?mt=12">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M11.2 8.5c0-1.5 1.2-2.2 1.3-2.3-.7-1-1.8-1.2-2.2-1.2-.9-.1-1.8.6-2.3.6-.5 0-1.2-.5-2-.5-1 0-2 .6-2.5 1.5-1.1 1.9-.3 4.6.8 6.1.5.7 1.1 1.5 1.9 1.5.8 0 1.1-.5 2-.5s1.2.5 2 .5c.8 0 1.4-.7 1.9-1.5.6-.8.8-1.7.9-1.7 0 0-1.8-.7-1.8-2.5ZM9.8 3.8c.4-.5.7-1.2.6-1.9-.6 0-1.4.4-1.8.9-.4.4-.8 1.2-.7 1.8.7.1 1.4-.3 1.9-.8Z"/></svg>
+                    Mac App Store bundle
+                </a>
+                <a class="support-btn" href="https://ko-fi.com/jtatuncsoft/tip">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23.881 8.948c-.773-4.085-4.859-4.593-4.859-4.593H.723c-.604 0-.679.798-.679.798s-.082 7.324-.022 11.822c.164 2.424 2.586 2.672 2.586 2.672s8.267-.023 11.966-.049c2.438-.426 2.683-2.566 2.658-3.734 4.352.24 7.422-2.831 6.649-6.916zm-11.062 3.511c-1.246 1.453-4.011 3.976-4.011 3.976s-.121.119-.31.023c-.076-.057-.108-.09-.108-.09-.443-.441-3.368-3.049-4.034-3.954-.709-.965-1.041-2.7-.091-3.71.951-1.01 3.005-1.086 4.363.407 0 0 1.565-1.782 3.468-.963 1.904.82 1.832 3.011.723 4.311zm6.173.478c-.928.116-1.682.028-1.682.028V7.284h1.77s1.971.551 1.971 2.638c0 1.913-.985 2.667-2.059 3.015z"/></svg>
+                    Ko-fi
+                </a>
+                <a class="support-btn" href="https://github.com/sponsors/uncSoft">
+                    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.25 2.5c-1.336 0-2.75 1.164-2.75 3 0 2.15 1.58 4.144 3.365 5.682A20.565 20.565 0 008 13.393a20.561 20.561 0 003.135-2.211C12.92 9.644 14.5 7.65 14.5 5.5c0-1.836-1.414-3-2.75-3-1.373 0-2.609.986-3.029 2.456a.75.75 0 01-1.442 0C6.859 3.486 5.623 2.5 4.25 2.5z"/></svg>
+                    Sponsor
+                </a>
+            </div>
+            <div class="footer-bottom">
+                <div class="footer-credit">Developed by JT @ uncSoft &mdash; GPL-3.0</div>
+                <div class="footer-links">
+                    <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+                    <a href="https://devpadapp.com/leaderboard.html">Leaderboard</a>
+                    <a href="https://devpadapp.com/explorer.html">Data Explorer</a>
+                    <a href="https://devpadapp.com/anubis-oss-readme.html">Docs</a>
+                    <a href="https://wranglify.app">Wranglify</a>
+                    <a href="https://cyberWriter.app">cyberWriter</a>
+                    <a href="https://devpadapp.com">devPad</a>
+                    <a href="https://devpadapp.com/anubis/privacy.html">Privacy</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script>
+    (function () {
+        'use strict';
+
+        // Every headline figure on this page rots. The last rewrite shipped
+        // "v2 / 100+ stars / 150+ submissions" and sat that way for months,
+        // so nothing here is hand-typed except the fallbacks in the markup:
+        // the counts come from the same public APIs the leaderboard uses,
+        // and a failed fetch simply leaves the static numbers in place.
+        var $ = function (id) { return document.getElementById(id); };
+
+        function fmt(n) { return Number(n).toLocaleString(); }
+
+        function setText(id, text) {
+            var el = $(id);
+            if (el && text != null) el.textContent = text;
+        }
+
+        // ── Leaderboard: runs, models, chips ──────────────────────────
+        var API = [
+            'https://devpadapp.com/anubis/api/leaderboard.php?limit=10000',
+            '/anubis/api/leaderboard.php?limit=10000'
+        ];
+
+        function loadLeaderboard(i) {
+            i = i || 0;
+            if (i >= API.length) return;
+            fetch(API[i]).then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            }).then(function (data) {
+                var e = data.entries || [];
+                if (!e.length) return;
+                var models = {}, chips = {}, nModels = 0, nChips = 0;
+                for (var k = 0; k < e.length; k++) {
+                    var m = e[k].model_name, c = e[k].chip_name;
+                    if (m && !models[m]) { models[m] = 1; nModels++; }
+                    if (c && !chips[c]) { chips[c] = 1; nChips++; }
+                }
+                setText('stat-runs', fmt(e.length));
+                setText('stat-models', fmt(nModels));
+                setText('stat-models-sub', 'across ' + nChips + ' Apple Silicon chips');
+                setText('dataset-line', fmt(e.length) + ' runs across 59 fields');
+                setText('banner-detail',
+                    fmt(e.length) + ' benchmark runs from ' + nChips +
+                    ' Apple Silicon chips, published from inside the app');
+            }).catch(function () {
+                loadLeaderboard(i + 1);
+            });
+        }
+
+        // ── GitHub: stars and the current release tag ─────────────────
+        // Unauthenticated and rate-limited, so a 403 is expected sometimes;
+        // the markup fallbacks cover it.
+        function loadGitHub() {
+            fetch('https://api.github.com/repos/uncSoft/anubis-oss')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                    if (d && typeof d.stargazers_count === 'number') {
+                        setText('stat-stars', fmt(d.stargazers_count));
+                    }
+                }).catch(function () { /* keep the static figure */ });
+
+            fetch('https://api.github.com/repos/uncSoft/anubis-oss/releases/latest')
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                    if (!d || !d.tag_name) return;
+                    // Tags look like v3.9.0; the app calls itself v3.9.
+                    var v = String(d.tag_name).replace(/^v/, '').replace(/\.0$/, '');
+                    setText('ver', 'v' + v);
+                }).catch(function () { /* keep the static figure */ });
+        }
+
+        // ── Copy the install command ──────────────────────────────────
+        var toastTimer = null;
+        function toast(msg) {
+            var el = $('toast');
+            el.textContent = msg;
+            el.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(function () { el.classList.remove('show'); }, 2600);
+        }
+
+        var copyBtn = $('copy-install');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', function () {
+                var cmd = $('install-cmd').textContent;
+                var done = function () {
+                    copyBtn.textContent = 'Copied';
+                    toast('Copied: ' + cmd);
+                    setTimeout(function () { copyBtn.textContent = 'Copy'; }, 2000);
+                };
+                // execCommand fallback for older Safari, insecure contexts,
+                // and any case where the async API is denied.
+                var legacy = function () {
+                    var ta = document.createElement('textarea');
+                    ta.value = cmd;
+                    ta.style.position = 'fixed';
+                    ta.style.top = '-1000px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    var ok = false;
+                    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+                    document.body.removeChild(ta);
+                    if (ok) { done(); } else { toast('Press \u2318C to copy the command'); }
+                };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(cmd).then(done, legacy);
+                } else {
+                    legacy();
+                }
+            });
+        }
+
+        // Smooth in-page nav without hijacking modifier-clicks.
+        document.querySelectorAll('.masthead-nav a[href^="#"]').forEach(function (a) {
+            a.addEventListener('click', function (ev) {
+                if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return;
+                var target = document.querySelector(a.getAttribute('href'));
+                if (!target) return;
+                ev.preventDefault();
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+        });
+
+        loadLeaderboard();
+        loadGitHub();
+    })();
+    </script>
+</body>
+</html>

@@ -51,13 +51,7 @@ deployment:
     - /bin/mv $DEPLOY/anubis/api/.htaccess.new        $DEPLOY/anubis/api/.htaccess
 
     # --- Public HTML pages ---------------------------------------------
-    # anubis-oss.html is NOT deployed from here: .gitignore has a bare
-    # `anubis-oss.html` rule (meant for the repo-root copy) which also
-    # catches leaderboard_site/anubis-oss.html, so the file is absent
-    # from the cPanel clone and the cp could only fail. That page is
-    # hand-maintained on the server. To bring it back under this deploy,
-    # anchor the ignore rule to `/anubis-oss.html`, commit
-    # leaderboard_site/anubis-oss.html, then restore the cp line.
+    - /bin/cp leaderboard_site/anubis-oss.html  $DEPLOY/anubis-oss.html
     - /bin/cp leaderboard_site/leaderboard.html $DEPLOY/leaderboard.html
     - /bin/cp leaderboard_site/explorer.html    $DEPLOY/explorer.html
     # Thin wrapper that live-embeds the GitHub README via emgithub —
@@ -80,6 +74,7 @@ deployment:
     - /bin/chmod 644 $DEPLOY/anubis/api/submit.php
     - /bin/chmod 644 $DEPLOY/anubis/api/leaderboard.php
     - /bin/chmod 644 $DEPLOY/anubis/api/.htaccess
+    - /bin/chmod 644 $DEPLOY/anubis-oss.html
     - /bin/chmod 644 $DEPLOY/leaderboard.html
     - /bin/chmod 644 $DEPLOY/explorer.html
     - /bin/chmod 644 $DEPLOY/anubis-oss-readme.html
