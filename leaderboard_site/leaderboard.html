@@ -5,770 +5,1177 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Anubis OSS - Leaderboard</title>
     <style>
+        /* ═══════════════════════════════════════════════════════════════
+           Anubis Leaderboard — high data-ink stylesheet.
+
+           Rules, not boxes. Nothing is filled, bordered on four sides, or
+           glowing unless the fill *is* the datum. One accent colour, spent
+           only on the primary measurement and on interactive state. Every
+           other separation is done with whitespace and a hairline.
+           ═══════════════════════════════════════════════════════════════ */
+
+        :root {
+            --bg:        #0b0d10;
+            --panel:     #101519;   /* option lists, toast     */
+
+            /* Text carries the page, so every tier sits well clear of the
+               background. Only genuinely absent values drop to --ink-5. */
+            --ink:       #f2f3f5;   /* primary                 */
+            --ink-2:     #c3c9d1;   /* values, secondary       */
+            --ink-3:     #9aa3ae;   /* meta, nav               */
+            --ink-4:     #7a838f;   /* labels, dates           */
+            --ink-5:     #545d68;   /* absent values, disabled */
+
+            /* Rules are blue-slate, never grey — so a frame never reads as
+               a line of faint text, and text never reads as a rule. */
+            --rule:      #243a50;   /* hairline  1.66:1 vs bg  */
+            --rule-2:    #31506e;   /* emphasised 2.32:1       */
+            --rule-3:    #1a2836;   /* faintest: bar tracks    */
+            --accent:    #7cc0f0;   /* throughput            */
+            --accent-2:  #4d8ab8;
+            --power:     #e0a851;   /* watts, W/tok          */
+            --mem:       #6fbf9b;   /* memory, GGUF          */
+            --freq:      #ac8ade;   /* frequency, MLX        */
+            --gold:      #cfae62;
+            --silver:    #adb2b9;
+            --bronze:    #b8834f;
+            --mono: 'SF Mono', 'Menlo', 'Consolas', ui-monospace, monospace;
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
-            background: #0a0a0a;
-            background-image:
-                linear-gradient(rgba(108,180,238,0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(108,180,238,0.03) 1px, transparent 1px);
-            background-size: 60px 60px;
-            color: #e5e5e5;
+            background: var(--bg);
+            color: var(--ink);
             min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
         }
 
-        a { color: #6cb4ee; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; text-underline-offset: 2px; }
 
         .container {
-            max-width: 1400px;
+            max-width: 1360px;
             margin: 0 auto;
-            padding: 30px 20px 0;
+            padding: 0 24px;
         }
 
-        /* Hero */
-        .hero {
-            text-align: center;
-            margin-bottom: 40px;
+        /* ── Announcement line ─────────────────────────────────────── */
+        .promo-banner {
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 10px;
+            padding: 11px 24px;
+            border-bottom: 1px solid var(--rule);
+            color: var(--ink-2);
+            font-size: 0.8rem;
         }
 
-        .hero h1 {
-            font-size: 2.4rem;
-            font-weight: 700;
-            color: #fff;
-            margin-bottom: 8px;
-            letter-spacing: -0.02em;
+        .promo-banner:hover { text-decoration: none; color: var(--ink); }
+
+        .promo-banner-badge {
+            font-size: 0.6rem;
+            font-weight: 600;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--accent-2);
         }
 
-        .hero h1 .accent {
-            color: #6cb4ee;
-            text-shadow: 0 0 30px rgba(108,180,238,0.3);
-            animation: breathe 4.5s ease-in-out infinite;
+        .promo-banner-text strong { color: var(--ink); font-weight: 600; }
+        .promo-banner-arrow { color: var(--ink-4); }
+        .promo-banner:hover .promo-banner-arrow { color: var(--accent); }
+
+        /* ── Masthead ──────────────────────────────────────────────── */
+        .masthead {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px 32px;
+            flex-wrap: wrap;
+            padding: 26px 0 16px;
         }
 
-        @keyframes breathe {
-            0%, 100% { text-shadow: 0 0 30px rgba(108,180,238,0.3); }
-            50% { text-shadow: 0 0 40px rgba(108,180,238,0.5), 0 0 70px rgba(108,180,238,0.15); }
+        .masthead-id { min-width: 0; }
+
+        .masthead h1 {
+            font-size: 1.35rem;
+            font-weight: 600;
+            color: var(--ink);
+            letter-spacing: -0.01em;
         }
 
-        .hero .subtitle {
-            font-size: 1.05rem;
-            color: #888;
-            margin-bottom: 14px;
-        }
+        .masthead h1 .accent { color: var(--accent); font-weight: 400; }
 
-        .hero .desc {
-            font-size: 0.88rem;
-            color: #666;
-            max-width: 560px;
-            margin: 0 auto 16px;
+        .masthead .tagline {
+            font-size: 0.79rem;
+            color: var(--ink-3);
+            margin-top: 4px;
             line-height: 1.5;
         }
 
-        .hero-links {
+        .masthead-nav {
             display: flex;
-            justify-content: center;
-            gap: 20px;
+            gap: 18px;
             flex-wrap: wrap;
+            align-items: baseline;
         }
 
-        .hero-links a {
-            font-size: 0.85rem;
-            color: #6cb4ee;
+        .masthead-nav a {
+            font-size: 0.78rem;
+            color: var(--ink-3);
+            white-space: nowrap;
         }
 
-        /* Stats strip */
+        .masthead-nav a:hover { color: var(--accent); text-decoration: none; }
+
+        /* ── Companion apps: one quiet row, hairline-separated ─────── */
+        .promo-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            border-top: 1px solid var(--rule);
+            border-bottom: 1px solid var(--rule);
+        }
+
+        .bundle-card {
+            display: grid;
+            grid-template-columns: 22px 1fr auto;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 16px 11px 0;
+            color: inherit;
+        }
+
+        .bundle-card + .bundle-card {
+            border-left: 1px solid var(--rule);
+            padding-left: 16px;
+        }
+
+        .bundle-card:hover { text-decoration: none; }
+
+        .bundle-card-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 5px;
+            object-fit: cover;
+            opacity: 0.75;
+            transition: opacity 0.2s;
+        }
+
+        .bundle-card:hover .bundle-card-icon { opacity: 1; }
+
+        .bundle-card-body { min-width: 0; }
+
+        .bundle-card-title {
+            font-size: 0.82rem;
+            font-weight: 500;
+            color: var(--ink-2);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            transition: color 0.2s;
+        }
+
+        .bundle-card:hover .bundle-card-title { color: var(--accent); }
+        .cw-card:hover .bundle-card-title { color: #f07ac0; }
+        .wr-card:hover .bundle-card-title { color: var(--freq); }
+        .cw-card:hover .bundle-card-arrow { color: #f07ac0; }
+        .wr-card:hover .bundle-card-arrow,
+        .wr-card:hover .wr-icon { color: var(--freq); }
+
+        .bundle-card-badge {
+            font-size: 0.58rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            color: var(--ink-5);
+            margin-left: 4px;
+        }
+
+        .bundle-card-sub {
+            font-size: 0.72rem;
+            color: var(--ink-4);
+            margin-top: 1px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .bundle-card-arrow { color: transparent; font-size: 0.9rem; transition: color 0.2s; }
+        .bundle-card:hover .bundle-card-arrow { color: var(--accent); }
+
+        .wr-icon {
+            width: 22px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--mono);
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: var(--ink-4);
+        }
+
+        .bundle-card:hover .wr-icon { color: var(--accent); }
+
+        /* ── Summary figures ───────────────────────────────────────── */
         .stats-strip {
             display: none;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 10px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 32px;
+            padding: 18px 2px 22px;
         }
 
-        .stat-tile {
-            padding: 12px 14px;
-            border-radius: 10px;
-            background: linear-gradient(180deg, #101318 0%, #0d0d0d 100%);
-            border: 1px solid #1c2333;
-            transition: border-color 0.25s, box-shadow 0.25s, transform 0.25s;
-        }
-
-        .stat-tile:hover {
-            border-color: rgba(108,180,238,0.35);
-            box-shadow: 0 0 24px rgba(108,180,238,0.08);
-            transform: translateY(-1px);
-        }
+        .stat-tile { min-width: 0; }
 
         .stat-tile-label {
-            font-size: 0.65rem;
-            color: #5a6a80;
+            font-size: 0.63rem;
+            color: var(--ink-4);
             text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-weight: 600;
-            margin-bottom: 6px;
+            letter-spacing: 0.12em;
+            font-weight: 500;
         }
 
         .stat-tile-value {
-            font-size: 1.35rem;
-            font-weight: 700;
-            color: #6cb4ee;
-            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-            text-shadow: 0 0 12px rgba(108,180,238,0.2);
-            line-height: 1.1;
+            font-family: var(--mono);
+            font-size: 1.5rem;
+            font-weight: 400;
+            color: var(--ink);
+            line-height: 1.25;
+            margin-top: 2px;
+            font-variant-numeric: tabular-nums;
         }
+
+        /* The only throughput figure in the summary row. */
+        #stat-fastest { color: var(--accent); }
 
         .stat-tile-sub {
-            font-size: 0.7rem;
-            color: #555;
-            margin-top: 3px;
+            font-size: 0.72rem;
+            color: var(--ink-4);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        /* Status bar */
-        .status-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            font-size: 0.85rem;
-            color: #666;
-        }
-
-        .status-bar .count { color: #888; }
-
-        .status-bar .refresh-btn {
-            background: none;
-            border: 1px solid #2a2a3a;
-            color: #888;
-            padding: 5px 14px;
+        /* ── Controls ──────────────────────────────────────────────── */
+        .toolbar {
+            display: none;
+            flex-direction: column;
+            gap: 14px;
+            padding: 15px 17px;
+            border: 1px solid var(--rule);
             border-radius: 6px;
+            margin-bottom: 14px;
+        }
+
+        .toolbar.visible { display: flex; }
+
+        .toolbar-row {
+            display: flex;
+            gap: 14px 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .toolbar-spacer { flex: 1 1 auto; }
+
+        /* Search: a rule you type on, not a box. */
+        .search-wrap {
+            position: relative;
+            flex: 1 1 320px;
+            min-width: 220px;
+        }
+
+        .search-wrap .search-icon {
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 13px;
+            height: 13px;
+            fill: var(--ink-4);
+            pointer-events: none;
+        }
+
+        .search-input {
+            width: 100%;
+            background: none;
+            border: none;
+            border-bottom: 1px solid var(--rule-2);
+            color: var(--ink);
+            padding: 7px 56px 7px 22px;
+            font-size: 0.88rem;
+            font-family: inherit;
+            transition: border-color 0.2s;
+        }
+
+        .search-input::placeholder { color: var(--ink-4); }
+        .search-input:focus { outline: none; border-bottom-color: var(--accent); }
+        .search-input::-webkit-search-cancel-button { display: none; }
+
+        .search-actions {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .search-x, .search-help-btn {
+            background: none;
+            border: none;
+            color: var(--ink-4);
             cursor: pointer;
+            font-family: inherit;
+            line-height: 1;
+            padding: 2px;
+            transition: color 0.15s;
+        }
+
+        .search-x { font-size: 1rem; }
+        .search-help-btn { font-size: 0.78rem; font-weight: 600; }
+        .search-x:hover, .search-help-btn:hover { color: var(--accent); }
+        .search-x[hidden] { display: none; }
+
+        .search-syntax {
+            display: none;
+            font-size: 0.76rem;
+            color: var(--ink-3);
+            line-height: 1.85;
+            padding-bottom: 2px;
+        }
+
+        .search-syntax.open { display: block; }
+
+        .search-syntax code {
+            font-family: var(--mono);
+            color: var(--accent);
+            font-size: 0.95em;
+        }
+
+        .search-syntax .sx-row { display: block; }
+
+        .search-syntax .sx-label {
+            display: inline-block;
+            min-width: 74px;
+            color: var(--ink-4);
+            font-size: 0.66rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .count {
+            font-size: 0.79rem;
+            color: var(--ink-3);
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        /* View switch: two words, one underlined. */
+        .view-toggle { display: inline-flex; gap: 16px; flex-shrink: 0; }
+
+        .view-btn {
+            background: none;
+            border: none;
+            border-bottom: 1px solid transparent;
+            color: var(--ink-4);
+            padding: 3px 1px;
+            font-size: 0.78rem;
+            font-family: inherit;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: color 0.2s, border-color 0.2s;
+        }
+
+        .view-btn:hover { color: var(--ink-2); }
+        .view-btn.active { color: var(--ink); border-bottom-color: var(--accent); }
+        .view-btn svg { width: 11px; height: 11px; fill: currentColor; opacity: 0.7; }
+
+        .filter-select {
+            appearance: none;
+            -webkit-appearance: none;
+            background: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5'%3E%3Cpath d='M0 0l4.5 5L9 0z' fill='%237a838f'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1px center;
+            border: none;
+            border-bottom: 1px solid var(--rule);
+            color: var(--ink-2);
+            padding: 5px 18px 5px 0;
+            font-size: 0.79rem;
+            font-family: inherit;
+            cursor: pointer;
+            min-width: 132px;
+            transition: border-color 0.2s, color 0.2s;
+        }
+
+        .filter-select:hover { color: var(--ink); border-bottom-color: var(--rule-2); }
+        .filter-select:focus { outline: none; border-bottom-color: var(--accent); }
+        .filter-select option { background: var(--panel); color: var(--ink); }
+
+        .active-filters {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            align-items: baseline;
+        }
+
+        .chip-pill {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 6px;
+            font-size: 0.75rem;
+            color: var(--accent);
+            border-bottom: 1px solid rgba(124,192,240,0.28);
+            padding-bottom: 1px;
+        }
+
+        .chip-pill button {
+            background: none;
+            border: none;
+            color: var(--ink-4);
+            cursor: pointer;
+            font-size: 0.85rem;
+            line-height: 1;
+            padding: 0;
+        }
+
+        .chip-pill button:hover { color: var(--ink); }
+
+        .filter-clear {
+            background: none;
+            border: none;
+            color: var(--ink-4);
+            font-size: 0.75rem;
+            font-family: inherit;
+            cursor: pointer;
+            padding: 0;
+            display: none;
+        }
+
+        .filter-clear:hover { color: var(--accent); }
+        .filter-clear.visible { display: inline; }
+
+        /* ── Dataset actions ───────────────────────────────────────── */
+        .data-bar {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px 24px;
+            flex-wrap: wrap;
+        }
+
+        .data-bar-copy {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            flex-wrap: wrap;
+            min-width: 0;
+        }
+
+        .data-bar-label {
+            font-size: 0.63rem;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--ink-4);
+        }
+
+        .data-bar-count {
+            font-family: var(--mono);
+            font-size: 0.82rem;
+            color: var(--ink-2);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .data-bar-sub { font-size: 0.75rem; color: var(--ink-4); }
+        .data-bar-sub strong { color: var(--ink-2); font-weight: 500; }
+
+        .data-bar-actions {
+            display: flex;
+            gap: 18px;
+            flex-wrap: wrap;
+            align-items: baseline;
+        }
+
+        .ds-btn, .refresh-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: none;
+            border: none;
+            color: var(--ink-3);
+            font-size: 0.79rem;
+            font-family: inherit;
+            cursor: pointer;
+            padding: 0;
+            transition: color 0.2s;
+        }
+
+        .ds-btn:hover, .refresh-btn:hover { color: var(--accent); text-decoration: none; }
+        .ds-btn svg { width: 12px; height: 12px; fill: currentColor; opacity: 0.8; }
+
+        /* The one call to action that earns an outline. */
+        .ds-btn.primary {
+            color: var(--ink);
+            border: 1px solid var(--rule-2);
+            border-radius: 3px;
+            padding: 6px 11px;
+        }
+
+        .ds-btn.primary:hover { border-color: var(--accent); color: var(--accent); }
+
+        .ds-btn-note {
+            font-size: 0.7rem;
+            color: var(--ink-4);
+            padding-left: 9px;
+            margin-left: 3px;
+            border-left: 1px solid var(--rule);
+        }
+
+        .ds-btn.wrangle:hover { color: #b9a2f5; }
+
+        /* ── Pager ─────────────────────────────────────────────────── */
+        #content {
+            border: 1px solid var(--rule);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .pager {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px 20px;
+            flex-wrap: wrap;
+            padding: 12px 16px;
+        }
+
+        /* Header strip of the results frame. */
+        .pager[data-which="top"] { border-bottom: 1px solid var(--rule); }
+
+        /* The repeat below the results is its own small panel. */
+        .pager[data-which="bottom"] {
+            border: 1px solid var(--rule);
+            border-radius: 6px;
+            margin-top: 14px;
+        }
+
+        .pager-note { font-size: 0.79rem; color: var(--ink-3); line-height: 1.55; }
+        .pager-note strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+        .pager-note .rank-scope {
+            display: block;
+            color: var(--ink-4);
+            font-size: 0.72rem;
+            margin-top: 1px;
+        }
+
+        .pager-controls { display: flex; align-items: baseline; gap: 3px; flex-wrap: wrap; }
+
+        .page-btn {
+            background: none;
+            border: none;
+            border-bottom: 1px solid transparent;
+            color: var(--ink-3);
+            min-width: 22px;
+            padding: 2px 5px;
+            font-size: 0.79rem;
+            font-family: var(--mono);
+            font-variant-numeric: tabular-nums;
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s;
+        }
+
+        .page-btn:hover:not(:disabled) { color: var(--accent); }
+        .page-btn:disabled { color: var(--ink-5); cursor: default; }
+        .page-btn.current { color: var(--ink); border-bottom-color: var(--accent); }
+
+        .page-gap { color: var(--ink-5); font-size: 0.79rem; padding: 0 2px; }
+
+        .page-size {
+            appearance: none;
+            -webkit-appearance: none;
+            background: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='5'%3E%3Cpath d='M0 0l4.5 5L9 0z' fill='%237a838f'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1px center;
+            border: none;
+            color: var(--ink-3);
+            padding: 2px 16px 2px 10px;
+            font-size: 0.76rem;
+            font-family: inherit;
+            cursor: pointer;
+        }
+
+        .page-size:hover { color: var(--ink); }
+        .page-size:focus { outline: none; color: var(--accent); }
+        .page-size option { background: var(--panel); color: var(--ink); }
+
+        /* ── Result cards: small multiples, ruled not boxed ─────────── */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(min(270px, 100%), 1fr));
+            gap: 10px;
+            padding: 12px;
+        }
+
+        .result-card {
+            display: block;
+            width: 100%;
+            min-width: 0;
+            text-align: left;
+            font-family: inherit;
+            color: inherit;
+            background: none;
+            /* Transparent by default so hover adds no layout shift. */
+            border: 1px solid transparent;
+            border-radius: 5px;
+            -webkit-appearance: none;
+            appearance: none;
+            padding: 13px 14px 14px;
+            cursor: pointer;
+            white-space: normal;
+            transition: background 0.18s ease,
+                        border-color 0.18s ease,
+                        box-shadow 0.22s ease,
+                        transform 0.18s cubic-bezier(0.2, 0, 0.2, 1);
+        }
+
+        .result-card:hover,
+        .result-card:focus-visible {
+            background: rgba(124,192,240,0.045);
+            border-color: rgba(124,192,240,0.32);
+            box-shadow: 0 5px 18px rgba(0,0,0,0.42);
+            transform: translateY(-2px);
+            outline: none;
+        }
+
+        .result-card:active { transform: translateY(0); transition-duration: 0.06s; }
+
+        .result-card:hover .card-model,
+        .result-card:focus-visible .card-model { color: var(--accent); }
+        .result-card:hover .card-bar,
+        .result-card:focus-visible .card-bar { background: var(--accent); }
+        .result-card:hover .card-rank,
+        .result-card:focus-visible .card-rank { color: var(--ink-2); }
+        .result-card:hover .card-rank.rank-1 { color: var(--gold); }
+        .result-card:hover .card-rank.rank-2 { color: var(--silver); }
+        .result-card:hover .card-rank.rank-3 { color: var(--bronze); }
+
+        @media (prefers-reduced-motion: reduce) {
+            .result-card { transition: background 0.18s ease, border-color 0.18s ease; }
+            .result-card:hover, .result-card:focus-visible { transform: none; }
+        }
+
+        .card-top { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+
+        .card-rank {
+            flex: 0 0 30px;
+            text-align: right;
+            font-family: var(--mono);
             font-size: 0.8rem;
-            transition: all 0.2s;
+            color: var(--ink-4);
+            font-variant-numeric: tabular-nums;
         }
 
-        .status-bar .refresh-btn:hover {
-            border-color: #6cb4ee;
-            color: #6cb4ee;
-            box-shadow: 0 0 12px rgba(108,180,238,0.15);
+        /* Rank is encoded in the numeral itself — no medals, no tint. */
+        .card-rank.rank-1 { color: var(--gold); }
+        .card-rank.rank-2 { color: var(--silver); }
+        .card-rank.rank-3 { color: var(--bronze); }
+
+        .card-id { min-width: 0; flex: 1; }
+
+        .card-model {
+            display: block;
+            font-size: 0.88rem;
+            font-weight: 500;
+            color: var(--ink);
+            line-height: 1.35;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            transition: color 0.2s;
         }
 
-        /* Table */
-        .table-wrap {
-            overflow-x: auto;
-            border-radius: 12px;
-            border: 1px solid #1c2333;
-            background: linear-gradient(180deg, #101318 0%, #0d0d0d 100%);
-            box-shadow: 0 0 40px rgba(108,180,238,0.04), 0 1px 3px rgba(0,0,0,0.3);
+        .card-badges {
+            display: block;
+            font-size: 0.73rem;
+            color: var(--ink-3);
+            margin-top: 2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
+
+        .card-badges .sep { color: var(--ink-4); padding: 0 5px; }
+
+        .card-hero {
+            display: flex;
+            align-items: baseline;
+            gap: 7px;
+            margin: 9px 0 0 40px;
+        }
+
+        .card-hero-value {
+            font-family: var(--mono);
+            font-size: 1.45rem;
+            font-weight: 400;
+            color: var(--accent);
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .card-hero-unit { font-size: 0.72rem; color: var(--ink-4); }
+
+        .card-hero-ci {
+            margin-left: auto;
+            font-size: 0.7rem;
+            color: var(--ink-4);
+            font-family: var(--mono);
+        }
+
+        /* The bar is the datum, so it is the only fill on the card. */
+        .card-track {
+            display: block;
+            height: 2px;
+            margin: 7px 0 0 40px;
+            background: var(--rule-3);
+        }
+
+        .card-bar {
+            display: block;
+            height: 100%;
+            background: rgba(124,192,240,0.42);
+            transition: background 0.18s ease;
+        }
+
+        .card-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            margin: 11px 0 0 40px;
+        }
+
+        .card-metric { min-width: 0; }
+
+        .card-metric .m-label {
+            display: block;
+            font-size: 0.68rem;
+            letter-spacing: 0.02em;
+            color: var(--ink-4);
+        }
+
+        .card-metric .m-value {
+            display: block;
+            font-family: var(--mono);
+            font-size: 0.79rem;
+            color: var(--ink-2);
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 1px;
+        }
+
+        .card-metric .m-value.power { color: var(--power); }
+        .card-metric .m-value.dim { color: var(--ink-5); }
+
+        .card-foot {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            margin: 11px 0 0 40px;
+            font-size: 0.72rem;
+            color: var(--ink-4);
+            min-width: 0;
+        }
+
+        .card-foot .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .card-foot .wpt { color: var(--power); font-family: var(--mono); }
+        .card-foot .when { flex-shrink: 0; }
+
+        /* ── Table ─────────────────────────────────────────────────── */
+        .table-wrap { overflow-x: auto; }
 
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.88rem;
+            font-size: 0.84rem;
         }
 
         thead th {
-            background: linear-gradient(180deg, #161a22 0%, #12151b 100%);
-            color: #7a8599;
-            font-weight: 600;
-            padding: 12px 14px;
+            color: var(--ink-4);
+            font-weight: 500;
+            padding: 9px 16px 9px 0;
             text-align: left;
-            border-bottom: 1px solid rgba(108,180,238,0.1);
+            border-bottom: 1px solid var(--rule);
             cursor: pointer;
             user-select: none;
             white-space: nowrap;
-            font-size: 0.75rem;
+            font-size: 0.65rem;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.11em;
+            transition: color 0.15s;
         }
 
-        thead th:hover { color: #6cb4ee; text-shadow: 0 0 8px rgba(108,180,238,0.3); }
-
-        thead th.sorted-asc::after { content: ' \25B2'; font-size: 0.7em; }
-        thead th.sorted-desc::after { content: ' \25BC'; font-size: 0.7em; }
+        thead th:hover { color: var(--ink-2); }
+        thead th.sorted-asc, thead th.sorted-desc { color: var(--ink); }
+        thead th.sorted-asc::after { content: ' \2191'; }
+        thead th.sorted-desc::after { content: ' \2193'; }
 
         tbody tr.entry-row {
-            border-bottom: 1px solid #1a1a1a;
-            transition: background 0.2s, box-shadow 0.2s;
+            border-bottom: 1px solid var(--rule);
             cursor: pointer;
+            transition: background 0.15s ease, box-shadow 0.15s ease;
         }
 
-        tbody tr.entry-row:hover { background: #141820; box-shadow: inset 3px 0 0 #6cb4ee; }
-        tbody tr.entry-row.expanded { background: #131722; border-bottom: none; box-shadow: inset 3px 0 0 #6cb4ee; }
+        tbody tr:last-child.entry-row { border-bottom: none; }
 
-        tbody td {
-            padding: 10px 14px;
-            white-space: nowrap;
+        tbody tr.entry-row:hover {
+            background: rgba(124,192,240,0.055);
+            box-shadow: inset 2px 0 0 var(--accent);
         }
 
-        .expand-chevron {
-            display: inline-block;
-            font-size: 0.65em;
-            color: #444;
-            transition: transform 0.2s, color 0.2s;
-            margin-right: 6px;
+        tbody tr.entry-row:hover .model-name { color: var(--accent); }
+        tbody tr.entry-row:hover .tps-bar { background: var(--accent); }
+
+        tbody td { padding: 9px 16px 9px 0; white-space: nowrap; color: var(--ink-2); }
+
+        /* Inset the outer columns off the results frame. */
+        thead th:first-child, tbody td:first-child { padding-left: 16px; }
+        thead th:last-child, tbody td:last-child { padding-right: 16px; }
+
+        .rank {
+            font-family: var(--mono);
+            color: var(--ink-4);
+            font-variant-numeric: tabular-nums;
+            text-align: right;
+            padding-right: 18px !important;
+            padding-left: 16px;
         }
 
-        tr.expanded .expand-chevron {
-            transform: rotate(90deg);
-            color: #6cb4ee;
-        }
+        .rank-1 { color: var(--gold); }
+        .rank-2 { color: var(--silver); }
+        .rank-3 { color: var(--bronze); }
 
-        .rank { font-weight: 700; font-variant-numeric: tabular-nums; }
-        .rank-1 { color: #ffd700; text-shadow: 0 0 10px rgba(255,215,0,0.4); }
-        .rank-2 { color: #c0c0c0; text-shadow: 0 0 10px rgba(192,192,192,0.3); }
-        .rank-3 { color: #cd7f32; text-shadow: 0 0 10px rgba(205,127,50,0.3); }
+        .tps-cell { min-width: 104px; }
+        .tps-num { display: block; color: var(--accent); }
+        .tps-track { display: block; height: 2px; margin-top: 4px; background: var(--rule-3); max-width: 88px; }
+        .tps-bar { display: block; height: 100%; background: rgba(124,192,240,0.42); transition: background 0.15s ease; }
 
-        .rank-medal { margin-right: 4px; font-size: 0.95em; }
-
-        tbody tr.entry-row.rank-row-1 { background: linear-gradient(90deg, rgba(255,215,0,0.05) 0%, rgba(255,215,0,0.01) 25%, transparent 50%); }
-        tbody tr.entry-row.rank-row-2 { background: linear-gradient(90deg, rgba(192,192,192,0.045) 0%, rgba(192,192,192,0.01) 25%, transparent 50%); }
-        tbody tr.entry-row.rank-row-3 { background: linear-gradient(90deg, rgba(205,127,50,0.045) 0%, rgba(205,127,50,0.01) 25%, transparent 50%); }
-        tbody tr.entry-row.rank-row-1:hover,
-        tbody tr.entry-row.rank-row-2:hover,
-        tbody tr.entry-row.rank-row-3:hover { background: #141820; }
-
-        /* Tok/s bar */
-        .tps-cell { min-width: 110px; }
-        .tps-num { display: block; }
-        .tps-track {
-            margin-top: 4px;
-            height: 3px;
-            background: rgba(108,180,238,0.07);
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        .tps-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #6cb4ee 0%, #a8d4f5 100%);
-            border-radius: 2px;
-            box-shadow: 0 0 6px rgba(108,180,238,0.5);
-            transition: width 0.4s ease;
-        }
-        /* "±X · N reps" suffix shown on rows that are part of a v3.5+
-           N-rep group. Communicates that the headline tok/s is a single
-           rep but has a measured spread, without changing the rank. */
         .tps-ci {
             display: block;
             font-size: 0.7rem;
-            color: #8b95a8;
+            color: var(--ink-4);
             margin-top: 2px;
-            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-        }
-        .tps-ci .ci-num { color: #b8c3d1; }
-
-        .metric {
-            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
-            font-size: 0.85rem;
+            font-family: var(--mono);
         }
 
-        .metric-primary { color: #6cb4ee; font-weight: 600; text-shadow: 0 0 8px rgba(108,180,238,0.25); }
+        .tps-ci .ci-num { color: var(--ink-3); }
 
-        .chip-badge {
-            display: inline-block;
-            font-size: 0.75rem;
-            padding: 3px 10px;
-            border-radius: 6px;
-            background: linear-gradient(135deg, #1a1a2e 0%, #1e1e38 100%);
-            color: #99aadd;
+        .metric { font-family: var(--mono); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+        .metric-primary { color: var(--accent); }
+        .metric-power { color: var(--power); }
+
+        .model-name { max-width: 240px; overflow: hidden; text-overflow: ellipsis; color: var(--ink); transition: color 0.2s; }
+        .display-name { max-width: 130px; overflow: hidden; text-overflow: ellipsis; color: var(--ink-3); }
+        .date { color: var(--ink-4); font-size: 0.76rem; }
+
+        /* Former badges — now just text. */
+        .chip-badge { color: var(--ink-2); }
+        .quant-badge, .format-badge { font-family: var(--mono); font-size: 0.76rem; color: var(--ink-3); }
+        .format-badge.gguf { color: var(--mem); }
+        .format-badge.mlx { color: var(--freq); }
+        .quant-badge.dim, .format-badge.unknown { color: var(--ink-5); }
+
+        /* ── Detail modal ──────────────────────────────────────────── */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(6,8,11,0.86);
+            z-index: 200;
+            display: none;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 48px 24px;
+            overflow-y: auto;
+        }
+
+        .modal-overlay.open { display: flex; }
+
+        .modal {
+            width: 100%;
+            max-width: 900px;
+            background: var(--bg);
+            border: 1px solid var(--rule-2);
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            padding: 18px 22px 15px;
+            border-bottom: 1px solid var(--rule);
+        }
+
+        .modal-header .mh-body { flex: 1; min-width: 0; }
+
+        .modal-header .mh-title {
+            font-size: 1rem;
             font-weight: 500;
-            border: 1px solid rgba(136,136,204,0.15);
+            color: var(--ink);
+            margin-bottom: 5px;
+            word-break: break-word;
         }
 
-        .model-name { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-        .display-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-
-        .quant-badge {
-            display: inline-block;
-            font-size: 0.7rem;
-            padding: 1px 6px;
-            border-radius: 4px;
-            background: #1a1a1a;
-            color: #999;
-            font-weight: 500;
-            font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+        .modal-header .mh-sub {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            align-items: baseline;
+            font-size: 0.76rem;
+            color: var(--ink-3);
         }
 
-        .format-badge {
-            display: inline-block;
-            font-size: 0.65rem;
-            padding: 1px 5px;
-            border-radius: 3px;
-            font-weight: 600;
-            letter-spacing: 0.03em;
+        .modal-close {
+            flex-shrink: 0;
+            background: none;
+            border: none;
+            color: var(--ink-4);
+            font-size: 1.15rem;
+            line-height: 1;
+            cursor: pointer;
+            padding: 2px 4px;
+            transition: color 0.15s;
         }
 
-        .format-badge.gguf { background: #1a2a1a; color: #6a9; border: 1px solid rgba(102,170,153,0.15); }
-        .format-badge.mlx { background: #2a1a2a; color: #a6a; border: 1px solid rgba(170,102,170,0.15); }
-        .format-badge.unknown { background: #1a1a1a; color: #666; }
-        .date { color: #555; font-size: 0.8rem; }
+        .modal-close:hover { color: var(--ink); }
 
-        /* Detail panel */
-        tr.detail-row td { padding: 0; border-bottom: 1px solid #1a1a1a; }
-        tr.detail-row.hidden td { padding: 0; line-height: 0; }
-
-        .detail-panel {
-            overflow: hidden;
-            max-height: 0;
-            opacity: 0;
-            transition: max-height 0.3s ease, opacity 0.25s ease, padding 0.3s ease;
-            padding: 0 20px;
-            background: linear-gradient(180deg, #0c0e14 0%, #0a0a0e 100%);
-            border-top: 1px solid rgba(108,180,238,0.06);
-        }
-
-        .detail-panel.open {
-            max-height: 600px;
-            opacity: 1;
-            padding: 16px 20px;
-        }
+        .modal-body { padding: 4px 22px 22px; }
 
         .detail-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 12px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 14px 24px;
         }
 
         .detail-section-title {
             grid-column: 1 / -1;
-            font-size: 0.7rem;
-            font-weight: 600;
-            color: #5a6a80;
+            font-size: 0.63rem;
+            font-weight: 500;
+            color: var(--ink-4);
             text-transform: uppercase;
-            letter-spacing: 0.08em;
-            padding-top: 10px;
-            border-top: 1px solid rgba(108,180,238,0.08);
+            letter-spacing: 0.12em;
+            padding-top: 16px;
+            margin-bottom: -2px;
+            border-top: 1px solid var(--rule);
         }
 
-        .detail-section-title:first-child { padding-top: 0; border-top: none; }
+        .detail-cell { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+        .detail-cell .label { font-size: 0.7rem; color: var(--ink-4); }
 
-        .detail-cell { display: flex; flex-direction: column; gap: 2px; }
-        .detail-cell .label { font-size: 0.7rem; color: #555; }
-        .detail-cell .value { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; font-size: 0.82rem; color: #ccc; }
-        .detail-cell .value.dim { color: #444; }
-        .detail-cell .value.accent { color: #6cb4ee; font-weight: 600; }
-        .detail-cell .value.power { color: #e8a838; }
-        .detail-cell .value.freq { color: #a888dd; }
-        .detail-cell .value.mem { color: #66bb99; }
+        .detail-cell .value {
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            color: var(--ink-2);
+            font-variant-numeric: tabular-nums;
+            overflow-wrap: anywhere;
+        }
 
-        /* States */
+        .detail-cell .value.dim { color: var(--ink-5); }
+        .detail-cell .value.accent { color: var(--accent); }
+        .detail-cell .value.power { color: var(--power); }
+        .detail-cell .value.freq { color: var(--freq); }
+        .detail-cell .value.mem { color: var(--mem); }
+
+        /* ── States ────────────────────────────────────────────────── */
         .loading, .error-state, .empty-state {
             text-align: center;
-            padding: 60px 20px;
-            color: #666;
+            padding: 64px 20px;
+            color: var(--ink-3);
+            font-size: 0.85rem;
         }
 
         .loading .spinner {
-            width: 32px; height: 32px;
-            border: 3px solid #222;
-            border-top-color: #6cb4ee;
+            width: 22px;
+            height: 22px;
+            border: 1px solid var(--rule-2);
+            border-top-color: var(--accent);
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
             margin: 0 auto 16px;
         }
 
         @keyframes spin { to { transform: rotate(360deg); } }
-        .error-state { color: #cc4444; }
+        .error-state { color: #c97070; }
 
-        /* ── Footer area ── */
+        .toast {
+            position: fixed;
+            bottom: 26px;
+            left: 50%;
+            transform: translateX(-50%) translateY(8px);
+            background: var(--panel);
+            border: 1px solid var(--rule-2);
+            color: var(--ink-2);
+            padding: 9px 16px;
+            font-size: 0.79rem;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s, transform 0.2s;
+            z-index: 300;
+        }
+
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        /* ── Footer ────────────────────────────────────────────────── */
         .footer-area {
-            max-width: 960px;
+            max-width: 1360px;
             margin: 0 auto;
-            padding: 48px 20px 32px;
+            padding: 40px 24px 36px;
         }
 
-        .footer-divider {
-            border: none;
-            border-top: 1px solid #1a1a1a;
-            margin-bottom: 40px;
-        }
+        .footer-divider { display: none; }
 
-        /* Promo cards row */
-        .promo-cards {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 12px;
-        }
-
-        /* Bundle promo card */
-        .bundle-card {
-            display: grid;
-            grid-template-columns: 52px 1fr auto;
-            align-items: center;
-            gap: 14px;
-            padding: 12px 14px;
-            border-radius: 12px;
-            background: #0a0a0a;
-            border: 1px solid #1a1a1a;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            text-decoration: none;
-        }
-
-        .bundle-card:hover {
-            background: #111;
-            border-color: #333;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-        }
-
-        .bundle-card-icon {
-            width: 52px;
-            height: 52px;
-            border-radius: 12px;
-            object-fit: cover;
-        }
-
-        .bundle-card-body {
-            min-width: 0;
-        }
-
-        .bundle-card-badge {
-            display: inline-block;
-            font-size: 0.62rem;
-            font-weight: 700;
-            letter-spacing: 0.06em;
-            padding: 2px 8px;
-            border-radius: 4px;
-            background: #1a1a2e;
-            color: #8888cc;
-            margin-bottom: 4px;
-        }
-
-        .bundle-card-title {
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: #e5e5e5;
-            margin-bottom: 2px;
-        }
-
-        .bundle-card-sub {
-            font-size: 0.78rem;
-            color: #666;
-            line-height: 1.4;
-        }
-
-        .bundle-card-arrow {
-            font-size: 1.3rem;
-            color: #333;
-            flex-shrink: 0;
-            transition: color 0.2s, transform 0.2s;
-        }
-
-        .bundle-card:hover .bundle-card-arrow {
-            color: #6cb4ee;
-            transform: translateX(3px);
-        }
-
-/* cyberWriter promo card — light blue + neon pink */
-        .cw-card {
-            background: linear-gradient(135deg, #09111a 0%, #0a0d18 100%);
-            border: 1px solid #152230;
-            box-shadow: inset 0 0 0 1px rgba(108, 180, 238, 0.04);
-        }
-
-        .cw-card:hover {
-            background: linear-gradient(135deg, #0c1722 0%, #0d1224 100%);
-            border-color: #6cb4ee;
-            box-shadow: 0 4px 24px rgba(108, 180, 238, 0.18), 0 0 16px rgba(255, 64, 170, 0.08);
-        }
-
-        .cw-card .bundle-card-badge {
-            background: linear-gradient(135deg, rgba(108, 180, 238, 0.18) 0%, rgba(255, 64, 170, 0.12) 100%);
-            color: #9dd6ff; /* Adjusted to a slightly lighter blue for badge readability */
-            border: 1px solid rgba(108, 180, 238, 0.25);
-        }
-
-        .cw-card .bundle-card-title {
-            background: linear-gradient(90deg, #6cb4ee 0%, #ff7ac8 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .cw-card .bundle-card-sub strong {
-            color: #6cb4ee;
-            font-weight: 600;
-        }
-
-        .cw-card:hover .bundle-card-arrow {
-            color: #6cb4ee;
-            text-shadow: 0 0 12px rgba(108, 180, 238, 0.5);
-        }
-
-        /* Open source callout */
         .oss-note {
-            padding: 16px 20px;
-            border-radius: 10px;
-            background: #111;
-            border: 1px solid #1a1a1a;
-            margin-bottom: 24px;
-            font-size: 0.85rem;
-            color: #888;
-            line-height: 1.6;
+            font-size: 0.79rem;
+            color: var(--ink-3);
+            line-height: 1.7;
+            max-width: 720px;
+            margin-bottom: 26px;
         }
 
-        .oss-note strong { color: #ccc; }
-        .oss-note a { color: #6cb4ee; }
+        .oss-note strong { color: var(--ink-2); font-weight: 600; }
 
-        /* Support links row */
         .support-row {
             display: flex;
-            gap: 12px;
-            margin-bottom: 32px;
+            gap: 20px;
+            margin-bottom: 28px;
             flex-wrap: wrap;
         }
 
         .support-btn {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 8px 16px;
-            border-radius: 8px;
-            background: #151515;
-            border: 1px solid #222;
-            color: #aaa;
-            font-size: 0.82rem;
-            font-weight: 500;
-            text-decoration: none;
-            transition: border-color 0.2s, color 0.2s, background 0.2s;
-        }
-
-        .support-btn:hover {
-            border-color: #444;
-            color: #e5e5e5;
-            background: #1a1a1a;
-            text-decoration: none;
-        }
-
-        .support-btn svg {
-            width: 16px;
-            height: 16px;
-            fill: currentColor;
-        }
-
-        /* devpadapp.com card */
-        .devpad-card {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            padding: 16px 20px;
-            border-radius: 10px;
-            background: linear-gradient(135deg, #0e0e18 0%, #111118 100%);
-            border: 1px solid #1c1c2e;
-            text-decoration: none;
-            color: inherit;
-            margin-bottom: 32px;
-            transition: border-color 0.3s, transform 0.2s;
-        }
-
-        .devpad-card:hover {
-            border-color: #2a2a44;
-            transform: translateY(-1px);
-            text-decoration: none;
-        }
-
-        .devpad-card-text { flex: 1; }
-
-        .devpad-card-title {
-            font-size: 0.9rem;
-            font-weight: 600;
-            color: #ccc;
-            margin-bottom: 2px;
-        }
-
-        .devpad-card-sub {
-            font-size: 0.78rem;
-            color: #555;
-        }
-
-        .devpad-card-arrow {
-            font-size: 1.2rem;
-            color: #333;
+            gap: 7px;
+            color: var(--ink-3);
+            font-size: 0.79rem;
             transition: color 0.2s;
         }
 
-        .devpad-card:hover .devpad-card-arrow { color: #6cb4ee; }
+        .support-btn:hover { color: var(--accent); text-decoration: none; }
+        .support-btn svg { width: 14px; height: 14px; fill: currentColor; opacity: 0.8; }
 
-        /* Bottom footer */
+        .devpad-card {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            padding: 14px 0;
+            border-top: 1px solid var(--rule);
+            border-bottom: 1px solid var(--rule);
+            color: inherit;
+            margin-bottom: 22px;
+        }
+
+        .devpad-card:hover { text-decoration: none; }
+        .devpad-card-text { flex: 1; }
+
+        .devpad-card-title { font-size: 0.85rem; color: var(--ink-2); transition: color 0.2s; }
+        .devpad-card:hover .devpad-card-title { color: var(--accent); }
+        .devpad-card-sub { font-size: 0.75rem; color: var(--ink-4); margin-top: 1px; }
+        .devpad-card-arrow { color: var(--ink-4); }
+
         .footer-bottom {
-            padding-top: 20px;
-            border-top: 1px solid #1a1a1a;
+            padding-top: 18px;
+            border-top: 1px solid var(--rule);
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: baseline;
             flex-wrap: wrap;
-            gap: 12px;
+            gap: 12px 20px;
         }
 
-        .footer-credit {
-            font-size: 0.78rem;
-            color: #444;
-        }
+        .footer-credit { font-size: 0.75rem; color: var(--ink-4); }
+        .footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
+        .footer-links a { font-size: 0.75rem; color: var(--ink-4); }
+        .footer-links a:hover { color: var(--accent); }
 
-        .footer-links {
-            display: flex;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-
-        .footer-links a {
-            font-size: 0.78rem;
-            color: #555;
-        }
-
-        .footer-links a:hover { color: #6cb4ee; }
-
-        /* Filter bar */
-        .filter-bar {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-            margin-bottom: 16px;
-            flex-wrap: wrap;
-        }
-
-        .filter-bar select {
-            appearance: none;
-            -webkit-appearance: none;
-            background: #151515 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23555'/%3E%3C/svg%3E") no-repeat right 10px center;
-            border: 1px solid #222;
-            color: #ccc;
-            padding: 7px 30px 7px 12px;
-            border-radius: 8px;
-            font-size: 0.82rem;
-            font-family: inherit;
-            cursor: pointer;
-            min-width: 160px;
-            transition: border-color 0.2s;
-        }
-
-        .filter-bar select:hover { border-color: #444; }
-        .filter-bar select:focus { border-color: #6cb4ee; outline: none; box-shadow: 0 0 12px rgba(108,180,238,0.1); }
-
-        .filter-bar select option {
-            background: #151515;
-            color: #ccc;
-        }
-
-        .filter-clear {
-            background: none;
-            border: 1px solid #333;
-            color: #888;
-            padding: 7px 14px;
-            border-radius: 8px;
-            font-size: 0.82rem;
-            cursor: pointer;
-            font-family: inherit;
-            transition: border-color 0.2s, color 0.2s;
-            display: none;
-        }
-
-        .filter-clear:hover { border-color: #6cb4ee; color: #6cb4ee; }
-        .filter-clear.visible { display: inline-block; }
-
-        .filter-tag {
-            font-size: 0.75rem;
-            color: #666;
-            margin-left: 4px;
+        /* ── Responsive ────────────────────────────────────────────── */
+        @media (max-width: 1000px) {
+            .detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .stats-strip { gap: 24px; }
         }
 
         @media (max-width: 700px) {
-            .detail-grid { grid-template-columns: repeat(2, 1fr); }
+            .container, .footer-area { padding-left: 18px; padding-right: 18px; }
+            .masthead { padding: 20px 0 14px; align-items: flex-start; }
+            .masthead-nav { gap: 14px; }
             .promo-cards { grid-template-columns: 1fr; }
-            .stats-strip { grid-template-columns: repeat(2, 1fr); }
-            .stat-tile-value { font-size: 1.15rem; }
-            .support-row { justify-content: center; }
-            .footer-bottom { flex-direction: column; text-align: center; }
-            .filter-bar { flex-direction: column; }
-            .filter-bar select { width: 100%; }
+            .bundle-card { padding: 10px 0; }
+            .bundle-card + .bundle-card { border-left: none; border-top: 1px solid var(--rule); padding-left: 0; }
+            .stats-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 24px; }
+            .stat-tile-value { font-size: 1.25rem; }
+            .toolbar-row { flex-direction: column; align-items: stretch; }
+            .search-wrap { flex: 1 1 auto; }
+            .view-toggle { justify-content: flex-start; }
+            .count { order: -1; }
+            .filter-select { width: 100%; min-width: 0; }
+            /* Two filters per row beats five stacked rows on a phone. */
+            .toolbar-row.filters {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 12px 20px;
+                align-items: start;
+            }
+            .toolbar-row.filters .toolbar-spacer { display: none; }
+            .toolbar-row.filters #sort-select,
+            .toolbar-row.filters .active-filters { grid-column: 1 / -1; }
+            .data-bar { align-items: stretch; }
+            .ds-btn-note { display: none; }
+            .card-grid { grid-template-columns: 1fr; }
+            .pager { flex-direction: column; align-items: stretch; }
+            .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .modal-overlay { padding: 18px 12px; }
+            .footer-bottom { flex-direction: column; }
         }
-       /* ── Promo banner ── */
-        .promo-banner {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            padding: 12px 24px;
-            background: linear-gradient(135deg, rgba(108,180,238,0.1) 0%, rgba(108,180,238,0.03) 100%);
-            border-bottom: 1px solid rgba(108,180,238,0.15);
-            text-decoration: none;
-            color: inherit;
-            transition: background 0.2s;
-        }
-        .promo-banner:hover {
-            background: linear-gradient(135deg, rgba(108,180,238,0.15) 0%, rgba(108,180,238,0.06) 100%);
-            text-decoration: none;
-        }
-        .promo-banner-badge {
-            display: inline-block;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            padding: 3px 10px;
-            border-radius: 4px;
-            background: rgba(108,180,238,0.15);
-            color: #6cb4ee;
-            text-transform: uppercase;
-            flex-shrink: 0;
-        }
-        .promo-banner-text {
-            font-size: 14px;
-            color: #ccc;
-        }
-        .promo-banner-text strong { color: #fff; }
-        .promo-banner-arrow {
-            color: #6cb4ee;
-            font-size: 16px;
-            flex-shrink: 0;
-            transition: transform 0.2s;
-        }
-        .promo-banner:hover .promo-banner-arrow { transform: translateX(3px); }
-
-        /* ── Responsive ── */
-        @media (max-width: 700px) {
-            .hero h1 { font-size: 30px; }
-            .hero .tagline { font-size: 16px; }
-            .feature-grid { grid-template-columns: 1fr; }
-            .why-grid { grid-template-columns: 1fr; }
-            .stats-row { gap: 24px; }
-            .stat-value { font-size: 22px; }
-            .leaderboard-teaser { flex-direction: column; text-align: center; }
-            .bundle-card { flex-direction: column; text-align: center; }
-        }
-   
     </style>
 </head>
 <body>
     <a class="promo-banner" href="https://uncsoft.github.io/anubis-oss/analysis.html">
         <span class="promo-banner-badge">New</span>
-        <span class="promo-banner-text"><strong>Benchmark Analysis Report</strong> &mdash; Deep dive into 375+ community runs across 10+ Apple Silicon chips with interactive charts</span>
+        <span class="promo-banner-text"><strong>Benchmark Analysis Report</strong> &mdash; <span id="promo-banner-detail">Deep dive into 1,700+ community runs across 15 Apple Silicon chips with interactive charts</span></span>
         <span class="promo-banner-arrow">&rarr;</span>
     </a>
-<body>
-    <div class="container">
-        <div class="hero">
-            <h1><span class="accent">Anubis</span> Leaderboard</h1>
-            <p class="subtitle">Community benchmark results from Anubis OSS</p>
-            <p class="oss-note">Real-world LLM performance on Apple Silicon - tokens/sec, power draw, TTFT, and more. Run a benchmark in Anubis and upload your results to see how your Mac stacks up.</p>
 
-            <div class="hero-links">
-                <a href="https://devpadapp.com/anubis-oss.html">&larr; Anubis OSS</a>
-                <a href="explorer.html">Data Explorer</a>
-                <a href="https://cyberWriter.app">cyberWriter</a>
-                <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
-                <a href="https://devpadapp.com">devPad</a>
-                <a href="https://devpadapp.com/anubis-oss-readme.html">README</a>
+    <div class="container">
+        <!-- Masthead: title, tagline and nav on one row -->
+        <div class="masthead">
+            <div class="masthead-id">
+                <h1><span class="accent">Anubis</span> Leaderboard</h1>
+                <p class="tagline">Real-world LLM performance on Apple Silicon &mdash; tok/s, power, TTFT. Run a benchmark in Anubis and upload your results.</p>
             </div>
+            <nav class="masthead-nav">
+                <a href="https://devpadapp.com/anubis-oss.html">Anubis OSS</a>
+                <a href="https://uncsoft.github.io/anubis-oss/analysis.html">Analysis</a>
+                <a href="https://devpadapp.com/anubis-oss-readme.html">README</a>
+                <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
+                <a href="https://wranglify.app">Wranglify</a>
+                <a href="https://cyberWriter.app">cyberWriter</a>
+                <a href="https://devpadapp.com">devPad</a>
+            </nav>
         </div>
-        <!-- Promo cards -->
+
+        <!-- Promo cards (slim) -->
         <div class="promo-cards">
             <a class="bundle-card" href="https://apps.apple.com/us/app-bundle/the-architects-toolkit/id1874965091?mt=12">
                 <img class="bundle-card-icon" src="https://devpadapp.com/anubis/anubis_icon.png" alt="Anubis">
                 <div class="bundle-card-body">
-                    <div class="bundle-card-badge">APP STORE BUNDLE</div>
-                    <div class="bundle-card-title">The Architect's Toolkit</div>
+                    <div class="bundle-card-title">The Architect&rsquo;s Toolkit <span class="bundle-card-badge">BUNDLE</span></div>
                     <div class="bundle-card-sub">devPad + cyberWriter + Anubis</div>
                 </div>
                 <span class="bundle-card-arrow">&rarr;</span>
@@ -776,14 +1183,21 @@
             <a class="bundle-card cw-card" href="https://uncsoft.lemonsqueezy.com/checkout/buy/9f149fa2-31b7-4a34-a4ac-ed951b585f94?checkout[discount_code]=FDT4E">
                 <img class="bundle-card-icon" src="https://devpadapp.com/cyberwriter_icon.png" alt="cyberWriter">
                 <div class="bundle-card-body">
-                    <div class="bundle-card-badge">ANUBIS USER DISCOUNT</div>
-                    <div class="bundle-card-title">cyberWriter</div>
-                    <div class="bundle-card-sub">Direct from uncSoft &mdash; <strong> 25% off code applied</strong>
-                    </div>
+                    <div class="bundle-card-title">cyberWriter <span class="bundle-card-badge">25% OFF</span></div>
+                    <div class="bundle-card-sub">Anubis user discount, code applied</div>
+                </div>
+                <span class="bundle-card-arrow">&rarr;</span>
+            </a>
+            <a class="bundle-card wr-card" href="https://wranglify.app">
+                <span class="wr-icon">W_</span>
+                <div class="bundle-card-body">
+                    <div class="bundle-card-title">Wranglify <span class="bundle-card-badge">DATA</span></div>
+                    <div class="bundle-card-sub">Local data workbench, nothing uploads</div>
                 </div>
                 <span class="bundle-card-arrow">&rarr;</span>
             </a>
         </div>
+
         <div class="stats-strip" id="stats-strip">
             <div class="stat-tile">
                 <div class="stat-tile-label">Total Runs</div>
@@ -797,7 +1211,7 @@
             </div>
             <div class="stat-tile">
                 <div class="stat-tile-label">Most-Tested Chip</div>
-                <div class="stat-tile-value" id="stat-chip" style="font-size:1.05rem">&mdash;</div>
+                <div class="stat-tile-value" id="stat-chip" style="font-size:1rem">&mdash;</div>
                 <div class="stat-tile-sub" id="stat-chip-sub">&nbsp;</div>
             </div>
             <div class="stat-tile">
@@ -807,45 +1221,135 @@
             </div>
         </div>
 
-        <div class="status-bar">
-            <span class="count" id="count">Loading...</span>
-            <button class="refresh-btn" onclick="fetchLeaderboard()">Refresh</button>
-        </div>
+        <!-- Toolbar: search + filters + view switch -->
+        <div class="toolbar" id="toolbar">
+            <div class="toolbar-row">
+                <div class="search-wrap">
+                    <svg class="search-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M11.74 10.34h-.68l-.24-.23a5.56 5.56 0 1 0-.6.6l.23.24v.68l4.28 4.27 1.27-1.27-4.26-4.29Zm-5.13 0a3.85 3.85 0 1 1 0-7.7 3.85 3.85 0 0 1 0 7.7Z"/></svg>
+                    <input class="search-input" id="search" type="search" autocomplete="off" spellcheck="false"
+                           list="model-list" aria-label="Search models, chips and submitters"
+                           placeholder="Search 491 models&hellip;  try  qwen3*   *-30b-*   llama -1b">
+                    <datalist id="model-list"></datalist>
+                    <span class="search-actions">
+                        <button class="search-x" id="search-clear" type="button" title="Clear search" hidden>&times;</button>
+                        <button class="search-help-btn" id="search-help-btn" type="button" aria-expanded="false" title="Search syntax">?</button>
+                    </span>
+                </div>
 
-        <div class="filter-bar" id="filter-bar" style="display:none">
-            <select id="filter-chip" onchange="applyFilters()">
-                <option value="">All Chips</option>
-            </select>
-            <select id="filter-model" onchange="applyFilters()">
-                <option value="">All Models</option>
-            </select>
-            <select id="filter-quant" onchange="applyFilters()">
-                <option value="">All Quants</option>
-            </select>
-            <select id="filter-format" onchange="applyFilters()">
-                <option value="">All Formats</option>
-            </select>
-            <select id="filter-methodology" onchange="applyFilters()" title="Filter by metric methodology version. v3 = corrected tok/s over all generated tokens + load-excluded TTFT (v3.9+). v2 = corrected per-channel SoC power scaling (v3.5+). Earlier submissions undercount CPU/ANE/DRAM power and may inflate tok/s on reasoning-heavy runs.">
-                <option value="">All Methodologies</option>
-                <option value="3">v3.9+ corrected tok/s + TTFT</option>
-                <option value="2">v3.5+ corrected power</option>
-                <option value="legacy">Pre-v3.5 (legacy power)</option>
-            </select>
-            <button class="filter-clear" id="filter-clear" onclick="clearFilters()">Clear Filters</button>
-            <span class="filter-tag" id="filter-tag"></span>
+                <span class="count" id="count">Loading&hellip;</span>
+
+                <div class="view-toggle" role="group" aria-label="Result layout">
+                    <button class="view-btn" id="view-cards" type="button" aria-pressed="false">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 1h6v6H1V1Zm8 0h6v6H9V1ZM1 9h6v6H1V9Zm8 0h6v6H9V9Z"/></svg>
+                        Cards
+                    </button>
+                    <button class="view-btn" id="view-table" type="button" aria-pressed="false">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 2h14v3H1V2Zm0 4.5h14v3H1v-3ZM1 11h14v3H1v-3Z"/></svg>
+                        Table
+                    </button>
+                </div>
+            </div>
+
+            <div class="search-syntax" id="search-syntax">
+                <span class="sx-row"><span class="sx-label">Wildcards</span> &nbsp;<code>qwen3*</code> starts with &middot; <code>*coder*</code> contains &middot; <code>*-30b-*</code> anywhere &middot; <code>llama?2</code> single character</span>
+                <span class="sx-row"><span class="sx-label">Combine</span> &nbsp;<code>qwen 30b</code> all terms must match &middot; <code>mlx|gguf</code> either &middot; <code>-1b</code> exclude</span>
+                <span class="sx-row"><span class="sx-label">Matches</span> &nbsp;model name, model id, quantization, format, chip, backend and submitter. Plain text matches anywhere; wildcards match a whole field.</span>
+            </div>
+
+            <div class="toolbar-row filters">
+                <select class="filter-select" id="filter-chip" aria-label="Filter by chip">
+                    <option value="">All Chips</option>
+                </select>
+                <select class="filter-select" id="filter-quant" aria-label="Filter by quantization">
+                    <option value="">All Quants</option>
+                </select>
+                <select class="filter-select" id="filter-format" aria-label="Filter by format">
+                    <option value="">All Formats</option>
+                </select>
+                <select class="filter-select" id="filter-methodology" aria-label="Filter by methodology version" title="Filter by metric methodology version. v3 = corrected tok/s over all generated tokens + load-excluded TTFT (v3.9+). v2 = corrected per-channel SoC power scaling (v3.5+). Earlier submissions undercount CPU/ANE/DRAM power and may inflate tok/s on reasoning-heavy runs.">
+                    <option value="">All Methodologies</option>
+                    <option value="3">v3.9+ corrected tok/s + TTFT</option>
+                    <option value="2">v3.5+ corrected power</option>
+                    <option value="legacy">Pre-v3.5 (legacy power)</option>
+                </select>
+                <select class="filter-select" id="sort-select" aria-label="Sort results">
+                    <option value="tokens_per_second:desc">Sort: fastest out tok/s</option>
+                    <option value="tokens_per_second:asc">Sort: slowest out tok/s</option>
+                    <option value="_prefill_tps:desc">Sort: fastest prefill</option>
+                    <option value="time_to_first_token:asc">Sort: lowest TTFT</option>
+                    <option value="avg_watts_per_token:asc">Sort: most efficient (W/tok)</option>
+                    <option value="avg_system_power_watts:asc">Sort: lowest power</option>
+                    <option value="submitted_at:desc">Sort: newest</option>
+                    <option value="submitted_at:asc">Sort: oldest</option>
+                    <option value="model_name:asc">Sort: model A&ndash;Z</option>
+                    <option value="chip_name:asc">Sort: chip A&ndash;Z</option>
+                </select>
+                <div class="toolbar-spacer"></div>
+                <div class="active-filters" id="active-filters"></div>
+            </div>
+
+            <!-- Data bar: the full dataset, and the tools that open it -->
+            <div class="data-bar">
+                <div class="data-bar-copy">
+                    <span class="data-bar-label">Full dataset</span>
+                    <span class="data-bar-count" id="ds-count">0 runs</span>
+                    <span class="data-bar-sub" id="ds-note">&times; 59 fields</span>
+                </div>
+                <div class="data-bar-actions">
+                    <a class="ds-btn primary" href="explorer.html">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 1h6v9H1V1Zm7 0h7v5H8V1ZM8 7h7v8H8V7ZM1 11h6v4H1v-4Z"/></svg>
+                        Data&nbsp;Explorer
+                        <span class="ds-btn-note">pivot &amp; chart every field</span>
+                    </a>
+                    <button class="ds-btn" id="export-csv" type="button">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1v8.6l3-3 1.1 1.1L7.5 12 2.9 7.7 4 6.6l3 3V1h1Zm-6 12h12v2H2v-2Z"/></svg>
+                        CSV
+                    </button>
+                    <button class="ds-btn" id="export-json" type="button">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1v8.6l3-3 1.1 1.1L7.5 12 2.9 7.7 4 6.6l3 3V1h1Zm-6 12h12v2H2v-2Z"/></svg>
+                        JSON
+                    </button>
+                    <a class="ds-btn wrangle" href="https://unfckr.app/" id="open-wranglify" target="_blank" rel="noopener">
+                        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v2H4v8h8V9h2v5H2V2Zm7 0h5v5h-2V5.4L8.7 8.7 7.3 7.3 10.6 4H9V2Z"/></svg>
+                        Wranglify
+                    </a>
+                    <button class="refresh-btn" id="refresh-btn" type="button" title="Reload from the API">Refresh</button>
+                </div>
+            </div>
         </div>
 
         <div id="content">
             <div class="loading">
                 <div class="spinner"></div>
-                <p>Loading leaderboard...</p>
+                <p>Loading leaderboard&hellip;</p>
             </div>
         </div>
+
+        <div id="pager-bottom"></div>
+
+        <p class="oss-note" style="margin-top:22px">
+            <strong>Note on coverage:</strong> only runs submitted from an Ollama backend carry the full gamut of
+            datapoints &mdash; LM Studio, MLX and others do not expose every performance metric, such as prompt
+            evaluation time. The dataset is robust even without Ollama as the runtime. Enjoy! &mdash;JT
+        </p>
     </div>
-    <br>
-    <div class="container">
-            <p class="oss-note"> Note: When this data is collected and submitted from Apple Computers, only systems submitting runs from an Ollama backend contain the full gamut of datapoints - LM Studio, MLX and others do not expose all performance metrics, such as prompt evaluation time. But the dataset is robust, even without Ollama as the runtime. Enjoy! -JT </p>
+
+    <!-- Detail modal -->
+    <div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <div class="mh-body">
+                    <div class="mh-title" id="modal-title">&nbsp;</div>
+                    <div class="mh-sub" id="modal-sub"></div>
+                </div>
+                <button class="modal-close" id="modal-close" type="button" aria-label="Close details">&times;</button>
             </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
     <!-- Footer area -->
     <div class="footer-area">
         <hr class="footer-divider">
@@ -889,7 +1393,9 @@
             <div class="footer-links">
                 <a href="https://github.com/uncSoft/anubis-oss">GitHub</a>
                 <a href="https://devpadapp.com/anubis-oss.html">Anubis OSS</a>
+                <a href="explorer.html">Data Explorer</a>
                 <a href="https://devpadapp.com">devPad</a>
+                <a href="https://wranglify.app">Wranglify</a>
                 <a href="https://ko-fi.com/jtatuncsoft/tip">Ko-fi</a>
                 <a href="https://devpadapp.com/anubis/privacy.html">Privacy</a>
             </div>
@@ -897,308 +1403,629 @@
     </div>
 
     <script>
-        let entries = [];
-        let currentSort = { key: 'tokens_per_second', dir: 'desc' };
-        let expandedIds = new Set();
-        // methodology values: '' = all, '2' = v3.5+ corrected, 'legacy' = NULL or 1
-        let filters = { chip: '', model: '', quant: '', format: '', methodology: '' };
-        let countAnimated = false;
+    (function () {
+        'use strict';
 
-        async function fetchLeaderboard() {
-            const content = document.getElementById('content');
-            const count = document.getElementById('count');
+        // ══════════════════════════════════════════════════════════════
+        // State
+        //
+        // The whole dataset lives in memory. Filtering and sorting always
+        // run over the FULL matching set; pagination is nothing but a
+        // window onto that sorted list. That is what keeps this a
+        // leaderboard: rank #1 is #1 of everything that matches, not #1
+        // of whatever happened to land on the visible page.
+        // ══════════════════════════════════════════════════════════════
+        var API_PATHS = [
+            '/anubis/api/leaderboard.php?limit=10000',
+            'https://devpadapp.com/anubis/api/leaderboard.php?limit=10000'
+        ];
 
+        var entries = [];
+        var sort = { key: 'tokens_per_second', dir: 'desc' };
+        var filters = { chip: '', quant: '', format: '', methodology: '', search: '' };
+        var view = 'cards';
+        var page = 1;
+        var pageSize = 60;
+        var countAnimated = false;
+        var restoringHash = false;
+
+        // Memoised filter+sort+rank pass. Recomputed only when the inputs
+        // change, so paging through 30 pages costs one pass, not thirty.
+        var memo = { key: null, value: null };
+
+        var $ = function (id) { return document.getElementById(id); };
+
+        // ══════════════════════════════════════════════════════════════
+        // Wildcard search
+        //
+        // A query is whitespace-separated terms, ANDed together.
+        //   qwen3*      glob, anchored to a whole field
+        //   *coder*     glob, matches anywhere in a field
+        //   llama?2     ? is exactly one character
+        //   mlx|gguf    alternatives within one term (OR)
+        //   -1b         leading dash excludes
+        // A term with no * or ? is a plain case-insensitive substring.
+        // ══════════════════════════════════════════════════════════════
+        function globToRegExp(glob) {
+            var wild = /[*?]/.test(glob);
+            var body = glob.replace(/[.+^${}()[\]\\|]/g, '\\$&')
+                           .replace(/\*/g, '[\\s\\S]*')
+                           .replace(/\?/g, '[\\s\\S]');
             try {
-                const resp = await fetch('/anubis/api/leaderboard.php?limit=500');
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const data = await resp.json();
+                return new RegExp(wild ? '^' + body + '$' : body, 'i');
+            } catch (e) {
+                return null;
+            }
+        }
 
+        function compileQuery(raw) {
+            var terms = String(raw || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+            if (!terms.length) return null;
+            var compiled = [];
+            for (var i = 0; i < terms.length; i++) {
+                var t = terms[i];
+                var negate = t.charAt(0) === '-' && t.length > 1;
+                if (negate) t = t.slice(1);
+                var alts = t.split('|').filter(Boolean).map(globToRegExp).filter(Boolean);
+                if (alts.length) compiled.push({ negate: negate, alts: alts });
+            }
+            return compiled.length ? compiled : null;
+        }
+
+        function queryMatches(compiled, fields) {
+            for (var i = 0; i < compiled.length; i++) {
+                var term = compiled[i];
+                var hit = false;
+                for (var a = 0; a < term.alts.length && !hit; a++) {
+                    for (var f = 0; f < fields.length; f++) {
+                        if (term.alts[a].test(fields[f])) { hit = true; break; }
+                    }
+                }
+                if (hit === term.negate) return false;
+            }
+            return true;
+        }
+
+        // Searchable fields are precomputed once per entry. Matching
+        // per-field (rather than against one joined blob) is what makes
+        // anchored globs like `qwen3*` behave the way people expect.
+        function indexEntry(e) {
+            e._fields = [e.model_name, e.model_id, e.model_quantization, e.model_format,
+                         e.chip_name, e.chip_mac_model, e.display_name, e.backend]
+                        .filter(Boolean).map(function (v) { return String(v).toLowerCase(); });
+            e._prefill_tps = prefillTps(e);
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // Fetch
+        // ══════════════════════════════════════════════════════════════
+        function fetchLeaderboard() {
+            var content = $('content');
+            content.innerHTML = '<div class="loading"><div class="spinner"></div><p>Loading leaderboard&hellip;</p></div>';
+
+            var attempt = function (i) {
+                if (i >= API_PATHS.length) return Promise.reject(new Error('all endpoints failed'));
+                return fetch(API_PATHS[i]).then(function (r) {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                }).catch(function (err) {
+                    if (i + 1 < API_PATHS.length) return attempt(i + 1);
+                    throw err;
+                });
+            };
+
+            return attempt(0).then(function (data) {
                 entries = data.entries || [];
+                entries.forEach(indexEntry);
+                memo.key = null;
 
-                if (entries.length === 0) {
-                    count.textContent = '0 results';
+                if (!entries.length) {
+                    $('count').textContent = '0 results';
                     content.innerHTML = '<div class="empty-state"><p>No benchmarks submitted yet. Be the first!</p></div>';
-                    document.getElementById('filter-bar').style.display = 'none';
                     return;
                 }
 
                 renderStatsStrip();
                 populateFilters();
-                renderTable();
-            } catch (err) {
-                count.textContent = '';
-                content.innerHTML = `<div class="error-state"><p>Failed to load leaderboard: ${esc(err.message)}</p></div>`;
-            }
+                $('toolbar').classList.add('visible');
+                readHash();
+                render();
+            }).catch(function (err) {
+                $('count').textContent = '';
+                content.innerHTML = '<div class="error-state"><p>Failed to load leaderboard: ' + esc(err.message) + '</p></div>';
+            });
         }
 
+        // ══════════════════════════════════════════════════════════════
+        // Header stats
+        // ══════════════════════════════════════════════════════════════
         function renderStatsStrip() {
-            const valid = entries.filter(e => e.tokens_per_second != null);
-            const fastestEntry = valid.reduce((best, e) =>
-                (!best || e.tokens_per_second > best.tokens_per_second) ? e : best, null);
+            var valid = entries.filter(function (e) { return e.tokens_per_second != null; });
+            var fastest = valid.reduce(function (best, e) {
+                return (!best || e.tokens_per_second > best.tokens_per_second) ? e : best;
+            }, null);
 
-            const chipCounts = {};
-            entries.forEach(e => {
+            var chipCounts = {};
+            entries.forEach(function (e) {
                 if (e.chip_name) chipCounts[e.chip_name] = (chipCounts[e.chip_name] || 0) + 1;
             });
-            const topChipPair = Object.entries(chipCounts).sort((a, b) => b[1] - a[1])[0];
+            var topChip = Object.keys(chipCounts).map(function (k) { return [k, chipCounts[k]]; })
+                                .sort(function (a, b) { return b[1] - a[1]; })[0];
 
-            const uniqueModels = new Set(entries.map(e => e.model_name).filter(Boolean)).size;
+            var uniqueModels = countUnique('model_name');
+            var uniqueChips = countUnique('chip_name');
 
-            animateCount(document.getElementById('stat-runs'), entries.length);
-            if (fastestEntry) {
-                animateCount(document.getElementById('stat-fastest'), Math.round(fastestEntry.tokens_per_second));
-                document.getElementById('stat-fastest-sub').textContent =
-                    `${fastestEntry.chip_name || 'unknown'} · ${fastestEntry.model_name || ''}`.slice(0, 60);
+            animateCount($('stat-runs'), entries.length);
+            if (fastest) {
+                animateCount($('stat-fastest'), Math.round(fastest.tokens_per_second));
+                $('stat-fastest-sub').textContent =
+                    (chipLabel(fastest) + ' · ' + (fastest.model_name || '')).slice(0, 60);
             }
-            if (topChipPair) {
-                document.getElementById('stat-chip').textContent = topChipPair[0];
-                document.getElementById('stat-chip-sub').textContent = `${topChipPair[1]} runs`;
+            if (topChip) {
+                $('stat-chip').textContent = String(topChip[0]).replace(/^Apple\s+/i, '');
+                $('stat-chip-sub').textContent = topChip[1] + ' runs';
             }
-            animateCount(document.getElementById('stat-models'), uniqueModels);
+            animateCount($('stat-models'), uniqueModels);
+            $('stats-strip').style.display = 'grid';
 
-            document.getElementById('stats-strip').style.display = 'grid';
+            // The banner used to hard-code "375+", which went stale the
+            // moment it shipped. Derive it from the live payload instead.
+            $('promo-banner-detail').textContent =
+                'Deep dive into ' + entries.length.toLocaleString() + ' community runs across ' +
+                uniqueChips + ' Apple Silicon chips with interactive charts';
+
+            $('search').placeholder =
+                'Search ' + uniqueModels + ' models…  try  qwen3*   *-30b-*   llama -1b';
+        }
+
+        function countUnique(key) {
+            var seen = {};
+            var n = 0;
+            entries.forEach(function (e) {
+                var v = e[key];
+                if (v && !seen[v]) { seen[v] = 1; n++; }
+            });
+            return n;
         }
 
         function animateCount(el, target, duration) {
             duration = duration || 900;
-            const start = performance.now();
-            function step(now) {
-                const t = Math.min((now - start) / duration, 1);
-                const eased = 1 - Math.pow(1 - t, 3);
+            var start = performance.now();
+            (function step(now) {
+                var t = Math.min((now - start) / duration, 1);
+                var eased = 1 - Math.pow(1 - t, 3);
                 el.textContent = Math.round(target * eased).toLocaleString();
                 if (t < 1) requestAnimationFrame(step);
-            }
-            requestAnimationFrame(step);
+            })(start);
         }
 
+        // ══════════════════════════════════════════════════════════════
+        // Filters
+        // ══════════════════════════════════════════════════════════════
         function populateFilters() {
-            const chipSelect = document.getElementById('filter-chip');
-            const modelSelect = document.getElementById('filter-model');
-            const quantSelect = document.getElementById('filter-quant');
-            const formatSelect = document.getElementById('filter-format');
+            fillSelect('filter-chip', 'All Chips', uniqueValues('chip_name'), filters.chip);
+            fillSelect('filter-quant', 'All Quants', uniqueValues('model_quantization'), filters.quant);
+            fillSelect('filter-format', 'All Formats', uniqueValues('model_format'), filters.format);
 
-            // Extract unique values, sorted alphabetically
-            const chips = [...new Set(entries.map(e => e.chip_name).filter(Boolean))].sort();
-            const models = [...new Set(entries.map(e => e.model_name).filter(Boolean))].sort();
-            const quants = [...new Set(entries.map(e => e.model_quantization).filter(Boolean))].sort();
-            const formats = [...new Set(entries.map(e => e.model_format).filter(Boolean))].sort();
-
-            chipSelect.innerHTML = '<option value="">All Chips</option>' +
-                chips.map(c => `<option value="${esc(c)}"${filters.chip === c ? ' selected' : ''}>${esc(c)}</option>`).join('');
-
-            modelSelect.innerHTML = '<option value="">All Models</option>' +
-                models.map(m => `<option value="${esc(m)}"${filters.model === m ? ' selected' : ''}>${esc(m)}</option>`).join('');
-
-            quantSelect.innerHTML = '<option value="">All Quants</option>' +
-                quants.map(q => `<option value="${esc(q)}"${filters.quant === q ? ' selected' : ''}>${esc(q)}</option>`).join('');
-
-            formatSelect.innerHTML = '<option value="">All Formats</option>' +
-                formats.map(f => `<option value="${esc(f)}"${filters.format === f ? ' selected' : ''}>${esc(f)}</option>`).join('');
-
-            document.getElementById('filter-bar').style.display = 'flex';
+            // 491 models is far too many for a <select>; the search box is
+            // the real control. The datalist just gives native autocomplete.
+            $('model-list').innerHTML = uniqueValues('model_name')
+                .map(function (m) { return '<option value="' + esc(m) + '"></option>'; }).join('');
         }
 
-        function getFilteredEntries() {
-            return entries.filter(e => {
+        function uniqueValues(key) {
+            var seen = {};
+            var out = [];
+            entries.forEach(function (e) {
+                var v = e[key];
+                if (v && !seen[v]) { seen[v] = 1; out.push(v); }
+            });
+            return out.sort(function (a, b) { return String(a).localeCompare(String(b)); });
+        }
+
+        function fillSelect(id, allLabel, values, selected) {
+            $(id).innerHTML = '<option value="">' + allLabel + '</option>' +
+                values.map(function (v) {
+                    return '<option value="' + esc(v) + '"' + (selected === v ? ' selected' : '') + '>' + esc(v) + '</option>';
+                }).join('');
+        }
+
+        function readFilterInputs() {
+            filters.chip = $('filter-chip').value;
+            filters.quant = $('filter-quant').value;
+            filters.format = $('filter-format').value;
+            filters.methodology = $('filter-methodology').value;
+            filters.search = $('search').value;
+        }
+
+        function hasActiveFilters() {
+            return !!(filters.chip || filters.quant || filters.format || filters.methodology || filters.search.trim());
+        }
+
+        function clearFilters() {
+            filters = { chip: '', quant: '', format: '', methodology: '', search: '' };
+            ['filter-chip', 'filter-quant', 'filter-format', 'filter-methodology'].forEach(function (id) { $(id).value = ''; });
+            $('search').value = '';
+            $('search-clear').hidden = true;
+            page = 1;
+            render();
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // Filter + sort + rank — one memoised pass over the full dataset
+        // ══════════════════════════════════════════════════════════════
+        function computeView() {
+            var key = [filters.chip, filters.quant, filters.format, filters.methodology,
+                       filters.search.trim().toLowerCase(), sort.key, sort.dir, entries.length].join(' ');
+            if (memo.key === key) return memo.value;
+
+            var query = compileQuery(filters.search);
+            var filtered = entries.filter(function (e) {
                 if (filters.chip && e.chip_name !== filters.chip) return false;
-                if (filters.model && e.model_name !== filters.model) return false;
                 if (filters.quant && e.model_quantization !== filters.quant) return false;
                 if (filters.format && e.model_format !== filters.format) return false;
                 if (filters.methodology === '3' && e.methodology_version !== 3) return false;
                 if (filters.methodology === '2' && e.methodology_version !== 2) return false;
                 if (filters.methodology === 'legacy' && (e.methodology_version === 2 || e.methodology_version === 3)) return false;
+                if (query && !queryMatches(query, e._fields)) return false;
                 return true;
             });
+
+            // Rank is always "position by out tok/s within the current
+            // filtered set" — independent of which column you sorted by
+            // and of which page you are on.
+            var byTps = filtered.slice().sort(function (a, b) {
+                return (b.tokens_per_second || 0) - (a.tokens_per_second || 0);
+            });
+            var rank = {};
+            byTps.forEach(function (e, i) { rank[e.id] = i + 1; });
+            var maxTps = byTps.length ? (byTps[0].tokens_per_second || 0) : 0;
+
+            var sorted = filtered.slice().sort(comparator);
+
+            memo.key = key;
+            memo.value = { filtered: filtered, sorted: sorted, rank: rank, maxTps: maxTps };
+            return memo.value;
         }
 
-        function applyFilters() {
-            filters.chip = document.getElementById('filter-chip').value;
-            filters.model = document.getElementById('filter-model').value;
-            filters.quant = document.getElementById('filter-quant').value;
-            filters.format = document.getElementById('filter-format').value;
-            filters.methodology = document.getElementById('filter-methodology').value;
-            renderTable();
-        }
-
-        function clearFilters() {
-            filters.chip = '';
-            filters.model = '';
-            filters.quant = '';
-            filters.format = '';
-            filters.methodology = '';
-            document.getElementById('filter-chip').value = '';
-            document.getElementById('filter-model').value = '';
-            document.getElementById('filter-quant').value = '';
-            document.getElementById('filter-format').value = '';
-            document.getElementById('filter-methodology').value = '';
-            renderTable();
-        }
-
-        function renderTable() {
-            const content = document.getElementById('content');
-            const filtered = getFilteredEntries();
-            const hasFilters = filters.chip || filters.model || filters.quant || filters.format || filters.methodology;
-
-            // Update count display
-            const countEl = document.getElementById('count');
-            if (hasFilters) {
-                countEl.textContent = `${filtered.length} of ${entries.length} results`;
-            } else if (!countAnimated) {
-                countAnimated = true;
-                const target = entries.length;
-                const start = performance.now();
-                (function step(now) {
-                    const t = Math.min((now - start) / 900, 1);
-                    const eased = 1 - Math.pow(1 - t, 3);
-                    countEl.textContent = `${Math.round(target * eased).toLocaleString()} results`;
-                    if (t < 1) requestAnimationFrame(step);
-                })(start);
-            } else {
-                countEl.textContent = `${entries.length} results`;
+        function comparator(a, b) {
+            var va = a[sort.key];
+            var vb = b[sort.key];
+            if (va == null && vb == null) return (a.id || 0) - (b.id || 0);
+            if (va == null) return 1;
+            if (vb == null) return -1;
+            if (typeof va === 'string' || typeof vb === 'string') {
+                var cmp = String(va).localeCompare(String(vb));
+                return sort.dir === 'asc' ? cmp : -cmp;
             }
+            if (va === vb) return (a.id || 0) - (b.id || 0);
+            return sort.dir === 'asc' ? va - vb : vb - va;
+        }
 
-            // Toggle clear button and filter tag
-            const clearBtn = document.getElementById('filter-clear');
-            const filterTag = document.getElementById('filter-tag');
-            if (hasFilters) {
-                clearBtn.classList.add('visible');
-                const parts = [];
-                if (filters.chip) parts.push(filters.chip);
-                if (filters.model) parts.push(filters.model);
-                if (filters.quant) parts.push(filters.quant);
-                if (filters.format) parts.push(filters.format);
-                filterTag.textContent = parts.join(' + ');
-            } else {
-                clearBtn.classList.remove('visible');
-                filterTag.textContent = '';
-            }
+        // ══════════════════════════════════════════════════════════════
+        // Render
+        // ══════════════════════════════════════════════════════════════
+        function render() {
+            var v = computeView();
+            var total = v.sorted.length;
+            var perPage = pageSize === 0 ? Math.max(total, 1) : pageSize;
+            var pageCount = Math.max(1, Math.ceil(total / perPage));
+            if (page > pageCount) page = pageCount;
+            if (page < 1) page = 1;
 
-            if (filtered.length === 0) {
-                content.innerHTML = '<div class="empty-state"><p>No results match the selected filters.</p></div>';
+            var from = (page - 1) * perPage;
+            var slice = v.sorted.slice(from, from + perPage);
+
+            renderCount(total);
+            renderActiveFilters();
+            syncSortSelect();
+
+            var content = $('content');
+            if (!total) {
+                content.innerHTML = '<div class="empty-state"><p>No results match the current search and filters.</p></div>';
+                $('pager-bottom').innerHTML = '';
+                setDataBar(0);
+                writeHash();
                 return;
             }
 
-            // Synthetic columns are derived on the fly so they can be sorted/filtered
-            // without changing the API payload shape.
-            const derived = (row, key) => {
-                if (key === '_prefill_tps') return prefillTps(row);
-                return row[key];
-            };
-
-            const sorted = [...filtered].sort((a, b) => {
-                let va = derived(a, currentSort.key);
-                let vb = derived(b, currentSort.key);
-                if (va == null && vb == null) return 0;
-                if (va == null) return 1;
-                if (vb == null) return -1;
-                if (typeof va === 'string') {
-                    return currentSort.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
-                }
-                return currentSort.dir === 'asc' ? va - vb : vb - va;
-            });
-
-            const columns = [
-                { key: '_rank', label: '#', sortable: false },
-                { key: 'display_name', label: 'Name' },
-                { key: 'model_name', label: 'Model' },
-                { key: 'model_quantization', label: 'Quant' },
-                { key: 'model_format', label: 'Format' },
-                { key: 'chip_name', label: 'Chip' },
-                { key: 'tokens_per_second', label: 'out tok/s' },
-                { key: '_prefill_tps', label: 'prefill tok/s' },
-                { key: 'time_to_first_token', label: 'TTFT' },
-                { key: 'avg_system_power_watts', label: 'Power' },
-                { key: 'submitted_at', label: 'Date' },
-            ];
-
-            let html = '<div class="table-wrap"><table><thead><tr>';
-            for (const col of columns) {
-                let cls = '';
-                if (col.key === currentSort.key) {
-                    cls = currentSort.dir === 'asc' ? 'sorted-asc' : 'sorted-desc';
-                }
-                const onclick = col.sortable !== false ? `onclick="sortBy('${col.key}')"` : '';
-                html += `<th class="${cls}" ${onclick}>${col.label}</th>`;
-            }
-            html += '</tr></thead><tbody>';
-
-            // Pre-compute tok/s rank within filtered set (re-ranked when filters active)
-            const tpsRanked = [...filtered].sort((a, b) => (b.tokens_per_second || 0) - (a.tokens_per_second || 0));
-            const tpsRankMap = {};
-            tpsRanked.forEach((e, i) => { tpsRankMap[e.id] = i + 1; });
-            const maxTps = tpsRanked.length ? (tpsRanked[0].tokens_per_second || 0) : 0;
-            const medals = { 1: '\u{1F947}', 2: '\u{1F948}', 3: '\u{1F949}' };
-
-            sorted.forEach((entry, i) => {
-                const rank = tpsRankMap[entry.id];
-                const rankClass = rank <= 3 ? ` rank-${rank}` : '';
-                const rowRankClass = rank <= 3 ? ` rank-row-${rank}` : '';
-                const isOpen = expandedIds.has(entry.id);
-                const expandedClass = isOpen ? ' expanded' : '';
-                const medal = medals[rank] ? `<span class="rank-medal">${medals[rank]}</span>` : '';
-                const tpsPct = maxTps > 0 && entry.tokens_per_second
-                    ? Math.max(2, (entry.tokens_per_second / maxTps) * 100) : 0;
-
-                html += `<tr class="entry-row${expandedClass}${rowRankClass}" onclick="toggleDetail(${entry.id})">`;
-                html += `<td class="rank${rankClass}"><span class="expand-chevron">&#9654;</span>${medal}${rank}</td>`;
-                html += `<td class="display-name" title="${esc(entry.display_name)}">${esc(entry.display_name)}</td>`;
-                html += `<td class="model-name" title="${esc(entry.model_name)}">${esc(entry.model_name)}</td>`;
-                html += `<td>${quantBadge(entry.model_quantization)}</td>`;
-                html += `<td>${formatBadge(entry.model_format)}</td>`;
-                html += `<td>${chipBadge(entry)}</td>`;
-                const ciSuffix = renderTpsCiSuffix(entry);
-                html += `<td class="metric metric-primary tps-cell"><span class="tps-num">${fmtNum(entry.tokens_per_second, 2)}</span>${ciSuffix}<div class="tps-track"><div class="tps-bar" style="width:${tpsPct}%"></div></div></td>`;
-                html += `<td class="metric">${fmtNum(prefillTps(entry), 2)}</td>`;
-                html += `<td class="metric">${fmtTTFT(entry.time_to_first_token)}</td>`;
-                html += `<td class="metric">${fmtPower(entry.avg_system_power_watts)}</td>`;
-                html += `<td class="date">${fmtDate(entry.submitted_at)}</td>`;
-                html += '</tr>';
-
-                const openClass = isOpen ? 'open' : '';
-                html += `<tr class="detail-row" id="detail-${entry.id}">`;
-                html += `<td colspan="${columns.length}">`;
-                html += `<div class="detail-panel ${openClass}">${buildDetailGrid(entry)}</div>`;
-                html += '</td></tr>';
-            });
-
-            html += '</tbody></table></div>';
-            content.innerHTML = html;
+            content.innerHTML = pagerHTML(total, from, slice.length, pageCount, 'top') +
+                                (view === 'cards' ? renderCards(slice, v) : renderTable(slice, v));
+            // A second pager under the results only earns its space when
+            // there is somewhere else to go.
+            $('pager-bottom').innerHTML = pageCount > 1
+                ? pagerHTML(total, from, slice.length, pageCount, 'bottom') : '';
+            setDataBar(total);
+            wireResults();
+            writeHash();
         }
 
-        function toggleDetail(id) {
-            if (expandedIds.has(id)) {
-                expandedIds.delete(id);
+        function renderCount(total) {
+            var el = $('count');
+            if (hasActiveFilters()) {
+                el.textContent = total.toLocaleString() + ' of ' + entries.length.toLocaleString() + ' results';
+            } else if (!countAnimated) {
+                countAnimated = true;
+                var start = performance.now();
+                (function step(now) {
+                    var t = Math.min((now - start) / 900, 1);
+                    var eased = 1 - Math.pow(1 - t, 3);
+                    el.textContent = Math.round(entries.length * eased).toLocaleString() + ' results';
+                    if (t < 1) requestAnimationFrame(step);
+                })(start);
             } else {
-                expandedIds.add(id);
+                el.textContent = entries.length.toLocaleString() + ' results';
             }
-            renderTable();
+        }
+
+        // The Explorer always opens the whole dataset; the CSV/JSON
+        // buttons carry whatever the page is currently showing. Say which
+        // is which rather than printing one ambiguous number.
+        function setDataBar(matching) {
+            $('ds-count').textContent = entries.length.toLocaleString() +
+                (entries.length === 1 ? ' run' : ' runs');
+            $('ds-note').innerHTML = matching === entries.length
+                ? '\u00d7 59 fields \u00b7 pivot it in the Explorer, or take it with you'
+                : '\u00d7 59 fields \u00b7 Explorer opens all of them; CSV/JSON take the <strong>' +
+                  matching.toLocaleString() + '</strong> you have filtered to';
+        }
+
+        function renderActiveFilters() {
+            var pills = [];
+            var add = function (kind, label) {
+                pills.push('<span class="chip-pill">' + esc(label) +
+                    '<button type="button" data-drop="' + kind + '" aria-label="Remove filter">&times;</button></span>');
+            };
+            if (filters.search.trim()) add('search', '"' + filters.search.trim() + '"');
+            if (filters.chip) add('chip', filters.chip);
+            if (filters.quant) add('quant', filters.quant);
+            if (filters.format) add('format', filters.format);
+            if (filters.methodology) {
+                var opt = $('filter-methodology').selectedOptions[0];
+                add('methodology', opt ? opt.textContent : filters.methodology);
+            }
+            if (pills.length > 1) {
+                pills.push('<button class="filter-clear visible" type="button" data-drop="all">Clear all</button>');
+            }
+            $('active-filters').innerHTML = pills.join('');
+        }
+
+        // ── Cards ────────────────────────────────────────────────────
+        function renderCards(rows, v) {
+            var html = '<div class="card-grid">';
+            for (var i = 0; i < rows.length; i++) {
+                var e = rows[i];
+                var rank = v.rank[e.id];
+                var pct = v.maxTps > 0 && e.tokens_per_second
+                    ? Math.max(2, (e.tokens_per_second / v.maxTps) * 100) : 0;
+                var wpt = e.avg_watts_per_token;
+
+                html += '<button type="button" class="result-card" data-id="' + e.id + '">';
+                html +=   '<span class="card-top">';
+                html +=     '<span class="card-rank' + (rank <= 3 ? ' rank-' + rank : '') + '">' + rank + '</span>';
+                html +=     '<span class="card-id">';
+                html +=       '<span class="card-model" title="' + esc(e.model_name) + '">' + esc(e.model_name) + '</span>';
+                html +=       '<span class="card-badges">' + metaLine(e) + '</span>';
+                html +=     '</span>';
+                html +=   '</span>';
+                html +=   '<span class="card-hero"><span class="card-hero-value">' + fmtNum(e.tokens_per_second, 1) + '</span>' +
+                          '<span class="card-hero-unit">out tok/s</span>' + cardCiSuffix(e) + '</span>';
+                html +=   '<span class="card-track"><span class="card-bar" style="width:' + pct + '%"></span></span>';
+                html +=   '<span class="card-metrics">';
+                html +=     metric('prefill', fmtNum(e._prefill_tps, 1), '');
+                html +=     metric('ttft', fmtTTFT(e.time_to_first_token), '');
+                html +=     metric('power', fmtPower(e.avg_system_power_watts), 'power');
+                html +=   '</span>';
+                html +=   '<span class="card-foot"><span class="who">' + esc(e.display_name) +
+                          (wpt != null ? ' · <span class="wpt">' + fmtNum(wpt, 3) + ' W/tok</span>' : '') + '</span>' +
+                          '<span class="when">' + fmtDate(e.submitted_at) + '</span></span>';
+                html += '</button>';
+            }
+            return html + '</div>';
+        }
+
+        function metric(label, value, cls) {
+            var dim = (value === '-' || value == null) ? ' dim' : '';
+            return '<span class="card-metric"><span class="m-label">' + label + '</span>' +
+                   '<span class="m-value ' + (cls || '') + dim + '">' + esc(String(value)) + '</span></span>';
+        }
+
+        function cardCiSuffix(e) {
+            if (e.run_group_id == null) return '';
+            var half = ciHalfWidth(e.group_ci_low_tokens_per_second, e.group_ci_high_tokens_per_second);
+            var n = e.group_sample_count;
+            if (half == null && !n) return '';
+            var parts = [];
+            if (half != null) parts.push('±' + fmtNum(half, 2));
+            if (n) parts.push(n + ' reps');
+            return '<span class="card-hero-ci" title="95% bootstrap CI from ' + (n || '?') + ' group reps">' +
+                   parts.join(' · ') + '</span>';
+        }
+
+        // ── Table ────────────────────────────────────────────────────
+        var COLUMNS = [
+            { key: '_rank', label: '#', sortable: false },
+            { key: 'display_name', label: 'Name' },
+            { key: 'model_name', label: 'Model' },
+            { key: 'model_quantization', label: 'Quant' },
+            { key: 'model_format', label: 'Format' },
+            { key: 'chip_name', label: 'Chip' },
+            { key: 'tokens_per_second', label: 'out tok/s' },
+            { key: '_prefill_tps', label: 'prefill tok/s' },
+            { key: 'time_to_first_token', label: 'TTFT' },
+            { key: 'avg_system_power_watts', label: 'Power' },
+            { key: 'submitted_at', label: 'Date' }
+        ];
+
+        function renderTable(rows, v) {
+            var html = '<div class="table-wrap"><table><thead><tr>';
+            COLUMNS.forEach(function (col) {
+                var cls = col.key === sort.key ? (sort.dir === 'asc' ? 'sorted-asc' : 'sorted-desc') : '';
+                var attrs = col.sortable !== false
+                    ? ' data-sort="' + col.key + '" tabindex="0" role="button"' : '';
+                html += '<th class="' + cls + '"' + attrs + '>' + col.label + '</th>';
+            });
+            html += '</tr></thead><tbody>';
+
+            for (var i = 0; i < rows.length; i++) {
+                var e = rows[i];
+                var rank = v.rank[e.id];
+                var pct = v.maxTps > 0 && e.tokens_per_second
+                    ? Math.max(2, (e.tokens_per_second / v.maxTps) * 100) : 0;
+
+                html += '<tr class="entry-row" data-id="' + e.id + '">';
+                html += '<td class="rank' + (rank <= 3 ? ' rank-' + rank : '') + '">' + rank + '</td>';
+                html += '<td class="display-name" title="' + esc(e.display_name) + '">' + esc(e.display_name) + '</td>';
+                html += '<td class="model-name" title="' + esc(e.model_name) + '">' + esc(e.model_name) + '</td>';
+                html += '<td>' + quantBadge(e.model_quantization) + '</td>';
+                html += '<td>' + formatBadge(e.model_format) + '</td>';
+                html += '<td>' + chipBadge(e) + '</td>';
+                html += '<td class="metric metric-primary tps-cell"><span class="tps-num">' + fmtNum(e.tokens_per_second, 2) + '</span>' +
+                        tpsCiSuffix(e) + '<span class="tps-track"><span class="tps-bar" style="width:' + pct + '%"></span></span></td>';
+                html += '<td class="metric">' + fmtNum(e._prefill_tps, 2) + '</td>';
+                html += '<td class="metric">' + fmtTTFT(e.time_to_first_token) + '</td>';
+                html += '<td class="metric metric-power">' + fmtPower(e.avg_system_power_watts) + '</td>';
+                html += '<td class="date">' + fmtDate(e.submitted_at) + '</td>';
+                html += '</tr>';
+            }
+            return html + '</tbody></table></div>';
+        }
+
+        function tpsCiSuffix(e) {
+            if (e.run_group_id == null) return '';
+            var half = ciHalfWidth(e.group_ci_low_tokens_per_second, e.group_ci_high_tokens_per_second);
+            var n = e.group_sample_count;
+            if (half == null && !n) return '';
+            var parts = [];
+            if (half != null) parts.push('<span class="ci-num">±' + fmtNum(half, 2) + '</span>');
+            if (n) parts.push(n + ' reps');
+            return '<span class="tps-ci" title="95% bootstrap CI from ' + (n || '?') + ' group reps">' +
+                   parts.join(' · ') + '</span>';
+        }
+
+        // ── Pager ────────────────────────────────────────────────────
+        function pagerHTML(total, from, shown, pageCount, which) {
+            var note = '<div class="pager-note"><strong>' +
+                (total ? (from + 1).toLocaleString() + '–' + (from + shown).toLocaleString() : '0') +
+                '</strong> of <strong>' + total.toLocaleString() + '</strong> matching runs' +
+                '<span class="rank-scope">Ranked and sorted by ' + esc(sortDescription()) +
+                ' across all ' + total.toLocaleString() + ' — paging never changes the order or the rank.</span></div>';
+
+            var controls = '<div class="pager-controls">';
+            controls += '<button class="page-btn" type="button" data-page="1"' + (page === 1 ? ' disabled' : '') + ' aria-label="First page">&laquo;</button>';
+            controls += '<button class="page-btn" type="button" data-page="' + (page - 1) + '"' + (page === 1 ? ' disabled' : '') + ' aria-label="Previous page">&lsaquo;</button>';
+            pageNumbers(page, pageCount).forEach(function (n) {
+                if (typeof n === 'string') { controls += '<span class="page-gap">' + n + '</span>'; return; }
+                controls += '<button class="page-btn' + (n === page ? ' current' : '') + '" type="button" data-page="' + n + '">' + n + '</button>';
+            });
+            controls += '<button class="page-btn" type="button" data-page="' + (page + 1) + '"' + (page >= pageCount ? ' disabled' : '') + ' aria-label="Next page">&rsaquo;</button>';
+            controls += '<button class="page-btn" type="button" data-page="' + pageCount + '"' + (page >= pageCount ? ' disabled' : '') + ' aria-label="Last page">&raquo;</button>';
+            controls += '<select class="page-size" data-role="page-size" aria-label="Results per page">' +
+                [30, 60, 120, 300, 0].map(function (n) {
+                    var label = n === 0 ? 'All ' + total.toLocaleString() : n + ' / page';
+                    return '<option value="' + n + '"' + (n === pageSize ? ' selected' : '') + '>' + label + '</option>';
+                }).join('') + '</select>';
+            controls += '</div>';
+
+            return '<div class="pager" data-which="' + which + '">' + note + controls + '</div>';
+        }
+
+        function pageNumbers(cur, total) {
+            var out = [];
+            if (total <= 9) {
+                for (var i = 1; i <= total; i++) out.push(i);
+                return out;
+            }
+            out.push(1);
+            var start = Math.max(2, cur - 2);
+            var end = Math.min(total - 1, cur + 2);
+            if (start > 2) out.push('…');
+            for (var j = start; j <= end; j++) out.push(j);
+            if (end < total - 1) out.push('…');
+            out.push(total);
+            return out;
+        }
+
+        function sortDescription() {
+            var col = COLUMNS.filter(function (c) { return c.key === sort.key; })[0];
+            var label = col ? col.label : sort.key.replace(/^_/, '').replace(/_/g, ' ');
+            if (sort.key === 'avg_watts_per_token') label = 'W/tok';
+            return label + (sort.dir === 'asc' ? ' ↑' : ' ↓');
+        }
+
+        function syncSortSelect() {
+            var sel = $('sort-select');
+            var want = sort.key + ':' + sort.dir;
+            var custom = sel.querySelector('option[data-custom]');
+            for (var i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value === want && !sel.options[i].hasAttribute('data-custom')) {
+                    if (custom) custom.remove();
+                    sel.selectedIndex = sel.options[i].index;
+                    return;
+                }
+            }
+            // Sorting by a table header can land on a combination the
+            // dropdown does not offer; show it rather than going blank.
+            if (!custom) {
+                custom = document.createElement('option');
+                custom.setAttribute('data-custom', '');
+                sel.appendChild(custom);
+            }
+            custom.value = want;
+            custom.textContent = 'Sort: ' + sortDescription();
+            sel.value = want;
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // Detail modal — built on demand for one entry, so the 40-cell
+        // detail grid is never multiplied by the number of visible rows.
+        // ══════════════════════════════════════════════════════════════
+        function openDetail(id) {
+            var e = entries.filter(function (x) { return x.id === id; })[0];
+            if (!e) return;
+            var v = computeView();
+            var rank = v.rank[e.id];
+
+            $('modal-title').textContent = e.model_name || ('Run #' + e.id);
+            $('modal-sub').innerHTML =
+                (rank ? '<span class="chip-pill">#' + rank + ' of ' + v.sorted.length.toLocaleString() + '</span>' : '') +
+                chipBadge(e) + quantBadge(e.model_quantization) + formatBadge(e.model_format) +
+                '<span>' + esc(e.display_name) + ' · ' + fmtDate(e.submitted_at) + '</span>';
+            $('modal-body').innerHTML = buildDetailGrid(e);
+            $('modal-overlay').classList.add('open');
+            document.body.style.overflow = 'hidden';
+            $('modal-close').focus();
+        }
+
+        function closeDetail() {
+            $('modal-overlay').classList.remove('open');
+            document.body.style.overflow = '';
         }
 
         function buildDetailGrid(e) {
-            let h = '<div class="detail-grid">';
+            var h = '<div class="detail-grid">';
 
             h += sec('Performance');
             h += cell('Output tok/s', fmtNum(e.tokens_per_second, 2), 'accent');
-            const pTps = prefillTps(e);
-            h += cell('Prefill tok/s', pTps != null ? fmtNum(pTps, 2) : null);
+            h += cell('Prefill tok/s', e._prefill_tps != null ? fmtNum(e._prefill_tps, 2) : null);
             h += cell('TTFT', fmtTTFT(e.time_to_first_token));
             h += cell('Avg Token Latency', fmtMs(e.avg_token_latency_ms));
             h += cell('Eval Duration', fmtDuration(e.eval_duration));
             h += cell('Total Duration', fmtDuration(e.total_duration));
             h += cell('Prompt Eval Duration', fmtDuration(e.prompt_eval_duration));
             h += cell('Model Load Time', fmtDuration(e.load_duration));
-            h += cell('Context Length', e.context_length != null ? `${e.context_length} tokens` : null);
+            h += cell('Context Length', e.context_length != null ? e.context_length + ' tokens' : null);
 
             h += sec('Tokens');
             h += cell('Total Tokens', fmtInt(e.total_tokens));
             h += cell('Prompt Tokens', fmtInt(e.prompt_tokens));
             h += cell('Completion Tokens', fmtInt(e.completion_tokens));
-            h += cell('Prompt tok/s', pTps != null ? fmtNum(pTps, 2) : null);
+            h += cell('Prompt tok/s', e._prefill_tps != null ? fmtNum(e._prefill_tps, 2) : null);
 
-            // Reasoning section — only meaningful for thinking-model runs (DeepSeek-R1,
-            // Qwen3-thinking, gpt-oss, etc.). Hidden when reasoning_tokens is null/0.
+            // Reasoning section — only meaningful for thinking-model runs
+            // (DeepSeek-R1, Qwen3-thinking, gpt-oss). Hidden when null/0.
             if (e.reasoning_tokens != null && e.reasoning_tokens > 0) {
-                const rTps = reasoningTps(e);
+                var rTps = reasoningTps(e);
                 h += sec('Reasoning');
                 h += cell('Reasoning Tokens', fmtInt(e.reasoning_tokens));
                 h += cell('Reasoning Duration', fmtDuration(e.reasoning_duration));
@@ -1207,51 +2034,48 @@
                     e.completion_tokens != null ? fmtInt(e.completion_tokens - e.reasoning_tokens) : null);
             }
 
-            h += sec('Power & Frequency');
+            h += sec('Power &amp; Frequency');
             h += cell('Avg GPU Power', fmtWatts(e.avg_gpu_power_watts), 'power');
             h += cell('Peak GPU Power', fmtWatts(e.peak_gpu_power_watts), 'power');
             h += cell('Avg System Power', fmtWatts(e.avg_system_power_watts), 'power');
             h += cell('Peak System Power', fmtWatts(e.peak_system_power_watts), 'power');
             h += cell('Avg GPU Frequency', fmtFreq(e.avg_gpu_frequency_mhz), 'freq');
             h += cell('Peak GPU Frequency', fmtFreq(e.peak_gpu_frequency_mhz), 'freq');
-            h += cell('Watts/Token', e.avg_watts_per_token != null ? `${fmtNum(e.avg_watts_per_token, 3)} W/tok` : null, 'power');
+            h += cell('Watts/Token', e.avg_watts_per_token != null ? fmtNum(e.avg_watts_per_token, 3) + ' W/tok' : null, 'power');
             h += cell('Peak Memory', fmtBytes(e.peak_memory_bytes), 'mem');
 
-            // Group context — only when this submission is part of an
-            // N-rep group (Anubis v3.5+). Aggregates (mean + 95%
-            // bootstrap CI) describe the parent group; the headline
-            // values above are just this one rep.
+            // Group context — only when this submission is part of an N-rep
+            // group (Anubis v3.5+). Aggregates describe the parent group;
+            // the headline values above are just this one rep.
             if (e.run_group_id != null) {
                 h += sec('Group context');
                 h += cell('Reps in group', fmtInt(e.group_sample_count));
                 h += cell('This rep #', fmtInt(e.group_repetition_index));
                 h += cell('Seed strategy', e.group_seed_strategy);
-                const tpsCi = ciHalfWidth(e.group_ci_low_tokens_per_second, e.group_ci_high_tokens_per_second);
-                h += cell('Group mean tok/s',
-                    e.group_mean_tokens_per_second != null
-                        ? `${fmtNum(e.group_mean_tokens_per_second, 2)}${tpsCi != null ? ` ± ${fmtNum(tpsCi, 2)}` : ''}`
-                        : null, 'accent');
-                const ttftCi = ciHalfWidth(e.group_ci_low_time_to_first_token, e.group_ci_high_time_to_first_token);
-                h += cell('Group mean TTFT',
-                    e.group_mean_time_to_first_token != null
-                        ? `${fmtTTFT(e.group_mean_time_to_first_token)}${ttftCi != null ? ` ± ${fmtNum(ttftCi * 1000, 0)} ms` : ''}`
-                        : null);
-                const jptCi = ciHalfWidth(e.group_ci_low_watts_per_token, e.group_ci_high_watts_per_token);
-                h += cell('Group mean J/Tok',
-                    e.group_mean_watts_per_token != null
-                        ? `${fmtNum(e.group_mean_watts_per_token, 3)}${jptCi != null ? ` ± ${fmtNum(jptCi, 3)}` : ''} J/tok`
-                        : null, 'power');
+                var tpsCi = ciHalfWidth(e.group_ci_low_tokens_per_second, e.group_ci_high_tokens_per_second);
+                h += cell('Group mean tok/s', e.group_mean_tokens_per_second != null
+                    ? fmtNum(e.group_mean_tokens_per_second, 2) + (tpsCi != null ? ' ± ' + fmtNum(tpsCi, 2) : '')
+                    : null, 'accent');
+                var ttftCi = ciHalfWidth(e.group_ci_low_time_to_first_token, e.group_ci_high_time_to_first_token);
+                h += cell('Group mean TTFT', e.group_mean_time_to_first_token != null
+                    ? fmtTTFT(e.group_mean_time_to_first_token) + (ttftCi != null ? ' ± ' + fmtNum(ttftCi * 1000, 0) + ' ms' : '')
+                    : null);
+                var jptCi = ciHalfWidth(e.group_ci_low_watts_per_token, e.group_ci_high_watts_per_token);
+                h += cell('Group mean J/Tok', e.group_mean_watts_per_token != null
+                    ? fmtNum(e.group_mean_watts_per_token, 3) + (jptCi != null ? ' ± ' + fmtNum(jptCi, 3) : '') + ' J/tok'
+                    : null, 'power');
                 h += cell('Group ID', fmtInt(e.run_group_id));
             }
 
             h += sec('Hardware');
             h += cell('Mac Model', e.chip_mac_model);
             h += cell('Chip', e.chip_name);
-            h += cell('CPU Cores', e.chip_core_count != null ? `${e.chip_p_cores || 0}P + ${e.chip_e_cores || 0}E (${e.chip_core_count})` : null);
+            h += cell('CPU Cores', e.chip_core_count != null
+                ? (e.chip_p_cores || 0) + 'P + ' + (e.chip_e_cores || 0) + 'E (' + e.chip_core_count + ')' : null);
             h += cell('GPU Cores', fmtInt(e.chip_gpu_cores));
-            h += cell('Neural Engine', fmtInt(e.chip_neural_cores) !== '-' ? `${e.chip_neural_cores} cores` : null);
-            h += cell('Unified Memory', e.chip_memory_gb != null ? `${e.chip_memory_gb} GB` : null, 'mem');
-            h += cell('Memory Bandwidth', e.chip_bandwidth_gbs != null ? `${fmtNum(e.chip_bandwidth_gbs, 1)} GB/s` : null);
+            h += cell('Neural Engine', e.chip_neural_cores != null ? e.chip_neural_cores + ' cores' : null);
+            h += cell('Unified Memory', e.chip_memory_gb != null ? e.chip_memory_gb + ' GB' : null, 'mem');
+            h += cell('Memory Bandwidth', e.chip_bandwidth_gbs != null ? fmtNum(e.chip_bandwidth_gbs, 1) + ' GB/s' : null);
             h += cell('Model ID', e.chip_mac_model_id);
 
             h += sec('Model Info');
@@ -1263,37 +2087,344 @@
             h += sec('Session');
             h += cell('Process', e.backend_process_name);
             h += cell('App Version', e.app_version);
+            h += cell('Methodology', e.methodology_version != null ? 'v' + e.methodology_version : 'legacy');
             h += cell('Submitted', fmtDateFull(e.submitted_at));
 
-            h += '</div>';
-            return h;
+            return h + '</div>';
         }
 
-        function sec(title) {
-            return `<div class="detail-section-title">${title}</div>`;
-        }
+        function sec(title) { return '<div class="detail-section-title">' + title + '</div>'; }
 
         function cell(label, value, cls) {
-            const v = value != null && value !== '-' ? value : '-';
-            const valCls = v === '-' ? 'dim' : (cls || '');
-            return `<div class="detail-cell"><span class="label">${label}</span><span class="value ${valCls}">${esc(String(v))}</span></div>`;
+            var v = (value != null && value !== '-' && value !== '') ? value : '-';
+            var valCls = v === '-' ? 'dim' : (cls || '');
+            return '<div class="detail-cell"><span class="label">' + label + '</span>' +
+                   '<span class="value ' + valCls + '">' + esc(String(v)) + '</span></div>';
         }
 
-        function sortBy(key) {
-            if (currentSort.key === key) {
-                currentSort.dir = currentSort.dir === 'desc' ? 'asc' : 'desc';
-            } else {
-                currentSort.key = key;
-                currentSort.dir = (key === 'display_name' || key === 'model_name' || key === 'submitted_at') ? 'asc' : 'desc';
-            }
-            renderTable();
+        // ══════════════════════════════════════════════════════════════
+        // Export — always the full filtered + sorted set, never the page
+        // ══════════════════════════════════════════════════════════════
+        function exportColumns() {
+            var seen = {};
+            var cols = [];
+            entries.forEach(function (e) {
+                Object.keys(e).forEach(function (k) {
+                    if (k.charAt(0) === '_' || seen[k]) return;
+                    seen[k] = 1;
+                    cols.push(k);
+                });
+            });
+            return cols;
         }
+
+        function csvCell(v) {
+            if (v == null) return '';
+            var s = String(v);
+            return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+        }
+
+        function downloadBlob(text, filename, mime) {
+            var blob = new Blob([text], { type: mime });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+        }
+
+        function stamp() { return new Date().toISOString().slice(0, 10); }
+
+        function exportCSV() {
+            var v = computeView();
+            var cols = exportColumns();
+            var lines = [['rank', 'prefill_tokens_per_second'].concat(cols).join(',')];
+            v.sorted.forEach(function (e) {
+                var row = [v.rank[e.id], e._prefill_tps == null ? '' : e._prefill_tps.toFixed(4)];
+                for (var c = 0; c < cols.length; c++) row.push(csvCell(e[cols[c]]));
+                lines.push(row.join(','));
+            });
+            // BOM first so Excel reads the UTF-8 model names correctly.
+            downloadBlob('\uFEFF' + lines.join('\r\n'),
+                         'anubis-leaderboard-' + v.sorted.length + '-runs-' + stamp() + '.csv',
+                         'text/csv;charset=utf-8');
+            return v.sorted.length;
+        }
+
+        function exportJSON() {
+            var v = computeView();
+            var payload = {
+                source: 'https://devpadapp.com/leaderboard.html',
+                exported_at: new Date().toISOString(),
+                sort: sort,
+                filters: filters,
+                count: v.sorted.length,
+                total_in_dataset: entries.length,
+                entries: v.sorted.map(function (e) {
+                    var out = { rank: v.rank[e.id], prefill_tokens_per_second: e._prefill_tps };
+                    Object.keys(e).forEach(function (k) { if (k.charAt(0) !== '_') out[k] = e[k]; });
+                    return out;
+                })
+            };
+            downloadBlob(JSON.stringify(payload, null, 2),
+                         'anubis-leaderboard-' + v.sorted.length + '-runs-' + stamp() + '.json',
+                         'application/json');
+            return v.sorted.length;
+        }
+
+        var toastTimer = null;
+        function toast(msg) {
+            var el = $('toast');
+            el.textContent = msg;
+            el.classList.add('show');
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(function () { el.classList.remove('show'); }, 3600);
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // Shareable state — filters, sort and page live in the URL hash
+        // ══════════════════════════════════════════════════════════════
+        var lastWrittenHash = null;
+
+        function writeHash() {
+            if (restoringHash) return;
+            var p = [];
+            if (filters.search.trim()) p.push('q=' + encodeURIComponent(filters.search.trim()));
+            if (filters.chip) p.push('chip=' + encodeURIComponent(filters.chip));
+            if (filters.quant) p.push('quant=' + encodeURIComponent(filters.quant));
+            if (filters.format) p.push('format=' + encodeURIComponent(filters.format));
+            if (filters.methodology) p.push('method=' + encodeURIComponent(filters.methodology));
+            if (sort.key !== 'tokens_per_second' || sort.dir !== 'desc') p.push('sort=' + sort.key + ':' + sort.dir);
+            if (page > 1) p.push('page=' + page);
+            if (view !== 'cards') p.push('view=' + view);
+            if (pageSize !== 60) p.push('per=' + pageSize);
+            var hash = p.length ? '#' + p.join('&') : '';
+            if (hash !== location.hash && (hash || location.hash)) {
+                lastWrittenHash = hash;
+                history.replaceState(null, '', location.pathname + location.search + hash);
+            }
+        }
+
+        function readHash() {
+            var raw = location.hash.replace(/^#/, '');
+            if (!raw) { applyStoredView(); return; }
+            restoringHash = true;
+            // Start from a clean slate so a link that omits a filter
+            // actually clears it rather than inheriting the old value.
+            filters = { chip: '', quant: '', format: '', methodology: '', search: '' };
+            ['filter-chip', 'filter-quant', 'filter-format', 'filter-methodology'].forEach(function (id) { $(id).value = ''; });
+            $('search').value = '';
+            $('search-clear').hidden = true;
+            sort = { key: 'tokens_per_second', dir: 'desc' };
+            page = 1;
+            var q = {};
+            raw.split('&').forEach(function (pair) {
+                var i = pair.indexOf('=');
+                if (i > 0) q[pair.slice(0, i)] = decodeURIComponent(pair.slice(i + 1));
+            });
+            if (q.q) { filters.search = q.q; $('search').value = q.q; $('search-clear').hidden = false; }
+            if (q.chip) { filters.chip = q.chip; $('filter-chip').value = q.chip; }
+            if (q.quant) { filters.quant = q.quant; $('filter-quant').value = q.quant; }
+            if (q.format) { filters.format = q.format; $('filter-format').value = q.format; }
+            if (q.method) { filters.methodology = q.method; $('filter-methodology').value = q.method; }
+            if (q.sort) {
+                var bits = q.sort.split(':');
+                if (bits[0]) sort = { key: bits[0], dir: bits[1] === 'asc' ? 'asc' : 'desc' };
+            }
+            if (q.per != null) {
+                var per = parseInt(q.per, 10);
+                if (!isNaN(per) && [0, 30, 60, 120, 300].indexOf(per) !== -1) pageSize = per;
+            }
+            if (q.page) page = Math.max(1, parseInt(q.page, 10) || 1);
+            // Only a link that names a view overrides the visitor's own
+            // stored preference.
+            if (q.view) view = q.view === 'table' ? 'table' : 'cards';
+            setViewButtons();
+            restoringHash = false;
+        }
+
+        function applyStoredView() {
+            try {
+                var saved = localStorage.getItem('anubis_lb_view');
+                if (saved === 'table' || saved === 'cards') view = saved;
+            } catch (err) { /* private mode — keep the default */ }
+            setViewButtons();
+        }
+
+        function setViewButtons() {
+            var cards = view === 'cards';
+            $('view-cards').classList.toggle('active', cards);
+            $('view-table').classList.toggle('active', !cards);
+            $('view-cards').setAttribute('aria-pressed', String(cards));
+            $('view-table').setAttribute('aria-pressed', String(!cards));
+        }
+
+        function setView(next) {
+            if (view === next) return;
+            view = next;
+            try { localStorage.setItem('anubis_lb_view', next); } catch (err) { /* private mode */ }
+            setViewButtons();
+            render();
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // Events
+        // ══════════════════════════════════════════════════════════════
+        var searchTimer = null;
+
+        function wireStaticEvents() {
+            $('refresh-btn').addEventListener('click', function () { countAnimated = false; fetchLeaderboard(); });
+
+            $('search').addEventListener('input', function () {
+                $('search-clear').hidden = !this.value;
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(function () {
+                    readFilterInputs();
+                    page = 1;
+                    render();
+                }, 160);
+            });
+
+            $('search-clear').addEventListener('click', function () {
+                $('search').value = '';
+                this.hidden = true;
+                readFilterInputs();
+                page = 1;
+                render();
+                $('search').focus();
+            });
+
+            $('search-help-btn').addEventListener('click', function () {
+                var open = $('search-syntax').classList.toggle('open');
+                this.setAttribute('aria-expanded', String(open));
+            });
+
+            ['filter-chip', 'filter-quant', 'filter-format', 'filter-methodology'].forEach(function (id) {
+                $(id).addEventListener('change', function () { readFilterInputs(); page = 1; render(); });
+            });
+
+            $('sort-select').addEventListener('change', function () {
+                var bits = this.value.split(':');
+                sort = { key: bits[0], dir: bits[1] === 'asc' ? 'asc' : 'desc' };
+                page = 1;
+                render();
+            });
+
+            $('view-cards').addEventListener('click', function () { setView('cards'); });
+            $('view-table').addEventListener('click', function () { setView('table'); });
+
+            $('active-filters').addEventListener('click', function (ev) {
+                var btn = ev.target.closest('[data-drop]');
+                if (!btn) return;
+                var kind = btn.getAttribute('data-drop');
+                if (kind === 'all') { clearFilters(); return; }
+                if (kind === 'search') { filters.search = ''; $('search').value = ''; $('search-clear').hidden = true; }
+                else if (kind === 'chip') { filters.chip = ''; $('filter-chip').value = ''; }
+                else if (kind === 'quant') { filters.quant = ''; $('filter-quant').value = ''; }
+                else if (kind === 'format') { filters.format = ''; $('filter-format').value = ''; }
+                else if (kind === 'methodology') { filters.methodology = ''; $('filter-methodology').value = ''; }
+                page = 1;
+                render();
+            });
+
+            $('export-csv').addEventListener('click', function () {
+                toast(exportCSV().toLocaleString() + ' rows exported as CSV');
+            });
+            $('export-json').addEventListener('click', function () {
+                toast(exportJSON().toLocaleString() + ' rows exported as JSON');
+            });
+            // The anchor still navigates to Wranglify in a new tab; this
+            // just hands the user the file they are about to need.
+            $('open-wranglify').addEventListener('click', function () {
+                var n = exportCSV();
+                toast('CSV with ' + n.toLocaleString() + ' rows downloaded — drop it into the Wranglify tab');
+            });
+
+            $('modal-close').addEventListener('click', closeDetail);
+            $('modal-overlay').addEventListener('click', function (ev) {
+                if (ev.target === this) closeDetail();
+            });
+
+            document.addEventListener('keydown', function (ev) {
+                if (ev.key === 'Escape' && $('modal-overlay').classList.contains('open')) { closeDetail(); return; }
+                var tag = document.activeElement ? document.activeElement.tagName : '';
+                if (ev.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) {
+                    ev.preventDefault();
+                    $('search').focus();
+                }
+            });
+
+            // Pagers are re-rendered on every pass and live in two places,
+            // so delegate from the document instead of rebinding them.
+            document.addEventListener('click', function (ev) {
+                var btn = ev.target.closest ? ev.target.closest('.page-btn[data-page]') : null;
+                if (!btn || btn.disabled) return;
+                page = parseInt(btn.getAttribute('data-page'), 10) || 1;
+                render();
+                var anchor = $('toolbar');
+                if (anchor) anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+
+            // A hash pasted into the address bar of an already-open page
+            // does not reload it, so pick the new state up here. Our own
+            // replaceState writes are skipped.
+            window.addEventListener('hashchange', function () {
+                if (location.hash === lastWrittenHash) return;
+                if (!entries.length) return;
+                readHash();
+                render();
+            });
+
+            document.addEventListener('change', function (ev) {
+                if (ev.target && ev.target.matches && ev.target.matches('[data-role="page-size"]')) {
+                    pageSize = parseInt(ev.target.value, 10);
+                    page = 1;
+                    render();
+                }
+            });
+        }
+
+        // Result-area handlers are rebound after each render because the
+        // markup is replaced wholesale.
+        function wireResults() {
+            var content = $('content');
+            content.querySelectorAll('.result-card, tr.entry-row').forEach(function (el) {
+                el.addEventListener('click', function () {
+                    openDetail(parseInt(this.getAttribute('data-id'), 10));
+                });
+            });
+            content.querySelectorAll('th[data-sort]').forEach(function (th) {
+                var activate = function () {
+                    var key = th.getAttribute('data-sort');
+                    if (sort.key === key) {
+                        sort.dir = sort.dir === 'desc' ? 'asc' : 'desc';
+                    } else {
+                        sort.key = key;
+                        sort.dir = (key === 'display_name' || key === 'model_name' ||
+                                    key === 'chip_name' || key === 'model_quantization' ||
+                                    key === 'model_format' || key === 'submitted_at') ? 'asc' : 'desc';
+                    }
+                    page = 1;
+                    render();
+                };
+                th.addEventListener('click', activate);
+                th.addEventListener('keydown', function (ev) {
+                    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activate(); }
+                });
+            });
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // Formatting helpers
+        // ══════════════════════════════════════════════════════════════
+        var ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
         function esc(str) {
-            if (!str) return '-';
-            const d = document.createElement('div');
-            d.textContent = str;
-            return d.innerHTML;
+            if (str == null || str === '') return '-';
+            return String(str).replace(/[&<>"']/g, function (c) { return ESC_MAP[c]; });
         }
 
         function prefillTps(e) {
@@ -1302,63 +2433,84 @@
             return e.prompt_tokens / e.prompt_eval_duration;
         }
 
-        // CI half-width — the "± value" people scan after a number.
-        // Returns null when either bound is missing.
-        function ciHalfWidth(low, high) {
-            if (low == null || high == null) return null;
-            return (high - low) / 2;
-        }
-
-        // Subtle "±X.XX · N reps" line shown below the tok/s value when
-        // an entry is part of a v3.5+ N-rep group. Empty string when no
-        // group data is available, so older / single-shot rows render
-        // unchanged.
-        function renderTpsCiSuffix(e) {
-            if (!e || e.run_group_id == null) return '';
-            const half = ciHalfWidth(e.group_ci_low_tokens_per_second, e.group_ci_high_tokens_per_second);
-            const n = e.group_sample_count;
-            if (half == null && !n) return '';
-            const parts = [];
-            if (half != null) parts.push(`<span class="ci-num">±${fmtNum(half, 2)}</span>`);
-            if (n) parts.push(`${n} reps`);
-            return `<span class="tps-ci" title="95% bootstrap CI from ${n || '?'} group reps">${parts.join(' · ')}</span>`;
-        }
         function reasoningTps(e) {
             if (!e || e.reasoning_tokens == null || !e.reasoning_duration) return null;
             if (e.reasoning_duration <= 0) return null;
             return e.reasoning_tokens / e.reasoning_duration;
         }
 
-        function fmtNum(v, decimals) { if (v == null) return '-'; return Number(v).toFixed(decimals); }
-        function fmtInt(v) { if (v == null) return '-'; return Number(v).toLocaleString(); }
-        function fmtTTFT(v) { if (v == null) return '-'; return (v * 1000).toFixed(0) + ' ms'; }
-        function fmtMs(v) { if (v == null) return '-'; return Number(v).toFixed(1) + ' ms'; }
-        function fmtPower(v) { if (v == null) return '-'; return Number(v).toFixed(1) + ' W'; }
-        function fmtWatts(v) { if (v == null) return null; return Number(v).toFixed(2) + ' W'; }
-        function fmtFreq(v) { if (v == null) return null; return Number(v).toFixed(0) + ' MHz'; }
-        function fmtDuration(v) { if (v == null) return null; if (v < 1) return (v * 1000).toFixed(0) + ' ms'; return Number(v).toFixed(2) + ' s'; }
-        function fmtBytes(v) { if (v == null) return null; if (v >= 1073741824) return (v / 1073741824).toFixed(2) + ' GB'; if (v >= 1048576) return (v / 1048576).toFixed(1) + ' MB'; return (v / 1024).toFixed(0) + ' KB'; }
-        function fmtDate(v) { if (!v) return '-'; const d = new Date(v); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
-        function fmtDateFull(v) { if (!v) return null; const d = new Date(v); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }); }
-
-        function quantBadge(quant) {
-            if (!quant) return '<span class="quant-badge" style="color:#444">-</span>';
-            return `<span class="quant-badge">${esc(quant)}</span>`;
+        // CI half-width — the "± value" people scan after a number.
+        function ciHalfWidth(low, high) {
+            if (low == null || high == null) return null;
+            return (high - low) / 2;
         }
 
-        function formatBadge(fmt) {
-            if (!fmt) return '<span class="format-badge unknown">-</span>';
-            const cls = fmt.toLowerCase() === 'gguf' ? 'gguf' : fmt.toLowerCase() === 'mlx' ? 'mlx' : 'unknown';
-            return `<span class="format-badge ${cls}">${esc(fmt)}</span>`;
+        function fmtNum(v, d) { return v == null ? '-' : Number(v).toFixed(d); }
+        function fmtInt(v) { return v == null ? '-' : Number(v).toLocaleString(); }
+        function fmtTTFT(v) { return v == null ? '-' : (v * 1000).toFixed(0) + ' ms'; }
+        function fmtMs(v) { return v == null ? '-' : Number(v).toFixed(1) + ' ms'; }
+        function fmtPower(v) { return v == null ? '-' : Number(v).toFixed(1) + ' W'; }
+        function fmtWatts(v) { return v == null ? null : Number(v).toFixed(2) + ' W'; }
+        function fmtFreq(v) { return v == null ? null : Number(v).toFixed(0) + ' MHz'; }
+        function fmtDuration(v) {
+            if (v == null) return null;
+            return v < 1 ? (v * 1000).toFixed(0) + ' ms' : Number(v).toFixed(2) + ' s';
+        }
+        function fmtBytes(v) {
+            if (v == null) return null;
+            if (v >= 1073741824) return (v / 1073741824).toFixed(2) + ' GB';
+            if (v >= 1048576) return (v / 1048576).toFixed(1) + ' MB';
+            return (v / 1024).toFixed(0) + ' KB';
+        }
+        function fmtDate(v) {
+            if (!v) return '-';
+            return new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+        function fmtDateFull(v) {
+            if (!v) return null;
+            return new Date(v).toLocaleDateString('en-US', {
+                month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
+            });
         }
 
-        function chipBadge(entry) {
-            const name = entry.chip_name || '-';
-            const mem = entry.chip_memory_gb ? ` ${entry.chip_memory_gb}GB` : '';
-            return `<span class="chip-badge">${esc(name)}${mem}</span>`;
+        function quantBadge(q) {
+            if (!q) return '<span class="quant-badge dim">\u2014</span>';
+            return '<span class="quant-badge">' + esc(q) + '</span>';
         }
 
+        function formatBadge(f) {
+            if (!f) return '<span class="format-badge unknown">\u2014</span>';
+            var l = String(f).toLowerCase();
+            var cls = l === 'gguf' ? 'gguf' : l === 'mlx' ? 'mlx' : 'unknown';
+            return '<span class="format-badge ' + cls + '">' + esc(f) + '</span>';
+        }
+
+        // Every single row said "Apple". Dropping the word costs nothing
+        // and gives the chip name back its width.
+        function chipLabel(e) {
+            var name = String(e.chip_name || '').replace(/^Apple\s+/i, '');
+            if (!name) return '\u2014';
+            return name + (e.chip_memory_gb ? ' ' + e.chip_memory_gb + 'GB' : '');
+        }
+
+        function chipBadge(e) {
+            return '<span class="chip-badge">' + esc(chipLabel(e)) + '</span>';
+        }
+
+        // chip \u00b7 quant \u00b7 format, as one line of text.
+        function metaLine(e) {
+            var sep = '<span class="sep">\u00b7</span>';
+            var parts = [esc(chipLabel(e))];
+            if (e.model_quantization) parts.push(esc(e.model_quantization));
+            if (e.model_format) parts.push(formatBadge(e.model_format));
+            return parts.join(sep);
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        wireStaticEvents();
+        applyStoredView();
         fetchLeaderboard();
+    })();
     </script>
 </body>
 </html>
