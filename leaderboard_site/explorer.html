@@ -129,6 +129,33 @@
             display: none;
         }
 
+        .status-spacer { flex: 1 1 auto; }
+
+        .view-hint {
+            font-size: 0.72rem;
+            color: #6a7078;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 40ch;
+        }
+
+        .share-btn {
+            background: none;
+            border: 1px solid #243a50;
+            border-radius: 5px;
+            color: #9aa3ae;
+            font-family: inherit;
+            font-size: 0.74rem;
+            padding: 4px 11px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: border-color 0.15s, color 0.15s;
+        }
+
+        .share-btn:hover { border-color: #7cc0f0; color: #7cc0f0; }
+        .share-btn[hidden] { display: none; }
+
         perspective-viewer {
             position: absolute;
             top: 0;
@@ -154,6 +181,10 @@
     <div class="status-bar">
         <span class="status-dot" id="status-dot"></span>
         <span id="status-text">Loading data...</span>
+        <span class="status-spacer"></span>
+        <span class="view-hint" id="view-hint"></span>
+        <button class="share-btn" id="share-btn" type="button" hidden
+                title="Copy a link that reopens this exact pivot, filter and chart">Copy view link</button>
     </div>
 
     <div class="loading-overlay" id="loading">
@@ -178,12 +209,27 @@
         const containerEl = document.getElementById("viewer-container");
         const statusDot = document.getElementById("status-dot");
         const statusText = document.getElementById("status-text");
+        const shareBtn = document.getElementById("share-btn");
+        const viewHint = document.getElementById("view-hint");
 
         try {
-            // Fetch leaderboard data
-            const resp = await fetch("/anubis/api/leaderboard.php?limit=10000");
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-            const data = await resp.json();
+            // Relative first so the page works on any host serving the API,
+            // absolute as a fallback so it also works from a local copy or a
+            // mirror. The API sends Access-Control-Allow-Origin: *.
+            const API_PATHS = [
+                "/anubis/api/leaderboard.php?limit=10000",
+                "https://devpadapp.com/anubis/api/leaderboard.php?limit=10000",
+            ];
+            let data = null, lastErr = null;
+            for (const url of API_PATHS) {
+                try {
+                    const resp = await fetch(url);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    data = await resp.json();
+                    break;
+                } catch (e) { lastErr = e; }
+            }
+            if (!data) throw lastErr || new Error("could not reach the leaderboard API");
             const entries = data.entries || [];
 
             if (entries.length === 0) {
@@ -259,8 +305,7 @@
             const viewer = document.getElementById("viewer");
             await viewer.load(table);
 
-            // Default view: datagrid sorted by output tok/s descending
-            await viewer.restore({
+            const DEFAULT_VIEW = {
                 plugin: "Datagrid",
                 theme: "Pro Dark",
                 columns: [
@@ -272,17 +317,135 @@
                 ],
                 sort: [["Output tok/s", "desc"]],
                 settings: true,
-            });
+            };
+
+            // A shared link carries the whole analysis: pivots, aggregates,
+            // filters, computed expressions, chart type. Perspective's own
+            // save()/restore() pair is the entire mechanism - we only move the
+            // config in and out of the URL.
+            const shared = readViewFromHash();
+            await viewer.restore(shared || DEFAULT_VIEW);
 
             // Update status
             statusDot.classList.add("loaded");
             statusText.textContent = `${entries.length} benchmark entries loaded`;
+            shareBtn.hidden = false;
+            if (shared) describeView(shared, true);
+
+            // Keep the URL in step with the view, without spamming history.
+            let writeTimer = null;
+            viewer.addEventListener("perspective-config-update", () => {
+                clearTimeout(writeTimer);
+                writeTimer = setTimeout(async () => {
+                    const cfg = await viewer.save();
+                    writeViewToHash(cfg);
+                    describeView(cfg, false);
+                }, 250);
+            });
+
+            window.addEventListener("hashchange", async () => {
+                if (location.hash === lastWrittenHash) return;
+                const next = readViewFromHash();
+                if (!next) return;
+                await viewer.restore(next);
+                describeView(next, true);
+            });
+
+            shareBtn.addEventListener("click", async () => {
+                const cfg = await viewer.save();
+                writeViewToHash(cfg);
+                const url = location.href;
+                const done = () => {
+                    shareBtn.textContent = "Link copied";
+                    setTimeout(() => { shareBtn.textContent = "Copy view link"; }, 1800);
+                };
+                try {
+                    await navigator.clipboard.writeText(url);
+                    done();
+                } catch (e) {
+                    // Insecure context or permission refused: fall back, then
+                    // give up gracefully rather than pretending it worked.
+                    const ta = document.createElement("textarea");
+                    ta.value = url;
+                    ta.style.position = "fixed";
+                    ta.style.top = "-1000px";
+                    document.body.appendChild(ta);
+                    ta.select();
+                    let ok = false;
+                    try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+                    document.body.removeChild(ta);
+                    if (ok) { done(); }
+                    else {
+                        shareBtn.textContent = "Copy from the address bar";
+                        setTimeout(() => { shareBtn.textContent = "Copy view link"; }, 2600);
+                    }
+                }
+            });
 
         } catch (err) {
             loadingEl.style.display = "none";
             errorEl.style.display = "flex";
             errorEl.textContent = `Failed to load: ${err.message}`;
             statusText.textContent = "Error loading data";
+        }
+
+        // ── Shareable view state ──────────────────────────────────────
+        // The config is JSON with non-ASCII column names ("Group ±CI tok/s"),
+        // so encode UTF-8 explicitly rather than relying on btoa's latin1.
+        // base64url keeps the fragment clean if anyone rewrites it as a query.
+        function toB64Url(str) {
+            const bytes = new TextEncoder().encode(str);
+            let bin = "";
+            for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+            return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        }
+
+        function fromB64Url(s) {
+            s = s.replace(/-/g, "+").replace(/_/g, "/");
+            while (s.length % 4) s += "=";
+            const bin = atob(s);
+            const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+            return new TextDecoder().decode(bytes);
+        }
+
+        function readViewFromHash() {
+            const m = location.hash.match(/(?:^#|&)v=([A-Za-z0-9\-_]+)/);
+            if (!m) return null;
+            try {
+                const cfg = JSON.parse(fromB64Url(m[1]));
+                return (cfg && typeof cfg === "object") ? cfg : null;
+            } catch (e) {
+                // A truncated or hand-edited link should open the default view,
+                // not a broken page.
+                return null;
+            }
+        }
+
+        let lastWrittenHash = null;
+
+        function writeViewToHash(cfg) {
+            try {
+                const hash = "#v=" + toB64Url(JSON.stringify(cfg));
+                if (hash !== location.hash) {
+                    lastWrittenHash = hash;
+                    history.replaceState(null, "", location.pathname + location.search + hash);
+                }
+            } catch (e) { /* a URL we cannot write is not worth failing over */ }
+        }
+
+        // Say in words what the link will reopen, so it is obvious the button
+        // shares an analysis and not just the page.
+        function describeView(cfg, restored) {
+            const bits = [];
+            if (cfg.group_by && cfg.group_by.length) bits.push("by " + cfg.group_by.join(" / "));
+            if (cfg.split_by && cfg.split_by.length) bits.push("split by " + cfg.split_by.join(" / "));
+            if (cfg.filter && cfg.filter.length) bits.push(cfg.filter.length + " filter" + (cfg.filter.length > 1 ? "s" : ""));
+            if (cfg.expressions && Object.keys(cfg.expressions).length) bits.push("computed columns");
+            if (cfg.plugin && cfg.plugin !== "Datagrid") bits.push(cfg.plugin.toLowerCase());
+            const what = bits.length ? bits.join(" · ") : "";
+            viewHint.textContent = restored
+                ? (what ? "shared view: " + what : "shared view")
+                : what;
         }
 
         function num(v) {
