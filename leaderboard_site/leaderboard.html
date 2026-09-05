@@ -37,7 +37,12 @@
                rather than a slightly lighter grey - which is what every
                control on this page looked like before. Hover goes to
                --accent, so the rest state has somewhere to travel to. */
-            --link:      #8fbcdb;   /* interactive           */
+            --link:      #8fbcdb;   /* interactive, at rest  */
+            /* Hover. --accent was doing this job and was only 1.03x brighter
+               than --link, so the state change was invisible: the two differ
+               in chroma, which the eye reads far more weakly than lightness.
+               This is 1.45x, which registers. */
+            --link-hover: #b8e0fb;
             --accent-2:  #4d8ab8;
             --power:     #e0a851;   /* watts, W/tok          */
             --mem:       #6fbf9b;   /* memory, GGUF          */
@@ -91,7 +96,7 @@
 
         .promo-banner-text strong { color: var(--ink); font-weight: 600; }
         .promo-banner-arrow { color: var(--ink-4); }
-        .promo-banner:hover .promo-banner-arrow { color: var(--accent); }
+        .promo-banner:hover .promo-banner-arrow { color: var(--link-hover); }
 
         /* ── Masthead ──────────────────────────────────────────────── */
         .masthead {
@@ -134,7 +139,7 @@
             white-space: nowrap;
         }
 
-        .masthead-nav a:hover { color: var(--accent); text-decoration: none; }
+        .masthead-nav a:hover { color: var(--link-hover); text-decoration: none; }
 
         /* ── Companion apps: one quiet row, hairline-separated ─────── */
         .promo-cards {
@@ -183,7 +188,7 @@
             transition: color 0.2s;
         }
 
-        .bundle-card:hover .bundle-card-title { color: var(--accent); }
+        .bundle-card:hover .bundle-card-title { color: var(--link-hover); }
         .cw-card:hover .bundle-card-title { color: #f07ac0; }
         .wr-card:hover .bundle-card-title { color: var(--freq); }
         .cw-card:hover .bundle-card-arrow { color: #f07ac0; }
@@ -208,7 +213,7 @@
         }
 
         .bundle-card-arrow { color: transparent; font-size: 0.9rem; transition: color 0.2s; }
-        .bundle-card:hover .bundle-card-arrow { color: var(--accent); }
+        .bundle-card:hover .bundle-card-arrow { color: var(--link-hover); }
 
         .wr-icon {
             width: 22px;
@@ -222,7 +227,7 @@
             color: var(--ink-4);
         }
 
-        .bundle-card:hover .wr-icon { color: var(--accent); }
+        .bundle-card:hover .wr-icon { color: var(--link-hover); }
 
         /* ── Summary figures ───────────────────────────────────────── */
         .stats-strip {
@@ -342,7 +347,7 @@
 
         .search-x { font-size: 1rem; }
         .search-help-btn { font-size: 0.78rem; font-weight: 600; }
-        .search-x:hover, .search-help-btn:hover { color: var(--accent); }
+        .search-x:hover, .search-help-btn:hover { color: var(--link-hover); }
         .search-x[hidden] { display: none; }
 
         .search-syntax {
@@ -398,7 +403,7 @@
             transition: color 0.2s, border-color 0.2s;
         }
 
-        .view-btn:hover { color: var(--ink-2); }
+        .view-btn:hover { color: var(--link-hover); }
         .view-btn.active { color: var(--ink); border-bottom-color: var(--accent); }
         .view-btn svg { width: 11px; height: 11px; fill: currentColor; opacity: 0.7; }
 
@@ -420,7 +425,7 @@
             transition: border-color 0.2s, color 0.2s;
         }
 
-        .filter-select:hover { color: var(--ink); border-bottom-color: var(--rule-2); }
+        .filter-select:hover { color: var(--link-hover); border-bottom-color: var(--rule-2); }
         .filter-select:focus { outline: none; border-bottom-color: var(--accent); }
         .filter-select option { background: var(--panel); color: var(--ink); }
 
@@ -451,7 +456,7 @@
             padding: 0;
         }
 
-        .chip-pill button:hover { color: var(--ink); }
+        .chip-pill button:hover { color: var(--link-hover); }
 
         .filter-clear {
             background: none;
@@ -464,7 +469,7 @@
             display: none;
         }
 
-        .filter-clear:hover { color: var(--accent); }
+        .filter-clear:hover { color: var(--link-hover); }
         .filter-clear.visible { display: inline; }
 
         /* ── Dataset actions ───────────────────────────────────────── */
@@ -522,7 +527,7 @@
             transition: color 0.2s;
         }
 
-        .ds-btn:hover, .refresh-btn:hover { color: var(--accent); text-decoration: none; }
+        .ds-btn:hover, .refresh-btn:hover { color: var(--link-hover); text-decoration: none; }
         .ds-btn svg { width: 12px; height: 12px; fill: currentColor; opacity: 0.8; }
 
         /* The one call to action that earns an outline. */
@@ -533,7 +538,7 @@
             padding: 6px 11px;
         }
 
-        .ds-btn.primary:hover { border-color: var(--accent); color: var(--accent); }
+        .ds-btn.primary:hover { border-color: var(--accent); color: var(--link-hover); }
 
         .ds-btn-note {
             font-size: 0.7rem;
@@ -610,7 +615,7 @@
             transition: color 0.15s, border-color 0.15s;
         }
 
-        .page-btn:hover:not(:disabled) { color: var(--accent); }
+        .page-btn:hover:not(:disabled) { color: var(--link-hover); }
         .page-btn:disabled { color: var(--ink-5); cursor: default; }
         .page-btn.current { color: var(--ink); border-bottom-color: var(--accent); }
 
@@ -631,8 +636,8 @@
             cursor: pointer;
         }
 
-        .page-size:hover { color: var(--ink); }
-        .page-size:focus { outline: none; color: var(--accent); }
+        .page-size:hover { color: var(--link-hover); }
+        .page-size:focus { outline: none; color: var(--link-hover); }
         .page-size option { background: var(--panel); color: var(--ink); }
 
         /* ── Result cards: small multiples, ruled not boxed ─────────── */
@@ -677,7 +682,7 @@
         .result-card:active { transform: translateY(0); transition-duration: 0.06s; }
 
         .result-card:hover .card-model,
-        .result-card:focus-visible .card-model { color: var(--accent); }
+        .result-card:focus-visible .card-model { color: var(--link-hover); }
         .result-card:hover .card-bar,
         .result-card:focus-visible .card-bar { background: var(--accent); }
         .result-card:hover .card-rank,
@@ -843,7 +848,7 @@
             transition: color 0.15s;
         }
 
-        thead th:hover { color: var(--ink-2); }
+        thead th:hover { color: var(--link-hover); }
         thead th.sorted-asc, thead th.sorted-desc { color: var(--ink); }
         thead th.sorted-asc::after { content: ' \2191'; }
         thead th.sorted-desc::after { content: ' \2193'; }
@@ -861,7 +866,7 @@
             box-shadow: inset 2px 0 0 var(--accent);
         }
 
-        tbody tr.entry-row:hover .model-name { color: var(--accent); }
+        tbody tr.entry-row:hover .model-name { color: var(--link-hover); }
         tbody tr.entry-row:hover .tps-bar { background: var(--accent); }
 
         tbody td { padding: 9px 16px 9px 0; white-space: nowrap; color: var(--ink-2); }
@@ -1088,7 +1093,7 @@
             font-size: 0.92rem; font-weight: 600; color: var(--link);
             transition: color 0.18s ease;
         }
-        .unc-item:hover .unc-name { color: var(--accent); }
+        .unc-item:hover .unc-name { color: var(--link-hover); }
         .unc-item.here .unc-name,
         .unc-item.here:hover .unc-name { color: var(--ink); }
 
@@ -1107,7 +1112,7 @@
             margin-top: 18px; font-size: 0.79rem;
         }
         .unc-foot a { color: var(--link); }
-        .unc-foot a:hover { color: var(--accent); text-decoration: none; }
+        .unc-foot a:hover { color: var(--link-hover); text-decoration: none; }
         .unc-foot .bundle { color: var(--ink-2); }
         .unc-foot .bundle strong { color: var(--accent); font-weight: 600; }
 
@@ -1151,7 +1156,7 @@
             transition: color 0.2s;
         }
 
-        .support-btn:hover { color: var(--accent); text-decoration: none; }
+        .support-btn:hover { color: var(--link-hover); text-decoration: none; }
         .support-btn svg { width: 14px; height: 14px; fill: currentColor; opacity: 0.8; }
 
         .devpad-card {
@@ -1169,7 +1174,7 @@
         .devpad-card-text { flex: 1; }
 
         .devpad-card-title { font-size: 0.85rem; color: var(--link); transition: color 0.2s; }
-        .devpad-card:hover .devpad-card-title { color: var(--accent); }
+        .devpad-card:hover .devpad-card-title { color: var(--link-hover); }
         .devpad-card-sub { font-size: 0.75rem; color: var(--ink-4); margin-top: 1px; }
         .devpad-card-arrow { color: var(--ink-4); }
 
@@ -1186,7 +1191,7 @@
         .footer-credit { font-size: 0.75rem; color: var(--ink-4); }
         .footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
         .footer-links a { font-size: 0.75rem; color: var(--link); }
-        .footer-links a:hover { color: var(--accent); }
+        .footer-links a:hover { color: var(--link-hover); }
 
         /* ── Responsive ────────────────────────────────────────────── */
         @media (max-width: 1000px) {
