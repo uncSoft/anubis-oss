@@ -32,6 +32,12 @@
             --rule-2:    #31506e;   /* emphasised 2.32:1       */
             --rule-3:    #1a2836;   /* faintest: bar tracks    */
             --accent:    #7cc0f0;   /* throughput            */
+            /* Anything you can click, at rest. The neutral ramp tops out at
+               chroma 21, so a link at 76 reads as a different KIND of text
+               rather than a slightly lighter grey - which is what every
+               control on this page looked like before. Hover goes to
+               --accent, so the rest state has somewhere to travel to. */
+            --link:      #8fbcdb;   /* interactive           */
             --accent-2:  #4d8ab8;
             --power:     #e0a851;   /* watts, W/tok          */
             --mem:       #6fbf9b;   /* memory, GGUF          */
@@ -124,7 +130,7 @@
 
         .masthead-nav a {
             font-size: 0.78rem;
-            color: var(--ink-3);
+            color: var(--link);
             white-space: nowrap;
         }
 
@@ -170,7 +176,7 @@
         .bundle-card-title {
             font-size: 0.82rem;
             font-weight: 500;
-            color: var(--ink-2);
+            color: var(--link);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -326,7 +332,7 @@
         .search-x, .search-help-btn {
             background: none;
             border: none;
-            color: var(--ink-4);
+            color: var(--link);
             cursor: pointer;
             font-family: inherit;
             line-height: 1;
@@ -381,7 +387,7 @@
             background: none;
             border: none;
             border-bottom: 1px solid transparent;
-            color: var(--ink-4);
+            color: var(--link);
             padding: 3px 1px;
             font-size: 0.78rem;
             font-family: inherit;
@@ -405,7 +411,7 @@
             background-position: right 1px center;
             border: none;
             border-bottom: 1px solid var(--rule);
-            color: var(--ink-2);
+            color: var(--link);
             padding: 5px 18px 5px 0;
             font-size: 0.79rem;
             font-family: inherit;
@@ -438,7 +444,7 @@
         .chip-pill button {
             background: none;
             border: none;
-            color: var(--ink-4);
+            color: var(--link);
             cursor: pointer;
             font-size: 0.85rem;
             line-height: 1;
@@ -450,7 +456,7 @@
         .filter-clear {
             background: none;
             border: none;
-            color: var(--ink-4);
+            color: var(--link);
             font-size: 0.75rem;
             font-family: inherit;
             cursor: pointer;
@@ -508,7 +514,7 @@
             gap: 6px;
             background: none;
             border: none;
-            color: var(--ink-3);
+            color: var(--link);
             font-size: 0.79rem;
             font-family: inherit;
             cursor: pointer;
@@ -537,7 +543,20 @@
             border-left: 1px solid var(--rule);
         }
 
-        .ds-btn.wrangle:hover { color: #b9a2f5; }
+        /* The one action that leaves the page, so it reads as a button rather
+           than another text link in the row. */
+        .ds-btn.open-unfckr {
+            border: 1px solid rgba(172,138,222,0.45);
+            border-radius: 3px;
+            padding: 6px 11px;
+            color: #c4aef0;
+        }
+
+        .ds-btn.open-unfckr:hover {
+            border-color: var(--freq);
+            color: #d9c9fb;
+            background: rgba(172,138,222,0.08);
+        }
 
         /* ── Pager ─────────────────────────────────────────────────── */
         #content {
@@ -581,7 +600,7 @@
             background: none;
             border: none;
             border-bottom: 1px solid transparent;
-            color: var(--ink-3);
+            color: var(--link);
             min-width: 22px;
             padding: 2px 5px;
             font-size: 0.79rem;
@@ -605,7 +624,7 @@
             background-repeat: no-repeat;
             background-position: right 1px center;
             border: none;
-            color: var(--ink-3);
+            color: var(--link);
             padding: 2px 16px 2px 10px;
             font-size: 0.76rem;
             font-family: inherit;
@@ -810,7 +829,7 @@
         }
 
         thead th {
-            color: var(--ink-4);
+            color: var(--link);
             font-weight: 500;
             padding: 9px 16px 9px 0;
             text-align: left;
@@ -1066,10 +1085,11 @@
 
         .unc-name {
             display: flex; align-items: baseline; gap: 8px;
-            font-size: 0.92rem; font-weight: 600; color: var(--ink);
+            font-size: 0.92rem; font-weight: 600; color: var(--link);
             transition: color 0.18s ease;
         }
         .unc-item:hover .unc-name { color: var(--accent); }
+        .unc-item.here .unc-name,
         .unc-item.here:hover .unc-name { color: var(--ink); }
 
         .unc-tag {
@@ -1086,7 +1106,7 @@
             display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap;
             margin-top: 18px; font-size: 0.79rem;
         }
-        .unc-foot a { color: var(--ink-3); }
+        .unc-foot a { color: var(--link); }
         .unc-foot a:hover { color: var(--accent); text-decoration: none; }
         .unc-foot .bundle { color: var(--ink-2); }
         .unc-foot .bundle strong { color: var(--accent); font-weight: 600; }
@@ -1126,7 +1146,7 @@
             display: inline-flex;
             align-items: center;
             gap: 7px;
-            color: var(--ink-3);
+            color: var(--link);
             font-size: 0.79rem;
             transition: color 0.2s;
         }
@@ -1148,7 +1168,7 @@
         .devpad-card:hover { text-decoration: none; }
         .devpad-card-text { flex: 1; }
 
-        .devpad-card-title { font-size: 0.85rem; color: var(--ink-2); transition: color 0.2s; }
+        .devpad-card-title { font-size: 0.85rem; color: var(--link); transition: color 0.2s; }
         .devpad-card:hover .devpad-card-title { color: var(--accent); }
         .devpad-card-sub { font-size: 0.75rem; color: var(--ink-4); margin-top: 1px; }
         .devpad-card-arrow { color: var(--ink-4); }
@@ -1165,7 +1185,7 @@
 
         .footer-credit { font-size: 0.75rem; color: var(--ink-4); }
         .footer-links { display: flex; gap: 18px; flex-wrap: wrap; }
-        .footer-links a { font-size: 0.75rem; color: var(--ink-4); }
+        .footer-links a { font-size: 0.75rem; color: var(--link); }
         .footer-links a:hover { color: var(--accent); }
 
         /* ── Responsive ────────────────────────────────────────────── */
@@ -1372,9 +1392,10 @@
                         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1v8.6l3-3 1.1 1.1L7.5 12 2.9 7.7 4 6.6l3 3V1h1Zm-6 12h12v2H2v-2Z"/></svg>
                         JSON
                     </button>
-                    <a class="ds-btn wrangle" href="https://unfckr.app/" id="open-wranglify" target="_blank" rel="noopener">
+                    <a class="ds-btn open-unfckr" href="https://unfckr.app/?open=anubis" target="_blank" rel="noopener"
+                       title="Opens unfckr.app with this dataset already loaded. Free, runs entirely in your browser, nothing is uploaded.">
                         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2h5v2H4v8h8V9h2v5H2V2Zm7 0h5v5h-2V5.4L8.7 8.7 7.3 7.3 10.6 4H9V2Z"/></svg>
-                        Wranglify
+                        Open in unfckr
                     </a>
                     <button class="refresh-btn" id="refresh-btn" type="button" title="Reload from the API">Refresh</button>
                 </div>
@@ -2453,13 +2474,6 @@
             $('export-json').addEventListener('click', function () {
                 toast(exportJSON().toLocaleString() + ' rows exported as JSON');
             });
-            // The anchor still navigates to Wranglify in a new tab; this
-            // just hands the user the file they are about to need.
-            $('open-wranglify').addEventListener('click', function () {
-                var n = exportCSV();
-                toast('CSV with ' + n.toLocaleString() + ' rows downloaded. Drop it into the Wranglify tab');
-            });
-
             $('modal-close').addEventListener('click', closeDetail);
             $('modal-overlay').addEventListener('click', function (ev) {
                 if (ev.target === this) closeDetail();
